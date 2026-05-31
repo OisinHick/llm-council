@@ -14,8 +14,39 @@
 
 .sidebar-header h1 {
   font-size: 18px;
-  margin: 0 0 12px 0;
+  margin: 0;
   color: #333;
+}
+
+.mode-switcher {
+  display: flex;
+  gap: 4px;
+  padding: 12px;
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #666;
+}
+
+.mode-btn:hover {
+  background: #e8e8e8;
+}
+
+.mode-btn.active {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: white;
 }
 
 .new-conversation-btn {
@@ -29,6 +60,7 @@
   font-size: 14px;
   transition: background 0.2s;
   font-weight: 500;
+  margin: 12px 0;
 }
 
 .new-conversation-btn:hover {
@@ -75,4 +107,35 @@
 .conversation-meta {
   color: #999;
   font-size: 12px;
+}
+
+.action-mode-info {
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #555;
+}
+
+.action-mode-info h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.action-mode-info p {
+  margin: 0 0 12px 0;
+}
+
+.action-mode-info ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.action-mode-info li {
+  margin: 6px 0;
+}
+
+.action-mode-info li:before {
+  content: '';
 }

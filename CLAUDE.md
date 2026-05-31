@@ -33,6 +33,18 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 - `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings
 - `parse_ranking_from_text()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
 - `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
+- **`stage4_generate_action_plan()`** (NEW): Takes top-voted response and generates MCP tool calls
+- **`execute_action_plan()`** (NEW): Executes the generated MCP tool calls
+- **`run_full_council_with_action()`** (NEW): Runs all 4 stages with optional execution
+
+**`mcp_tools.py`** (NEW)
+- `MCPToolExecutor` class with async methods:
+  - `execute_command()`: Run shell/system commands with timeout support
+  - `read_file()`: Read file contents from filesystem
+  - `write_file()`: Write or append to files
+  - `http_request()`: Make HTTP API calls (GET, POST, etc.)
+  - `execute_tools()`: Execute a list of tool calls from action plan
+- Supports Kali Linux tools, file operations, and API integration
 
 **`storage.py`**
 - JSON-based conversation storage in `data/conversations/`
@@ -42,8 +54,9 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 
 **`main.py`**
 - FastAPI app with CORS enabled for localhost:5173 and localhost:3000
-- POST `/api/conversations/{id}/message` returns metadata in addition to stages
-- Metadata includes: label_to_model mapping and aggregate_rankings
+- POST `/api/conversations/{id}/message` - Original 3-stage council
+- POST `/api/action` - Full 4-stage council with action execution (NEW)
+- POST `/api/action/stream` - Streaming version of action endpoint (NEW)
 
 ### Frontend Structure (`frontend/src/`)
 
@@ -145,10 +158,62 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 
 Use `test_openrouter.py` to verify API connectivity and test different model identifiers before adding to council. The script tests both streaming and non-streaming modes.
 
+## MCP Integration (Stage 4)
+
+### Overview
+The system now supports a 4th stage where the council's consensus recommendation is automatically converted into executable MCP tool calls.
+
+**Flow:**
+1. Stage 1-3: Normal council deliberation
+2. Stage 4: Take the top-voted response and generate MCP tool calls
+3. Execute: Run the generated commands (optional)
+
+### Available Tools
+- `execute_command`: Run shell commands (Kali Linux compatible)
+- `read_file`: Read file contents
+- `write_file`: Create/modify files
+- `http_request`: Make HTTP API calls
+
+### API Endpoints
+- `POST /api/action` - Execute action with voting (returns full response)
+- `POST /api/action/stream` - Stream events as council deliberates
+
+### Example Request
+```json
+{
+  "request": "Scan the network for open ports and save results",
+  "execute": true
+}
+```
+
+### Action Plan Generation
+Stage 4 prompts the chairman to generate JSON with this structure:
+```json
+{
+  "description": "What will be executed",
+  "reasoning": "Why this approach",
+  "tool_calls": [
+    {
+      "tool": "execute_command|read_file|write_file|http_request",
+      "params": {...},
+      "description": "What this call does"
+    }
+  ]
+}
+```
+
+### Security Notes
+- Use `execute: false` to review plans before running
+- MCP will execute arbitrary commands - use with caution
+- Run in sandboxed environments for sensitive operations
+- Monitor execution results
+
+See `MCP_INTEGRATION.md` for complete documentation and examples.
+
 ## Data Flow Summary
 
 ```
-User Query
+User Query/Request
     ↓
 Stage 1: Parallel queries → [individual responses]
     ↓
@@ -158,9 +223,23 @@ Aggregate Rankings Calculation → [sorted by avg position]
     ↓
 Stage 3: Chairman synthesis with full context
     ↓
-Return: {stage1, stage2, stage3, metadata}
+(For action requests only)
+Stage 4: Generate MCP tool calls from top-voted response
     ↓
-Frontend: Display with tabs + validation UI
+Execute: Run the tool calls (if execute=true)
+    ↓
+Return: {stage1, stage2, stage3, stage4_action_plan, execution (optional)}
+    ↓
+Frontend: Display with tabs + validation UI (or return raw for API)
 ```
 
-The entire flow is async/parallel where possible to minimize latency.
+## Future Enhancement Ideas
+
+- Configurable council/chairman via UI instead of config file
+- Streaming responses instead of batch loading
+- Export conversations to markdown/PDF
+- Model performance analytics over time
+- Custom ranking criteria (not just accuracy/insight)
+- Support for reasoning models (o1, etc.) with special handling
+- Tool approval workflow (review before executing)
+- Tool result feedback to council for iterative refinement

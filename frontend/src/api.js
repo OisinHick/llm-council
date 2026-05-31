@@ -112,4 +112,68 @@ export const api = {
       }
     }
   },
+
+  /**
+   * Execute an action with council voting.
+   * @param {string} request - The action request
+   * @param {boolean} execute - Whether to execute the action plan
+   * @returns {Promise<object>} The full response with all stages
+   */
+  async executeAction(request, execute = true) {
+    const response = await fetch(`${API_BASE}/api/action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ request, execute }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to execute action');
+    }
+    return response.json();
+  },
+
+  /**
+   * Execute an action with streaming updates.
+   * @param {string} request - The action request
+   * @param {boolean} execute - Whether to execute the action plan
+   * @param {function} onEvent - Callback function for each event: (eventType, data) => void
+   * @returns {Promise<void>}
+   */
+  async executeActionStream(request, execute = true, onEvent) {
+    const response = await fetch(`${API_BASE}/api/action/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ request, execute }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to execute action');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          try {
+            const event = JSON.parse(data);
+            onEvent(event.type, event);
+          } catch (e) {
+            console.error('Failed to parse SSE event:', e);
+          }
+        }
+      }
+    }
+  },
 };

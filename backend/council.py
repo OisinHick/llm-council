@@ -3,6 +3,9 @@
 from typing import List, Dict, Any, Tuple
 from .openrouter import query_models_parallel, query_model
 from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .mcp_tools import executor
+import json
+import re
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -333,3 +336,190 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
     }
 
     return stage1_results, stage2_results, stage3_result, metadata
+
+
+async def stage4_generate_action_plan(
+    user_request: str,
+    stage1_results: List[Dict[str, Any]],
+    aggregate_rankings: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Stage 4: Generate and execute MCP tool calls based on the top-ranked response.
+
+    Args:
+        user_request: The original user request/task
+        stage1_results: Individual responses from Stage 1
+        aggregate_rankings: Ranked responses by council vote
+
+    Returns:
+        Dict with action plan and execution results
+    """
+    # Find the best response based on aggregate rankings
+    if not aggregate_rankings or not stage1_results:
+        return {
+            "success": False,
+            "error": "No valid responses to generate action plan from"
+        }
+
+    # Get the top-ranked response model
+    best_model_name = aggregate_rankings[0]["model"]
+    best_response = None
+    for result in stage1_results:
+        if result["model"] == best_model_name:
+            best_response = result["response"]
+            break
+
+    if not best_response:
+        return {
+            "success": False,
+            "error": "Could not find the best response"
+        }
+
+    # Create prompt for action generation
+    action_prompt = f"""You are an expert at converting natural language requests into executable actions.
+
+The user wants: {user_request}
+
+The council's best solution (voted by AI peers) is:
+{best_response}
+
+Based on this solution, generate the specific MCP tool calls needed to execute it.
+You can use these tools:
+1. execute_command - Run shell/system commands (ideal for Kali Linux tools)
+2. read_file - Read file contents
+3. write_file - Write or append to files
+4. http_request - Make HTTP API calls
+
+CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this exact structure:
+{{
+  "description": "Brief summary of what will be executed",
+  "reasoning": "Why this approach solves the problem",
+  "tool_calls": [
+    {{
+      "tool": "execute_command|read_file|write_file|http_request",
+      "params": {{
+        // Parameters specific to the tool - see examples below
+      }},
+      "description": "What this call does"
+    }}
+  ]
+}}
+
+Tool parameter examples:
+- execute_command: {{"command": "nmap -sV 192.168.1.0/24"}}
+- read_file: {{"path": "/path/to/file"}}
+- write_file: {{"path": "/path/to/file", "content": "text", "mode": "write|append"}}
+- http_request: {{"method": "GET", "url": "https://api.example.com/...", "headers": {{}}, "data": null}}
+
+Now generate the action plan JSON:"""
+
+    messages = [{"role": "user", "content": action_prompt}]
+
+    # Query chairman to generate action plan
+    response = await query_model(CHAIRMAN_MODEL, messages)
+
+    if response is None:
+        return {
+            "success": False,
+            "error": "Failed to generate action plan"
+        }
+
+    response_text = response.get('content', '')
+
+    # Parse JSON from response
+    try:
+        # Try to extract JSON from the response
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if not json_match:
+            return {
+                "success": False,
+                "error": "Could not find JSON in response",
+                "raw_response": response_text
+            }
+
+        action_plan = json.loads(json_match.group())
+    except json.JSONDecodeError as e:
+        return {
+            "success": False,
+            "error": f"Invalid JSON in action plan: {str(e)}",
+            "raw_response": response_text
+        }
+
+    return {
+        "success": True,
+        "action_plan": action_plan,
+        "best_response_model": best_model_name
+    }
+
+
+async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute the MCP tool calls from the action plan.
+
+    Args:
+        action_plan_response: Result from stage4_generate_action_plan
+
+    Returns:
+        Dict with execution results
+    """
+    if not action_plan_response.get("success"):
+        return {
+            "success": False,
+            "error": "Action plan generation failed",
+            "details": action_plan_response
+        }
+
+    action_plan = action_plan_response.get("action_plan", {})
+    tool_calls = action_plan.get("tool_calls", [])
+
+    if not tool_calls:
+        return {
+            "success": False,
+            "error": "No tool calls in action plan"
+        }
+
+    # Execute all tool calls
+    execution_result = await executor.execute_tools(tool_calls)
+
+    return {
+        "success": execution_result.get("all_successful", False),
+        "action_plan": action_plan,
+        "execution_results": execution_result
+    }
+
+
+async def run_full_council_with_action(user_request: str, execute: bool = True) -> Dict[str, Any]:
+    """
+    Run the complete 4-stage council process with optional action execution.
+
+    Args:
+        user_request: The user's request/task
+        execute: Whether to actually execute the action plan (default True)
+
+    Returns:
+        Dict with all stages and execution results
+    """
+    # Stages 1-3: Run the council
+    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(user_request)
+
+    # Stage 4: Generate action plan based on voting
+    action_plan_result = await stage4_generate_action_plan(
+        user_request,
+        stage1_results,
+        metadata.get("aggregate_rankings", [])
+    )
+
+    result = {
+        "stage1": stage1_results,
+        "stage2": stage2_results,
+        "stage3": stage3_result,
+        "metadata": metadata,
+        "stage4_action_plan": action_plan_result
+    }
+
+    # Execute if requested and plan succeeded
+    if execute and action_plan_result.get("success"):
+        execution_result = await execute_action_plan(action_plan_result)
+        result["execution"] = execution_result
+
+    return result

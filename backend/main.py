@@ -4,13 +4,23 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
 
 from . import storage
-from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .council import (
+    run_full_council,
+    generate_conversation_title,
+    stage1_collect_responses,
+    stage2_collect_rankings,
+    stage3_synthesize_final,
+    calculate_aggregate_rankings,
+    stage4_generate_action_plan,
+    execute_action_plan,
+    run_full_council_with_action
+)
 
 app = FastAPI(title="LLM Council API")
 
@@ -32,6 +42,12 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str
+
+
+class ActionRequest(BaseModel):
+    """Request to perform an action with council voting."""
+    request: str
+    execute: bool = True  # Whether to actually execute the action
 
 
 class ConversationMetadata(BaseModel):
@@ -182,6 +198,77 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
         except Exception as e:
             # Send error event
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
+@app.post("/api/action")
+async def perform_action(request: ActionRequest):
+    """
+    Run the full 4-stage council with action execution.
+    Stage 1: Collect approaches from all models
+    Stage 2: Models vote on best approach
+    Stage 3: Chairman synthesizes
+    Stage 4: Generate and execute MCP tool calls
+    
+    Returns the complete result with execution details.
+    """
+    try:
+        result = await run_full_council_with_action(request.request, execute=request.execute)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
+
+
+@app.post("/api/action/stream")
+async def perform_action_stream(request: ActionRequest):
+    """
+    Run the full 4-stage council with streaming updates.
+    """
+    async def event_generator():
+        try:
+            # Stage 1: Collect responses
+            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            stage1_results = await stage1_collect_responses(request.request)
+            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+            if not stage1_results:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond'})}\n\n"
+                return
+
+            # Stage 2: Collect rankings
+            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            stage2_results, label_to_model = await stage2_collect_rankings(request.request, stage1_results)
+            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+
+            # Stage 3: Synthesize
+            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            stage3_result = await stage3_synthesize_final(request.request, stage1_results, stage2_results)
+            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+
+            # Stage 4: Generate action plan
+            yield f"data: {json.dumps({'type': 'stage4_start'})}\n\n"
+            action_plan_result = await stage4_generate_action_plan(request.request, stage1_results, aggregate_rankings)
+            yield f"data: {json.dumps({'type': 'stage4_action_plan', 'data': action_plan_result})}\n\n"
+
+            # Execute if requested
+            if request.execute and action_plan_result.get("success"):
+                yield f"data: {json.dumps({'type': 'execution_start'})}\n\n"
+                execution_result = await execute_action_plan(action_plan_result)
+                yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+
+        except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
