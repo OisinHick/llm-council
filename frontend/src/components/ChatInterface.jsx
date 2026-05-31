@@ -54,6 +54,7 @@ export default function ChatInterface({
 
   const hasConversation = Boolean(conversation);
   const messages = conversation?.messages || [];
+  const actionPanelActive = actionLoading || actionError || actionPlanResult || actionExecutionResult || Object.values(actionStageLoading).some(Boolean);
 
   return (
     <div className="chat-interface">
@@ -63,7 +64,7 @@ export default function ChatInterface({
             <h2>Welcome to LLM Council</h2>
             <p>Create a new conversation to get started</p>
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !actionPanelActive ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>Ask a question to consult the LLM Council</p>

@@ -58,8 +58,20 @@ function App() {
     }
   };
 
+  const resetActionState = () => {
+    setActionPlanRequest('');
+    setActionPlanResult(null);
+    setActionExecutionResult(null);
+    setActionError(null);
+    setActionStageResults({ stage1: null, stage2: null, stage3: null, metadata: null });
+    setActionStageLoading({ stage1: false, stage2: false, stage3: false, stage4: false, execution: false });
+    setActionLoading(false);
+  };
+
   const handleNewConversation = async () => {
     try {
+      resetActionState();
+      setCurrentConversation(null);
       const newConv = await api.createConversation();
       setConversations([
         { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
@@ -72,6 +84,9 @@ function App() {
   };
 
   const handleSelectConversation = (id) => {
+    if (id === currentConversationId) return;
+    resetActionState();
+    setCurrentConversation(null);
     setCurrentConversationId(id);
   };
 
