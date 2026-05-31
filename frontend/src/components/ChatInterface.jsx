@@ -54,7 +54,11 @@ export default function ChatInterface({
 
   const hasConversation = Boolean(conversation);
   const messages = conversation?.messages || [];
+  const hasActionMessage = messages.some(
+    (msg) => msg.role === 'assistant' && (msg.action_request || msg.stage4 || msg.execution)
+  );
   const actionPanelActive = actionLoading || actionError || actionPlanResult || actionExecutionResult || Object.values(actionStageLoading).some(Boolean);
+  const showActionPanel = actionPanelActive && !hasActionMessage;
 
   return (
     <div className="chat-interface">
@@ -117,6 +121,78 @@ export default function ChatInterface({
                     </div>
                   )}
                   {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+
+                  {msg.action_request && (
+                    <div className="action-request-block">
+                      <h4>Action Request</h4>
+                      <div className="markdown-content">
+                        <ReactMarkdown>{msg.action_request}</ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.loading?.stage4 && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>Generating action plan...</span>
+                    </div>
+                  )}
+
+                  {msg.stage4 && (
+                    <div className="action-plan-block">
+                      <h4>Action Plan</h4>
+                      {msg.stage4.success ? (
+                        <>
+                          <div className="plan-summary">
+                            <p>{msg.stage4.action_plan.description}</p>
+                            <p>{msg.stage4.action_plan.reasoning}</p>
+                          </div>
+                          <div className="tool-calls">
+                            {msg.stage4.action_plan.tool_calls?.map((call, idx) => (
+                              <div key={idx} className="tool-call">
+                                <div className="tool-call-header">
+                                  <strong>{call.tool}</strong>
+                                  <span>{call.description}</span>
+                                </div>
+                                <pre>{JSON.stringify(call.params, null, 2)}</pre>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="action-error">
+                          <strong>Action plan failed:</strong> {msg.stage4.error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {msg.loading?.execution && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>Executing action plan...</span>
+                    </div>
+                  )}
+
+                  {msg.execution && (
+                    <div className="execution-block">
+                      <h4>Execution Results</h4>
+                      {msg.execution.success ? (
+                        <p className="execution-success">✅ Execution succeeded</p>
+                      ) : (
+                        <p className="execution-failure">⚠️ Execution failed</p>
+                      )}
+                      {msg.execution.execution_results?.results?.map((toolResult, idx) => (
+                        <div key={idx} className="tool-result">
+                          <div className="result-header">
+                            <strong>{toolResult.tool}</strong>
+                            <span>{toolResult.result.success ? 'Success' : 'Failure'}</span>
+                          </div>
+                          <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -130,7 +206,7 @@ export default function ChatInterface({
           </div>
         )}
 
-        {(actionLoading || actionError || actionPlanResult || actionExecutionResult || Object.values(actionStageLoading).some(Boolean)) && (
+        {showActionPanel && (
           <div className="action-panel">
             <div className="action-panel-header">
               <h3>Action Plan</h3>
