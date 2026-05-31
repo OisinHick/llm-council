@@ -134,6 +134,24 @@ export const api = {
   },
 
   /**
+   * Generate an action plan without executing.
+   * @param {string} request - The action request
+   * @returns {Promise<object>} The action plan result
+   */
+  async generateActionPlan(request) {
+    return this.executeAction(request, false);
+  },
+
+  /**
+   * Execute a previously generated action plan.
+   * @param {string} request - The same action request used to generate the plan
+   * @returns {Promise<object>} The full response with execution results
+   */
+  async executeActionPlan(request) {
+    return this.executeAction(request, true);
+  },
+
+  /**
    * Execute an action with streaming updates.
    * @param {string} request - The action request
    * @param {boolean} execute - Whether to execute the action plan

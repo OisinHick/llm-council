@@ -8,9 +8,19 @@ import './ChatInterface.css';
 export default function ChatInterface({
   conversation,
   onSendMessage,
+  onGenerateActionPlan,
+  onExecuteActionPlan,
+  actionPlanResult,
+  actionExecutionResult,
+  actionStageResults,
+  actionStageLoading,
+  actionLoading,
+  actionError,
+  actionPlanRequest,
   isLoading,
 }) {
   const [input, setInput] = useState('');
+  const [generateActionPlan, setGenerateActionPlan] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -23,10 +33,15 @@ export default function ChatInterface({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (input.trim() && !isLoading) {
+    if (!input.trim() || isLoading || actionLoading) return;
+
+    if (generateActionPlan) {
+      onGenerateActionPlan(input);
+    } else {
       onSendMessage(input);
-      setInput('');
     }
+
+    setInput('');
   };
 
   const handleKeyDown = (e) => {
@@ -37,27 +52,24 @@ export default function ChatInterface({
     }
   };
 
-  if (!conversation) {
-    return (
-      <div className="chat-interface">
-        <div className="empty-state">
-          <h2>Welcome to LLM Council</h2>
-          <p>Create a new conversation to get started</p>
-        </div>
-      </div>
-    );
-  }
+  const hasConversation = Boolean(conversation);
+  const messages = conversation?.messages || [];
 
   return (
     <div className="chat-interface">
       <div className="messages-container">
-        {conversation.messages.length === 0 ? (
+        {!hasConversation ? (
+          <div className="empty-state">
+            <h2>Welcome to LLM Council</h2>
+            <p>Create a new conversation to get started</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          conversation.messages.map((msg, index) => (
+          messages.map((msg, index) => (
             <div key={index} className="message-group">
               {msg.role === 'user' ? (
                 <div className="user-message">
@@ -117,29 +129,190 @@ export default function ChatInterface({
           </div>
         )}
 
+        {(actionLoading || actionError || actionPlanResult || actionExecutionResult || Object.values(actionStageLoading).some(Boolean)) && (
+          <div className="action-panel">
+            <div className="action-panel-header">
+              <h3>Action Plan</h3>
+              {actionPlanRequest && <p className="action-request">Request: {actionPlanRequest}</p>}
+            </div>
+
+            {actionLoading && (
+              <div className="action-loading">
+                <div className="spinner"></div>
+                <span>Generating or executing action plan...</span>
+              </div>
+            )}
+
+            {actionError && (
+              <div className="action-error">
+                <strong>Error:</strong> {actionError}
+              </div>
+            )}
+
+            {actionStageLoading.stage1 && (
+              <div className="stage-loading">
+                <div className="spinner"></div>
+                <span>Running Stage 1: Collecting individual responses...</span>
+              </div>
+            )}
+
+            {actionStageResults.stage1 && (
+              <div className="action-stages">
+                <div className="stage-block">
+                  <h4>Stage 1: Individual Responses</h4>
+                  <Stage1 responses={actionStageResults.stage1} />
+                </div>
+              </div>
+            )}
+
+            {actionStageLoading.stage2 && (
+              <div className="stage-loading">
+                <div className="spinner"></div>
+                <span>Running Stage 2: Peer rankings...</span>
+              </div>
+            )}
+
+            {actionStageResults.stage2 && (
+              <div className="action-stages">
+                <div className="stage-block">
+                  <h4>Stage 2: Peer Rankings</h4>
+                  <Stage2
+                    rankings={actionStageResults.stage2}
+                    labelToModel={actionStageResults.metadata?.label_to_model}
+                    aggregateRankings={actionStageResults.metadata?.aggregate_rankings}
+                  />
+                </div>
+              </div>
+            )}
+
+            {actionStageLoading.stage3 && (
+              <div className="stage-loading">
+                <div className="spinner"></div>
+                <span>Running Stage 3: Final synthesis...</span>
+              </div>
+            )}
+
+            {actionStageResults.stage3 && (
+              <div className="action-stages">
+                <div className="stage-block">
+                  <h4>Stage 3: Final Synthesis</h4>
+                  <Stage3 finalResponse={actionStageResults.stage3} />
+                </div>
+              </div>
+            )}
+
+            {actionStageLoading.stage4 && (
+              <div className="stage-loading">
+                <div className="spinner"></div>
+                <span>Generating action plan...</span>
+              </div>
+            )}
+
+            {actionPlanResult?.stage4_action_plan ? (
+              <div className="plan-details">
+                {actionPlanResult.stage4_action_plan.success ? (
+                  <>
+                    <div className="plan-summary">
+                      <h4>{actionPlanResult.stage4_action_plan.action_plan.description}</h4>
+                      <p>{actionPlanResult.stage4_action_plan.action_plan.reasoning}</p>
+                    </div>
+
+                    <div className="tool-calls">
+                      <h5>Tool Calls</h5>
+                      {actionPlanResult.stage4_action_plan.action_plan.tool_calls?.map((call, idx) => (
+                        <div key={idx} className="tool-call">
+                          <div className="tool-call-header">
+                            <strong>{call.tool}</strong>
+                            <span>{call.description}</span>
+                          </div>
+                          <pre>{JSON.stringify(call.params, null, 2)}</pre>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="action-buttons">
+                      <button
+                        type="button"
+                        className="execute-action-btn"
+                        onClick={onExecuteActionPlan}
+                        disabled={actionLoading}
+                      >
+                        Execute Action Plan
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="action-error">
+                    <strong>Action plan failed:</strong> {actionPlanResult.stage4_action_plan.error}
+                  </div>
+                )}
+              </div>
+            ) : actionPlanResult ? (
+              <div className="plan-details">
+                <h4>Action Plan Result</h4>
+                <pre>{JSON.stringify(actionPlanResult, null, 2)}</pre>
+              </div>
+            ) : null}
+
+            {actionExecutionResult && (
+              <div className="execution-details">
+                <h4>Execution Results</h4>
+                {actionExecutionResult.success ? (
+                  <p className="execution-success">✅ Execution succeeded</p>
+                ) : (
+                  <p className="execution-failure">⚠️ Execution failed</p>
+                )}
+                {actionExecutionResult.execution_results?.results?.map((toolResult, idx) => (
+                  <div key={idx} className="tool-result">
+                    <div className="result-header">
+                      <strong>{toolResult.tool}</strong>
+                      <span>{toolResult.result.success ? 'Success' : 'Failure'}</span>
+                    </div>
+                    <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
-      {conversation.messages.length === 0 && (
-        <form className="input-form" onSubmit={handleSubmit}>
+      <form className="input-form" onSubmit={handleSubmit}>
+        <div className="input-row">
           <textarea
             className="message-input"
             placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isLoading}
+            disabled={isLoading || actionLoading}
             rows={3}
           />
-          <button
-            type="submit"
-            className="send-button"
-            disabled={!input.trim() || isLoading}
-          >
-            Send
-          </button>
-        </form>
-      )}
+
+          <div className="input-actions">
+            <label className="generate-toggle">
+              <input
+                type="checkbox"
+                checked={generateActionPlan}
+                onChange={(e) => setGenerateActionPlan(e.target.checked)}
+                disabled={isLoading || actionLoading}
+              />
+              Generate Action Plan
+            </label>
+
+            <button
+              type="submit"
+              className="send-button"
+              disabled={!input.trim() || isLoading || actionLoading}
+            >
+              {generateActionPlan ? 'Generate Plan' : 'Send'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

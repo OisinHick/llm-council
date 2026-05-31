@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
-import ActionMode from './components/ActionMode';
 import { api } from './api';
 import './App.css';
 
@@ -10,7 +9,24 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mode, setMode] = useState('conversation'); // 'conversation' or 'action'
+  const [actionPlanRequest, setActionPlanRequest] = useState('');
+  const [actionPlanResult, setActionPlanResult] = useState(null);
+  const [actionExecutionResult, setActionExecutionResult] = useState(null);
+  const [actionStageResults, setActionStageResults] = useState({
+    stage1: null,
+    stage2: null,
+    stage3: null,
+    metadata: null,
+  });
+  const [actionStageLoading, setActionStageLoading] = useState({
+    stage1: false,
+    stage2: false,
+    stage3: false,
+    stage4: false,
+    execution: false,
+  });
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
   // Load conversations on mount
   useEffect(() => {
@@ -62,6 +78,10 @@ function App() {
   const handleSendMessage = async (content) => {
     if (!currentConversationId) return;
 
+    setActionPlanResult(null);
+    setActionExecutionResult(null);
+    setActionPlanRequest('');
+    setActionError(null);
     setIsLoading(true);
     try {
       // Optimistically add user message to UI
@@ -183,6 +203,137 @@ function App() {
     }
   };
 
+  const handleGenerateActionPlan = async (requestText) => {
+    if (!requestText.trim()) return;
+
+    setActionLoading(true);
+    setActionError(null);
+    setActionPlanResult(null);
+    setActionExecutionResult(null);
+    setActionStageResults({ stage1: null, stage2: null, stage3: null, metadata: null });
+    setActionStageLoading({ stage1: false, stage2: false, stage3: false, stage4: false, execution: false });
+    setActionPlanRequest(requestText);
+
+    try {
+      await api.executeActionStream(requestText, false, (eventType, event) => {
+        switch (eventType) {
+          case 'stage1_start':
+            setActionStageLoading((prev) => ({ ...prev, stage1: true }));
+            break;
+          case 'stage1_complete':
+            setActionStageResults((prev) => ({ ...prev, stage1: event.data }));
+            setActionStageLoading((prev) => ({ ...prev, stage1: false }));
+            break;
+          case 'stage2_start':
+            setActionStageLoading((prev) => ({ ...prev, stage2: true }));
+            break;
+          case 'stage2_complete':
+            setActionStageResults((prev) => ({ ...prev, stage2: event.data, metadata: event.metadata }));
+            setActionStageLoading((prev) => ({ ...prev, stage2: false }));
+            break;
+          case 'stage3_start':
+            setActionStageLoading((prev) => ({ ...prev, stage3: true }));
+            break;
+          case 'stage3_complete':
+            setActionStageResults((prev) => ({ ...prev, stage3: event.data }));
+            setActionStageLoading((prev) => ({ ...prev, stage3: false }));
+            break;
+          case 'stage4_start':
+            setActionStageLoading((prev) => ({ ...prev, stage4: true }));
+            break;
+          case 'stage4_action_plan':
+            setActionStageLoading((prev) => ({ ...prev, stage4: false }));
+            setActionPlanResult({ stage4_action_plan: event.data });
+            break;
+          case 'execution_start':
+            setActionStageLoading((prev) => ({ ...prev, execution: true }));
+            break;
+          case 'execution_complete':
+            setActionStageLoading((prev) => ({ ...prev, execution: false }));
+            setActionExecutionResult(event.data);
+            break;
+          case 'complete':
+            setActionLoading(false);
+            break;
+          case 'error':
+            setActionLoading(false);
+            setActionError(event.message);
+            break;
+          default:
+            console.log('Unknown action stream event:', eventType);
+        }
+      });
+    } catch (error) {
+      console.error('Failed to generate action plan:', error);
+      setActionError(error.message || 'Could not generate action plan');
+      setActionLoading(false);
+    }
+  };
+
+  const handleExecuteActionPlan = async () => {
+    if (!actionPlanRequest) return;
+
+    setActionLoading(true);
+    setActionError(null);
+    setActionExecutionResult(null);
+    setActionStageLoading((prev) => ({ ...prev, execution: false }));
+
+    try {
+      await api.executeActionStream(actionPlanRequest, true, (eventType, event) => {
+        switch (eventType) {
+          case 'stage1_start':
+            setActionStageLoading((prev) => ({ ...prev, stage1: true }));
+            break;
+          case 'stage1_complete':
+            setActionStageResults((prev) => ({ ...prev, stage1: event.data }));
+            setActionStageLoading((prev) => ({ ...prev, stage1: false }));
+            break;
+          case 'stage2_start':
+            setActionStageLoading((prev) => ({ ...prev, stage2: true }));
+            break;
+          case 'stage2_complete':
+            setActionStageResults((prev) => ({ ...prev, stage2: event.data, metadata: event.metadata }));
+            setActionStageLoading((prev) => ({ ...prev, stage2: false }));
+            break;
+          case 'stage3_start':
+            setActionStageLoading((prev) => ({ ...prev, stage3: true }));
+            break;
+          case 'stage3_complete':
+            setActionStageResults((prev) => ({ ...prev, stage3: event.data }));
+            setActionStageLoading((prev) => ({ ...prev, stage3: false }));
+            break;
+          case 'stage4_start':
+            setActionStageLoading((prev) => ({ ...prev, stage4: true }));
+            break;
+          case 'stage4_action_plan':
+            setActionStageLoading((prev) => ({ ...prev, stage4: false }));
+            setActionPlanResult({ stage4_action_plan: event.data });
+            break;
+          case 'execution_start':
+            setActionStageLoading((prev) => ({ ...prev, execution: true }));
+            break;
+          case 'execution_complete':
+            setActionStageLoading((prev) => ({ ...prev, execution: false }));
+            setActionExecutionResult(event.data);
+            break;
+          case 'complete':
+            setActionLoading(false);
+            break;
+          case 'error':
+            setActionLoading(false);
+            setActionError(event.message);
+            break;
+          default:
+            console.log('Unknown action stream event:', eventType);
+        }
+      });
+    } catch (error) {
+      console.error('Failed to execute action plan:', error);
+      setActionError(error.message || 'Could not execute action plan');
+      setActionLoading(false);
+    }
+  };
+
   return (
     <div className="app">
       <Sidebar
@@ -190,18 +341,21 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
-        mode={mode}
-        onModeChange={setMode}
       />
-      {mode === 'conversation' ? (
-        <ChatInterface
-          conversation={currentConversation}
-          onSendMessage={handleSendMessage}
-          isLoading={isLoading}
-        />
-      ) : (
-        <ActionMode />
-      )}
+      <ChatInterface
+        conversation={currentConversation}
+        onSendMessage={handleSendMessage}
+        onGenerateActionPlan={handleGenerateActionPlan}
+        onExecuteActionPlan={handleExecuteActionPlan}
+        actionPlanResult={actionPlanResult}
+        actionExecutionResult={actionExecutionResult}
+        actionStageResults={actionStageResults}
+        actionStageLoading={actionStageLoading}
+        actionLoading={actionLoading}
+        actionError={actionError}
+        actionPlanRequest={actionPlanRequest}
+        isLoading={isLoading}
+      />
     </div>
   );
 }
