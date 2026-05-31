@@ -119,13 +119,18 @@ export const api = {
    * @param {boolean} execute - Whether to execute the action plan
    * @returns {Promise<object>} The full response with all stages
    */
-  async executeAction(request, execute = true) {
+  async executeAction(request, execute = true, conversationId = undefined) {
+    const payload = { request, execute };
+    if (conversationId) {
+      payload.conversation_id = conversationId;
+    }
+
     const response = await fetch(`${API_BASE}/api/action`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ request, execute }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) {
       throw new Error('Failed to execute action');
@@ -136,19 +141,21 @@ export const api = {
   /**
    * Generate an action plan without executing.
    * @param {string} request - The action request
+   * @param {string} [conversationId] - Optional conversation ID to persist the action
    * @returns {Promise<object>} The action plan result
    */
-  async generateActionPlan(request) {
-    return this.executeAction(request, false);
+  async generateActionPlan(request, conversationId = undefined) {
+    return this.executeAction(request, false, conversationId);
   },
 
   /**
    * Execute a previously generated action plan.
    * @param {string} request - The same action request used to generate the plan
+   * @param {string} [conversationId] - Optional conversation ID to persist the action
    * @returns {Promise<object>} The full response with execution results
    */
-  async executeActionPlan(request) {
-    return this.executeAction(request, true);
+  async executeActionPlan(request, conversationId = undefined) {
+    return this.executeAction(request, true, conversationId);
   },
 
   /**
@@ -158,13 +165,18 @@ export const api = {
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async executeActionStream(request, execute = true, onEvent) {
+  async executeActionStream(request, execute = true, onEvent, conversationId = undefined) {
+    const payload = { request, execute };
+    if (conversationId) {
+      payload.conversation_id = conversationId;
+    }
+
     const response = await fetch(`${API_BASE}/api/action/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ request, execute }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

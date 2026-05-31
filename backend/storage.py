@@ -131,27 +131,42 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage3: Dict[str, Any],
+    stage4: Optional[Dict[str, Any]] = None,
+    execution: Optional[Dict[str, Any]] = None,
+    action_request: Optional[str] = None
 ):
     """
-    Add an assistant message with all 3 stages to a conversation.
+    Add an assistant message with optional action plan information to a conversation.
 
     Args:
         conversation_id: Conversation identifier
         stage1: List of individual model responses
         stage2: List of model rankings
         stage3: Final synthesized response
+        stage4: Optional action plan result
+        execution: Optional execution results
+        action_request: Optional original action request text
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
+    message = {
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
         "stage3": stage3
-    })
+    }
+
+    if action_request is not None:
+        message["action_request"] = action_request
+    if stage4 is not None:
+        message["stage4"] = stage4
+    if execution is not None:
+        message["execution"] = execution
+
+    conversation["messages"].append(message)
 
     save_conversation(conversation)
 

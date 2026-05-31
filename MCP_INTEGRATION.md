@@ -27,6 +27,8 @@ curl -X POST http://localhost:8001/api/action \
   }'
 ```
 
+You can also attach the action request to an existing conversation by including `conversation_id` in the request body.
+
 ### Streaming Endpoint: `/api/action/stream`
 
 For real-time updates as the council deliberates:

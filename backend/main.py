@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
+import logging
 
 from . import storage
 from .council import (
@@ -23,6 +24,10 @@ from .council import (
 )
 
 app = FastAPI(title="LLM Council API")
+
+# Basic logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger = logging.getLogger("llm_council.backend")
 
 # Enable CORS for local development
 app.add_middleware(
@@ -48,6 +53,7 @@ class ActionRequest(BaseModel):
     """Request to perform an action with council voting."""
     request: str
     execute: bool = True  # Whether to actually execute the action
+    conversation_id: Optional[str] = None
 
 
 class ConversationMetadata(BaseModel):
@@ -221,8 +227,31 @@ async def perform_action(request: ActionRequest):
     
     Returns the complete result with execution details.
     """
+    if request.conversation_id is not None:
+        conversation = storage.get_conversation(request.conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        is_first_message = len(conversation["messages"]) == 0
+        storage.add_user_message(request.conversation_id, request.request)
+        if is_first_message:
+            title = await generate_conversation_title(request.request)
+            storage.update_conversation_title(request.conversation_id, title)
+
     try:
         result = await run_full_council_with_action(request.request, execute=request.execute)
+
+        if request.conversation_id is not None:
+            storage.add_assistant_message(
+                request.conversation_id,
+                result["stage1"],
+                result["stage2"],
+                result["stage3"],
+                stage4=result.get("stage4_action_plan"),
+                execution=result.get("execution"),
+                action_request=request.request
+            )
+
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
@@ -233,8 +262,25 @@ async def perform_action_stream(request: ActionRequest):
     """
     Run the full 4-stage council with streaming updates.
     """
+    conversation = None
+    is_first_message = False
+    if request.conversation_id is not None:
+        conversation = storage.get_conversation(request.conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        is_first_message = len(conversation["messages"]) == 0
+
     async def event_generator():
         try:
+            if request.conversation_id is not None:
+                storage.add_user_message(request.conversation_id, request.request)
+                if is_first_message:
+                    title_task = asyncio.create_task(generate_conversation_title(request.request))
+                else:
+                    title_task = None
+            else:
+                title_task = None
+
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
             stage1_results = await stage1_collect_responses(request.request)
@@ -260,11 +306,28 @@ async def perform_action_stream(request: ActionRequest):
             action_plan_result = await stage4_generate_action_plan(request.request, stage1_results, aggregate_rankings)
             yield f"data: {json.dumps({'type': 'stage4_action_plan', 'data': action_plan_result})}\n\n"
 
+            execution_result = None
             # Execute if requested
             if request.execute and action_plan_result.get("success"):
                 yield f"data: {json.dumps({'type': 'execution_start'})}\n\n"
                 execution_result = await execute_action_plan(action_plan_result)
                 yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
+
+            if request.conversation_id is not None:
+                storage.add_assistant_message(
+                    request.conversation_id,
+                    stage1_results,
+                    stage2_results,
+                    stage3_result,
+                    stage4=action_plan_result,
+                    execution=execution_result,
+                    action_request=request.request
+                )
+
+            if title_task:
+                title = await title_task
+                storage.update_conversation_title(request.conversation_id, title)
+                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 

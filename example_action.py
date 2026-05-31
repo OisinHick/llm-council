@@ -9,6 +9,7 @@ import httpx
 import json
 import asyncio
 import sys
+import logging
 
 
 async def perform_action(task: str, execute: bool = True, stream: bool = False):
@@ -62,7 +63,7 @@ async def stream_events(client, url: str, payload: dict):
                     event = json.loads(line[6:])
                     print_event(event)
                 except json.JSONDecodeError:
-                    pass
+                    logging.getLogger(__name__).debug("Skipping non-JSON SSE line: %s", line[:200])
 
 
 def print_event(event: dict):

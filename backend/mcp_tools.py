@@ -143,7 +143,7 @@ class MCPToolExecutor:
                 async with session.request(method, url, **kwargs) as response:
                     try:
                         response_data = await response.json()
-                    except:
+                    except Exception:
                         response_data = await response.text()
                     
                     return {

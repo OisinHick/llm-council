@@ -277,7 +277,7 @@ function App() {
           default:
             console.log('Unknown action stream event:', eventType);
         }
-      });
+      }, currentConversationId);
     } catch (error) {
       console.error('Failed to generate action plan:', error);
       setActionError(error.message || 'Could not generate action plan');
@@ -341,7 +341,7 @@ function App() {
           default:
             console.log('Unknown action stream event:', eventType);
         }
-      });
+      }, currentConversationId);
     } catch (error) {
       console.error('Failed to execute action plan:', error);
       setActionError(error.message || 'Could not execute action plan');
