@@ -171,6 +171,28 @@ def add_assistant_message(
     save_conversation(conversation)
 
 
+def update_last_assistant_message(conversation_id: str, updater):
+    """
+    Update the most recent assistant message in a conversation.
+
+    Args:
+        conversation_id: Conversation identifier
+        updater: A callable that accepts the last assistant message dict and returns an updated dict
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    for idx in range(len(conversation["messages"]) - 1, -1, -1):
+        message = conversation["messages"][idx]
+        if message.get("role") == "assistant":
+            conversation["messages"][idx] = updater(message)
+            save_conversation(conversation)
+            return conversation["messages"][idx]
+
+    raise ValueError(f"No assistant message found in conversation {conversation_id}")
+
+
 def update_conversation_title(conversation_id: str, title: str):
     """
     Update the title of a conversation.

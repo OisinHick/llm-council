@@ -56,6 +56,11 @@ class ActionRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class ExecuteStoredActionRequest(BaseModel):
+    """Request to execute an existing action plan stored in a conversation."""
+    conversation_id: str
+
+
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
     id: str
@@ -331,6 +336,48 @@ async def perform_action_stream(request: ActionRequest):
 
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
+@app.post("/api/action/execute/stream")
+async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
+    """
+    Execute a previously generated action plan stored in the conversation.
+    """
+    conversation = storage.get_conversation(request.conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Find the most recent assistant message with a generated action plan.
+    action_message = None
+    for msg in reversed(conversation["messages"]):
+        if msg.get("role") == "assistant" and msg.get("stage4"):
+            action_message = msg
+            break
+
+    if action_message is None:
+        raise HTTPException(status_code=400, detail="No stored action plan found in conversation")
+
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'type': 'execution_start'})}\n\n"
+            execution_result = await execute_action_plan(action_message["stage4"])
+            storage.update_last_assistant_message(
+                request.conversation_id,
+                lambda msg: {**msg, "execution": execution_result}
+            )
+            yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 

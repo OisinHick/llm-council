@@ -159,6 +159,51 @@ export const api = {
   },
 
   /**
+   * Execute a stored action plan for a conversation with streaming updates.
+   * @param {string} conversationId - The conversation ID containing the saved action plan
+   * @param {function} onEvent - Callback function for each event: (eventType, data) => void
+   * @returns {Promise<void>}
+   */
+  async executeStoredActionPlanStream(conversationId, onEvent) {
+    const payload = { conversation_id: conversationId };
+
+    const response = await fetch(`${API_BASE}/api/action/execute/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to execute stored action plan');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          try {
+            const event = JSON.parse(data);
+            onEvent(event.type, event);
+          } catch (e) {
+            console.error('Failed to parse SSE event:', e);
+          }
+        }
+      }
+    }
+  },
+
+  /**
    * Execute an action with streaming updates.
    * @param {string} request - The action request
    * @param {boolean} execute - Whether to execute the action plan
