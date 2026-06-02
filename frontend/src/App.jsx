@@ -27,6 +27,16 @@ function App() {
   });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [generateActionPlanToggleState, setGenerateActionPlanToggleState] = useState(() => {
+    // Load toggle state from localStorage on initialization
+    try {
+      const saved = localStorage.getItem('generateActionPlanToggleState');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error('Failed to load toggle state from localStorage:', e);
+      return {};
+    }
+  });
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -113,6 +123,15 @@ function App() {
       loadConversation(currentConversationId);
     }
   }, [currentConversationId]);
+
+  // Save toggle state to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('generateActionPlanToggleState', JSON.stringify(generateActionPlanToggleState));
+    } catch (e) {
+      console.error('Failed to save toggle state to localStorage:', e);
+    }
+  }, [generateActionPlanToggleState]);
 
   const loadConversations = async () => {
     try {
@@ -383,6 +402,15 @@ function App() {
     }
   };
 
+  const handleToggleGenerateActionPlan = (checked) => {
+    if (currentConversationId) {
+      setGenerateActionPlanToggleState((prev) => ({
+        ...prev,
+        [currentConversationId]: checked,
+      }));
+    }
+  };
+
   const handleExecuteActionPlan = async () => {
     if (!actionPlanRequest || !currentConversationId) return;
 
@@ -507,9 +535,11 @@ function App() {
       />
       <ChatInterface
         conversation={currentConversation}
+        generateActionPlanToggle={generateActionPlanToggleState[currentConversationId] ?? false}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}
+        onToggleGenerateActionPlan={handleToggleGenerateActionPlan}
         actionPlanResult={actionPlanResult}
         actionExecutionResult={actionExecutionResult}
         actionStageResults={actionStageResults}

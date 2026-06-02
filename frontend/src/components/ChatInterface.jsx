@@ -7,9 +7,11 @@ import './ChatInterface.css';
 
 export default function ChatInterface({
   conversation,
+  generateActionPlanToggle,
   onSendMessage,
   onGenerateActionPlan,
   onExecuteActionPlan,
+  onToggleGenerateActionPlan,
   actionPlanResult,
   actionExecutionResult,
   actionStageResults,
@@ -26,6 +28,11 @@ export default function ChatInterface({
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Sync toggle state with prop
+  useEffect(() => {
+    setGenerateActionPlan(generateActionPlanToggle);
+  }, [generateActionPlanToggle]);
 
   useEffect(() => {
     scrollToBottom();
@@ -462,7 +469,12 @@ export default function ChatInterface({
               <input
                 type="checkbox"
                 checked={generateActionPlan}
-                onChange={(e) => setGenerateActionPlan(e.target.checked)}
+                onChange={(e) => {
+                  setGenerateActionPlan(e.target.checked);
+                  if (onToggleGenerateActionPlan) {
+                    onToggleGenerateActionPlan(e.target.checked);
+                  }
+                }}
                 disabled={isLoading || actionLoading}
               />
               Generate Action Plan
