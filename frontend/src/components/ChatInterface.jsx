@@ -467,6 +467,7 @@ export default function ChatInterface({
           <div className="input-actions">
             <div className="generate-toggle">
               <button
+                type="button"
                 className={`circular-toggle ${generateActionPlan ? 'active' : ''}`}
                 onClick={() => {
                   const newState = !generateActionPlan;
