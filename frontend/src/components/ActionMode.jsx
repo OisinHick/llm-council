@@ -126,18 +126,18 @@ function ActionMode() {
           </div>
 
           <div className="form-options">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={execute}
-                onChange={(e) => setExecute(e.target.checked)}
+            <div className="checkbox-label">
+              <button
+                className={`circular-toggle ${execute ? 'active' : ''}`}
+                onClick={() => setExecute(!execute)}
                 disabled={isLoading}
+                title={execute ? 'Disable execution' : 'Enable execution'}
               />
               Execute Action Plan
               <span className="checkbox-hint">
                 {execute ? '✓ Will execute' : 'ℹ Plan only'}
               </span>
-            </label>
+            </div>
 
             <button
               type="submit"

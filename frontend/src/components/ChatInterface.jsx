@@ -465,20 +465,21 @@ export default function ChatInterface({
           />
 
           <div className="input-actions">
-            <label className="generate-toggle">
-              <input
-                type="checkbox"
-                checked={generateActionPlan}
-                onChange={(e) => {
-                  setGenerateActionPlan(e.target.checked);
+            <div className="generate-toggle">
+              <button
+                className={`circular-toggle ${generateActionPlan ? 'active' : ''}`}
+                onClick={() => {
+                  const newState = !generateActionPlan;
+                  setGenerateActionPlan(newState);
                   if (onToggleGenerateActionPlan) {
-                    onToggleGenerateActionPlan(e.target.checked);
+                    onToggleGenerateActionPlan(newState);
                   }
                 }}
                 disabled={isLoading || actionLoading}
+                title={generateActionPlan ? 'Disable action plan generation' : 'Enable action plan generation'}
               />
               Generate Action Plan
-            </label>
+            </div>
 
             <button
               type="submit"

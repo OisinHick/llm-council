@@ -214,6 +214,49 @@
   font-size: 14px;
 }
 
+.circular-toggle {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border-radius: 14px;
+  background: #ccc;
+  cursor: pointer;
+  transition: background 0.3s ease;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.circular-toggle::after {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  left: 2px;
+  transition: left 0.3s ease;
+}
+
+.circular-toggle:hover:not(:disabled) {
+  background: #bbb;
+}
+
+.circular-toggle.active {
+  background: #4a90e2;
+}
+
+.circular-toggle.active::after {
+  left: 22px;
+}
+
+.circular-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .action-panel {
   margin: 0 0 24px 0;
   padding: 20px;
