@@ -3,14 +3,18 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  min-width: 0;
+  min-height: 0;
   background: #ffffff;
 }
 
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   min-height: 0;
+  min-width: 0;
 }
 
 .empty-state {
@@ -48,6 +52,22 @@
   background: #f6f9ff;
   border: 1px solid #e1e7f3;
   border-radius: 14px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.message-group,
+.action-plan-block,
+.execution-block,
+.action-request-block,
+.tool-call,
+.tool-result,
+.plan-details,
+.stage-block {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .message-label {
@@ -199,6 +219,7 @@
   border: 1px solid #dfe3f2;
   border-radius: 14px;
   box-shadow: 0 12px 28px rgba(60, 72, 92, 0.08);
+  min-width: 0;
 }
 
 .action-panel-header h3 {
@@ -242,6 +263,8 @@
   border: 1px solid #d7deed;
   border-radius: 10px;
   margin-bottom: 12px;
+  min-width: 0;
+  width: 100%;
 }
 
 .tool-call-header {
@@ -250,6 +273,13 @@
   gap: 12px;
   margin-bottom: 10px;
   font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.tool-call-header strong,
+.tool-call-header span {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .tool-call pre,
@@ -342,6 +372,8 @@
 
 .action-buttons {
   margin-top: 16px;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .execute-action-btn {
@@ -351,6 +383,9 @@
   border-radius: 8px;
   color: #fff;
   cursor: pointer;
+  min-width: 180px;
+  max-width: 100%;
+  white-space: normal;
 }
 
 .execution-success {

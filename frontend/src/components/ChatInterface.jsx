@@ -141,14 +141,14 @@ export default function ChatInterface({
                   {msg.stage4 && (
                     <div className="action-plan-block">
                       <h4>Action Plan</h4>
-                      {msg.stage4.success ? (
+                      {(msg.stage4.success || msg.stage4.action_plan) ? (
                         <>
                           <div className="plan-summary">
-                            <p>{msg.stage4.action_plan.description}</p>
-                            <p>{msg.stage4.action_plan.reasoning}</p>
+                            <p>{msg.stage4.action_plan?.description}</p>
+                            <p>{msg.stage4.action_plan?.reasoning}</p>
                           </div>
                           <div className="tool-calls">
-                            {msg.stage4.action_plan.tool_calls?.map((call, idx) => (
+                            {msg.stage4.action_plan?.tool_calls?.map((call, idx) => (
                               <div key={idx} className="tool-call">
                                 <div className="tool-call-header">
                                   <strong>{call.tool}</strong>
@@ -158,6 +158,19 @@ export default function ChatInterface({
                               </div>
                             ))}
                           </div>
+
+                          {!msg.execution && msg.stage4.action_plan && (
+                            <div className="action-buttons">
+                              <button
+                                type="button"
+                                className="execute-action-btn"
+                                onClick={onExecuteActionPlan}
+                                disabled={actionLoading || msg.loading?.execution}
+                              >
+                                Execute Action Plan
+                              </button>
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="action-error">
@@ -287,16 +300,16 @@ export default function ChatInterface({
 
             {actionPlanResult?.stage4_action_plan ? (
               <div className="plan-details">
-                {actionPlanResult.stage4_action_plan.success ? (
+                {(actionPlanResult.stage4_action_plan.success || actionPlanResult.stage4_action_plan.action_plan) ? (
                   <>
                     <div className="plan-summary">
-                      <h4>{actionPlanResult.stage4_action_plan.action_plan.description}</h4>
-                      <p>{actionPlanResult.stage4_action_plan.action_plan.reasoning}</p>
+                      <h4>{actionPlanResult.stage4_action_plan.action_plan?.description}</h4>
+                      <p>{actionPlanResult.stage4_action_plan.action_plan?.reasoning}</p>
                     </div>
 
                     <div className="tool-calls">
                       <h5>Tool Calls</h5>
-                      {actionPlanResult.stage4_action_plan.action_plan.tool_calls?.map((call, idx) => (
+                      {actionPlanResult.stage4_action_plan.action_plan?.tool_calls?.map((call, idx) => (
                         <div key={idx} className="tool-call">
                           <div className="tool-call-header">
                             <strong>{call.tool}</strong>
