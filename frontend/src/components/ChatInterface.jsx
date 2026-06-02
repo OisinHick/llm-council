@@ -144,6 +144,7 @@ export default function ChatInterface({
                       {(msg.stage4.success || msg.stage4.action_plan) ? (
                         <>
                           <div className="plan-summary">
+                            <h4>Action Plan Summary</h4>
                             <p>{msg.stage4.action_plan?.description}</p>
                             <p>{msg.stage4.action_plan?.reasoning}</p>
                           </div>
@@ -201,7 +202,41 @@ export default function ChatInterface({
                             <strong>{toolResult.tool}</strong>
                             <span>{toolResult.result.success ? 'Success' : 'Failure'}</span>
                           </div>
-                          <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                          <div className="result-output">
+                            {toolResult.result.success ? (
+                              <>
+                                {toolResult.result.stdout && (
+                                  <div className="output-section">
+                                    <h5>Output</h5>
+                                    <pre>{toolResult.result.stdout}</pre>
+                                  </div>
+                                )}
+                                {toolResult.result.message && (
+                                  <div className="output-section">
+                                    <p>{toolResult.result.message}</p>
+                                  </div>
+                                )}
+                                {toolResult.result.response && (
+                                  <div className="output-section">
+                                    <h5>Response</h5>
+                                    <pre>{JSON.stringify(toolResult.result.response, null, 2)}</pre>
+                                  </div>
+                                )}
+                                {!toolResult.result.stdout && !toolResult.result.message && !toolResult.result.response && (
+                                  <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                                )}
+                              </>
+                            ) : (
+                              <div className="error-output">
+                                {toolResult.result.error && <p>{toolResult.result.error}</p>}
+                                {toolResult.result.stderr ? (
+                                  <pre>{toolResult.result.stderr}</pre>
+                                ) : (
+                                  <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -303,7 +338,8 @@ export default function ChatInterface({
                 {(actionPlanResult.stage4_action_plan.success || actionPlanResult.stage4_action_plan.action_plan) ? (
                   <>
                     <div className="plan-summary">
-                      <h4>{actionPlanResult.stage4_action_plan.action_plan?.description}</h4>
+                      <h4>Action Plan Summary</h4>
+                      <p>{actionPlanResult.stage4_action_plan.action_plan?.description}</p>
                       <p>{actionPlanResult.stage4_action_plan.action_plan?.reasoning}</p>
                     </div>
 
@@ -347,10 +383,15 @@ export default function ChatInterface({
             {actionExecutionResult && (
               <div className="execution-details">
                 <h4>Execution Results</h4>
-                {actionExecutionResult.success ? (
-                  <p className="execution-success">✅ Execution succeeded</p>
-                ) : (
-                  <p className="execution-failure">⚠️ Execution failed</p>
+                <p className={actionExecutionResult.success ? 'execution-success' : 'execution-failure'}>
+                  {actionExecutionResult.success ? '✅ Execution succeeded' : '⚠️ Execution failed'}
+                </p>
+                {actionExecutionResult.action_plan && (
+                  <div className="plan-summary">
+                    <h5>Executed Plan</h5>
+                    <p>{actionExecutionResult.action_plan.description}</p>
+                    <p>{actionExecutionResult.action_plan.reasoning}</p>
+                  </div>
                 )}
                 {actionExecutionResult.execution_results?.results?.map((toolResult, idx) => (
                   <div key={idx} className="tool-result">
@@ -358,7 +399,41 @@ export default function ChatInterface({
                       <strong>{toolResult.tool}</strong>
                       <span>{toolResult.result.success ? 'Success' : 'Failure'}</span>
                     </div>
-                    <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                    <div className="result-output">
+                      {toolResult.result.success ? (
+                        <>
+                          {toolResult.result.stdout && (
+                            <div className="output-section">
+                              <h5>Output</h5>
+                              <pre>{toolResult.result.stdout}</pre>
+                            </div>
+                          )}
+                          {toolResult.result.message && (
+                            <div className="output-section">
+                              <p>{toolResult.result.message}</p>
+                            </div>
+                          )}
+                          {toolResult.result.response && (
+                            <div className="output-section">
+                              <h5>Response</h5>
+                              <pre>{JSON.stringify(toolResult.result.response, null, 2)}</pre>
+                            </div>
+                          )}
+                          {!toolResult.result.stdout && !toolResult.result.message && !toolResult.result.response && (
+                            <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                          )}
+                        </>
+                      ) : (
+                        <div className="error-output">
+                          {toolResult.result.error && <p>{toolResult.result.error}</p>}
+                          {toolResult.result.stderr ? (
+                            <pre>{toolResult.result.stderr}</pre>
+                          ) : (
+                            <pre>{JSON.stringify(toolResult.result, null, 2)}</pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

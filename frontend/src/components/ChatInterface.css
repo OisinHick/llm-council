@@ -55,6 +55,8 @@
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
 }
 
 .message-group,
@@ -220,6 +222,7 @@
   border-radius: 14px;
   box-shadow: 0 12px 28px rgba(60, 72, 92, 0.08);
   min-width: 0;
+  max-width: 100%;
 }
 
 .action-panel-header h3 {
@@ -253,8 +256,30 @@
 
 .tool-calls,
 .execution-details,
-.plan-details {
+.plan-details,
+.action-plan-block,
+.execution-block,
+.action-request-block,
+.action-panel {
   margin-top: 18px;
+}
+
+.action-plan-block,
+.execution-block,
+.plan-details,
+.tool-calls,
+.tool-call,
+.tool-result,
+.execution-details,
+.action-request-block {
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
+  max-width: 100%;
+}
+
+.action-plan-block,
+.execution-block {
+  overflow: hidden;
 }
 
 .tool-call {
@@ -265,6 +290,8 @@
   margin-bottom: 12px;
   min-width: 0;
   width: 100%;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
 }
 
 .tool-call-header {
@@ -274,6 +301,8 @@
   margin-bottom: 10px;
   font-size: 14px;
   flex-wrap: wrap;
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
 }
 
 .tool-call-header strong,
@@ -293,6 +322,7 @@
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.55;
 }
@@ -302,6 +332,68 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.result-output {
+  padding: 0;
+}
+
+.output-section {
+  margin-bottom: 12px;
+}
+
+.output-section:last-child {
+  margin-bottom: 0;
+}
+
+.output-section h5 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.output-section pre {
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  background: #f4f7ff;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #dce3f2;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.error-output {
+  padding: 12px;
+  background: #fff3f3;
+  border-radius: 8px;
+  border: 1px solid #f3d7d7;
+}
+
+.error-output p {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #b03a2e;
+}
+
+.error-output pre {
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  background: #fff7f7;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #f3d7d7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .execution-details {
@@ -349,6 +441,28 @@
 
 .plan-summary h4 {
   margin: 0 0 8px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.plan-summary p {
+  margin: 6px 0;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.plan-details h4,
+.execution-details h4 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #2a7ae2;
+}
+
+.plan-details h5 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  color: #333;
 }
 
 .tool-calls {
