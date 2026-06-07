@@ -230,7 +230,7 @@
 }
 
 .circular-toggle::after {
-  content: '';
+  content: "";
   position: absolute;
   width: 24px;
   height: 24px;
@@ -400,7 +400,7 @@
 
 .output-section pre {
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 12px;
   background: #f4f7ff;
   padding: 10px;
@@ -427,7 +427,7 @@
 
 .error-output pre {
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 12px;
   background: #fff7f7;
   padding: 10px;

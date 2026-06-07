@@ -79,7 +79,7 @@
 }
 
 .circular-toggle::after {
-  content: '';
+  content: "";
   position: absolute;
   width: 24px;
   height: 24px;
@@ -285,7 +285,7 @@
 }
 
 .tool-name {
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: 700;
   color: #4a90e2;
@@ -306,7 +306,7 @@
 
 .tool-params pre {
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 11px;
   background: white;
   padding: 10px;
@@ -371,7 +371,7 @@
 }
 
 .result-tool {
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: 700;
   color: #333;
@@ -413,7 +413,7 @@
 
 .output-section pre {
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 11px;
   background: white;
   padding: 10px;
@@ -445,7 +445,7 @@
 
 .error-output pre {
   margin: 0;
-  font-family: 'Courier New', monospace;
+  font-family: "Courier New", monospace;
   font-size: 11px;
   background: white;
   padding: 10px;

@@ -3,8 +3,9 @@
 import json
 import os
 from datetime import datetime
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from .config import DATA_DIR
 
 
@@ -34,12 +35,12 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
         "id": conversation_id,
         "created_at": datetime.utcnow().isoformat(),
         "title": "New Conversation",
-        "messages": []
+        "messages": [],
     }
 
     # Save to file
     path = get_conversation_path(conversation_id)
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         json.dump(conversation, f, indent=2)
 
     return conversation
@@ -60,7 +61,7 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
         return None
 
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         return json.load(f)
 
 
@@ -73,8 +74,8 @@ def save_conversation(conversation: Dict[str, Any]):
     """
     ensure_data_dir()
 
-    path = get_conversation_path(conversation['id'])
-    with open(path, 'w') as f:
+    path = get_conversation_path(conversation["id"])
+    with open(path, "w") as f:
         json.dump(conversation, f, indent=2)
 
 
@@ -89,17 +90,19 @@ def list_conversations() -> List[Dict[str, Any]]:
 
     conversations = []
     for filename in os.listdir(DATA_DIR):
-        if filename.endswith('.json'):
+        if filename.endswith(".json"):
             path = os.path.join(DATA_DIR, filename)
-            with open(path, 'r') as f:
+            with open(path, "r") as f:
                 data = json.load(f)
                 # Return metadata only
-                conversations.append({
-                    "id": data["id"],
-                    "created_at": data["created_at"],
-                    "title": data.get("title", "New Conversation"),
-                    "message_count": len(data["messages"])
-                })
+                conversations.append(
+                    {
+                        "id": data["id"],
+                        "created_at": data["created_at"],
+                        "title": data.get("title", "New Conversation"),
+                        "message_count": len(data["messages"]),
+                    }
+                )
 
     # Sort by creation time, newest first
     conversations.sort(key=lambda x: x["created_at"], reverse=True)
@@ -119,10 +122,7 @@ def add_user_message(conversation_id: str, content: str):
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
-        "role": "user",
-        "content": content
-    })
+    conversation["messages"].append({"role": "user", "content": content})
 
     save_conversation(conversation)
 
@@ -134,7 +134,7 @@ def add_assistant_message(
     stage3: Dict[str, Any],
     stage4: Optional[Dict[str, Any]] = None,
     execution: Optional[Dict[str, Any]] = None,
-    action_request: Optional[str] = None
+    action_request: Optional[str] = None,
 ):
     """
     Add an assistant message with optional action plan information to a conversation.
@@ -156,7 +156,7 @@ def add_assistant_message(
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
-        "stage3": stage3
+        "stage3": stage3,
     }
 
     if action_request is not None:

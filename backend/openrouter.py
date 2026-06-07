@@ -1,20 +1,22 @@
 """OpenRouter API client for making LLM requests."""
 
-import httpx
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
+import httpx
+
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
 
 logger = logging.getLogger(__name__)
 
 if not OPENROUTER_API_KEY:
-    logger.warning("OPENROUTER_API_KEY is not set; OpenRouter requests will likely fail.")
+    logger.warning(
+        "OPENROUTER_API_KEY is not set; OpenRouter requests will likely fail."
+    )
 
 
 async def query_model(
-    model: str,
-    messages: List[Dict[str, str]],
-    timeout: float = 120.0
+    model: str, messages: List[Dict[str, str]], timeout: float = 120.0
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter API.
@@ -40,29 +42,25 @@ async def query_model(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
-                OPENROUTER_API_URL,
-                headers=headers,
-                json=payload
+                OPENROUTER_API_URL, headers=headers, json=payload
             )
             response.raise_for_status()
 
             data = response.json()
-            message = data['choices'][0]['message']
+            message = data["choices"][0]["message"]
 
             return {
-                'content': message.get('content'),
-                'reasoning_details': message.get('reasoning_details')
+                "content": message.get("content"),
+                "reasoning_details": message.get("reasoning_details"),
             }
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error querying model %s", model)
         return None
 
 
 async def query_models_parallel(
-    models: List[str],
-    messages: List[Dict[str, str]],
-    timeout: float = 180.0
+    models: List[str], messages: List[Dict[str, str]], timeout: float = 180.0
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -82,8 +80,7 @@ async def query_models_parallel(
 
     try:
         responses = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=timeout
+            asyncio.gather(*tasks, return_exceptions=True), timeout=timeout
         )
     except asyncio.TimeoutError:
         # Cancel any tasks that are still running and mark them as failed.

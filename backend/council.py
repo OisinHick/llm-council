@@ -1,11 +1,12 @@
 """3-stage LLM Council orchestration."""
 
-from typing import List, Dict, Any, Tuple
-from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
-from .mcp_tools import executor
 import json
 import re
+from typing import Any, Dict, List, Tuple
+
+from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
+from .mcp_tools import executor
+from .openrouter import query_model, query_models_parallel
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -27,17 +28,15 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     stage1_results = []
     for model, response in responses.items():
         if response is not None:  # Only include successful responses
-            stage1_results.append({
-                "model": model,
-                "response": response.get('content', '')
-            })
+            stage1_results.append(
+                {"model": model, "response": response.get("content", "")}
+            )
 
     return stage1_results
 
 
 async def stage2_collect_rankings(
-    user_query: str,
-    stage1_results: List[Dict[str, Any]]
+    user_query: str, stage1_results: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -54,15 +53,17 @@ async def stage2_collect_rankings(
 
     # Create mapping from label to model name
     label_to_model = {
-        f"Response {label}": result['model']
+        f"Response {label}": result["model"]
         for label, result in zip(labels, stage1_results)
     }
 
     # Build the ranking prompt
-    responses_text = "\n\n".join([
-        f"Response {label}:\n{result['response']}"
-        for label, result in zip(labels, stage1_results)
-    ])
+    responses_text = "\n\n".join(
+        [
+            f"Response {label}:\n{result['response']}"
+            for label, result in zip(labels, stage1_results)
+        ]
+    )
 
     ranking_prompt = f"""You are evaluating different responses to the following question:
 
@@ -104,13 +105,11 @@ Now provide your evaluation and ranking:"""
     stage2_results = []
     for model, response in responses.items():
         if response is not None:
-            full_text = response.get('content', '')
+            full_text = response.get("content", "")
             parsed = parse_ranking_from_text(full_text)
-            stage2_results.append({
-                "model": model,
-                "ranking": full_text,
-                "parsed_ranking": parsed
-            })
+            stage2_results.append(
+                {"model": model, "ranking": full_text, "parsed_ranking": parsed}
+            )
 
     return stage2_results, label_to_model
 
@@ -118,7 +117,7 @@ Now provide your evaluation and ranking:"""
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    stage2_results: List[Dict[str, Any]]
+    stage2_results: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -132,15 +131,19 @@ async def stage3_synthesize_final(
         Dict with 'model' and 'response' keys
     """
     # Build comprehensive context for chairman
-    stage1_text = "\n\n".join([
-        f"Model: {result['model']}\nResponse: {result['response']}"
-        for result in stage1_results
-    ])
+    stage1_text = "\n\n".join(
+        [
+            f"Model: {result['model']}\nResponse: {result['response']}"
+            for result in stage1_results
+        ]
+    )
 
-    stage2_text = "\n\n".join([
-        f"Model: {result['model']}\nRanking: {result['ranking']}"
-        for result in stage2_results
-    ])
+    stage2_text = "\n\n".join(
+        [
+            f"Model: {result['model']}\nRanking: {result['ranking']}"
+            for result in stage2_results
+        ]
+    )
 
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
@@ -168,13 +171,10 @@ Provide a clear, well-reasoned final answer that represents the council's collec
         # Fallback if chairman fails
         return {
             "model": CHAIRMAN_MODEL,
-            "response": "Error: Unable to generate final synthesis."
+            "response": "Error: Unable to generate final synthesis.",
         }
 
-    return {
-        "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
-    }
+    return {"model": CHAIRMAN_MODEL, "response": response.get("content", "")}
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
@@ -197,23 +197,24 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
             ranking_section = parts[1]
             # Try to extract numbered list format (e.g., "1. Response A")
             # This pattern looks for: number, period, optional space, "Response X"
-            numbered_matches = re.findall(r'\d+\.\s*Response [A-Z]', ranking_section)
+            numbered_matches = re.findall(r"\d+\.\s*Response [A-Z]", ranking_section)
             if numbered_matches:
                 # Extract just the "Response X" part
-                return [re.search(r'Response [A-Z]', m).group() for m in numbered_matches]
+                return [
+                    re.search(r"Response [A-Z]", m).group() for m in numbered_matches
+                ]
 
             # Fallback: Extract all "Response X" patterns in order
-            matches = re.findall(r'Response [A-Z]', ranking_section)
+            matches = re.findall(r"Response [A-Z]", ranking_section)
             return matches
 
     # Fallback: try to find any "Response X" patterns in order
-    matches = re.findall(r'Response [A-Z]', ranking_text)
+    matches = re.findall(r"Response [A-Z]", ranking_text)
     return matches
 
 
 def calculate_aggregate_rankings(
-    stage2_results: List[Dict[str, Any]],
-    label_to_model: Dict[str, str]
+    stage2_results: List[Dict[str, Any]], label_to_model: Dict[str, str]
 ) -> List[Dict[str, Any]]:
     """
     Calculate aggregate rankings across all models.
@@ -231,7 +232,7 @@ def calculate_aggregate_rankings(
     model_positions = defaultdict(list)
 
     for ranking in stage2_results:
-        ranking_text = ranking['ranking']
+        ranking_text = ranking["ranking"]
 
         # Parse the ranking from the structured format
         parsed_ranking = parse_ranking_from_text(ranking_text)
@@ -246,14 +247,16 @@ def calculate_aggregate_rankings(
     for model, positions in model_positions.items():
         if positions:
             avg_rank = sum(positions) / len(positions)
-            aggregate.append({
-                "model": model,
-                "average_rank": round(avg_rank, 2),
-                "rankings_count": len(positions)
-            })
+            aggregate.append(
+                {
+                    "model": model,
+                    "average_rank": round(avg_rank, 2),
+                    "rankings_count": len(positions),
+                }
+            )
 
     # Sort by average rank (lower is better)
-    aggregate.sort(key=lambda x: x['average_rank'])
+    aggregate.sort(key=lambda x: x["average_rank"])
 
     return aggregate
 
@@ -284,10 +287,10 @@ Title:"""
         # Fallback to a generic title
         return "New Conversation"
 
-    title = response.get('content', 'New Conversation').strip()
+    title = response.get("content", "New Conversation").strip()
 
     # Clean up the title - remove quotes, limit length
-    title = title.strip('"\'')
+    title = title.strip("\"'")
 
     # Truncate if too long
     if len(title) > 50:
@@ -311,28 +314,33 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
 
     # If no models responded successfully, return error
     if not stage1_results:
-        return [], [], {
-            "model": "error",
-            "response": "All models failed to respond. Please try again."
-        }, {}
+        return (
+            [],
+            [],
+            {
+                "model": "error",
+                "response": "All models failed to respond. Please try again.",
+            },
+            {},
+        )
 
     # Stage 2: Collect rankings
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results)
+    stage2_results, label_to_model = await stage2_collect_rankings(
+        user_query, stage1_results
+    )
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
 
     # Stage 3: Synthesize final answer
     stage3_result = await stage3_synthesize_final(
-        user_query,
-        stage1_results,
-        stage2_results
+        user_query, stage1_results, stage2_results
     )
 
     # Prepare metadata
     metadata = {
         "label_to_model": label_to_model,
-        "aggregate_rankings": aggregate_rankings
+        "aggregate_rankings": aggregate_rankings,
     }
 
     return stage1_results, stage2_results, stage3_result, metadata
@@ -341,7 +349,7 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
 async def stage4_generate_action_plan(
     user_request: str,
     stage1_results: List[Dict[str, Any]],
-    aggregate_rankings: List[Dict[str, Any]]
+    aggregate_rankings: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
     Stage 4: Generate and execute MCP tool calls based on the top-ranked response.
@@ -358,7 +366,7 @@ async def stage4_generate_action_plan(
     if not aggregate_rankings or not stage1_results:
         return {
             "success": False,
-            "error": "No valid responses to generate action plan from"
+            "error": "No valid responses to generate action plan from",
         }
 
     # Get the top-ranked response model
@@ -370,10 +378,7 @@ async def stage4_generate_action_plan(
             break
 
     if not best_response:
-        return {
-            "success": False,
-            "error": "Could not find the best response"
-        }
+        return {"success": False, "error": "Could not find the best response"}
 
     # Create prompt for action generation
     action_prompt = f"""You are an expert at converting natural language requests into executable actions.
@@ -419,22 +424,19 @@ Now generate the action plan JSON:"""
     response = await query_model(CHAIRMAN_MODEL, messages)
 
     if response is None:
-        return {
-            "success": False,
-            "error": "Failed to generate action plan"
-        }
+        return {"success": False, "error": "Failed to generate action plan"}
 
-    response_text = response.get('content', '')
+    response_text = response.get("content", "")
 
     # Parse JSON from response
     try:
         # Try to extract JSON from the response
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if not json_match:
             return {
                 "success": False,
                 "error": "Could not find JSON in response",
-                "raw_response": response_text
+                "raw_response": response_text,
             }
 
         action_plan = json.loads(json_match.group())
@@ -442,13 +444,13 @@ Now generate the action plan JSON:"""
         return {
             "success": False,
             "error": f"Invalid JSON in action plan: {str(e)}",
-            "raw_response": response_text
+            "raw_response": response_text,
         }
 
     return {
         "success": True,
         "action_plan": action_plan,
-        "best_response_model": best_model_name
+        "best_response_model": best_model_name,
     }
 
 
@@ -466,17 +468,14 @@ async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str,
         return {
             "success": False,
             "error": "Action plan generation failed",
-            "details": action_plan_response
+            "details": action_plan_response,
         }
 
     action_plan = action_plan_response.get("action_plan", {})
     tool_calls = action_plan.get("tool_calls", [])
 
     if not tool_calls:
-        return {
-            "success": False,
-            "error": "No tool calls in action plan"
-        }
+        return {"success": False, "error": "No tool calls in action plan"}
 
     # Execute all tool calls
     execution_result = await executor.execute_tools(tool_calls)
@@ -484,11 +483,13 @@ async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str,
     return {
         "success": execution_result.get("all_successful", False),
         "action_plan": action_plan,
-        "execution_results": execution_result
+        "execution_results": execution_result,
     }
 
 
-async def run_full_council_with_action(user_request: str, execute: bool = True) -> Dict[str, Any]:
+async def run_full_council_with_action(
+    user_request: str, execute: bool = True
+) -> Dict[str, Any]:
     """
     Run the complete 4-stage council process with optional action execution.
 
@@ -500,13 +501,13 @@ async def run_full_council_with_action(user_request: str, execute: bool = True) 
         Dict with all stages and execution results
     """
     # Stages 1-3: Run the council
-    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(user_request)
+    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
+        user_request
+    )
 
     # Stage 4: Generate action plan based on voting
     action_plan_result = await stage4_generate_action_plan(
-        user_request,
-        stage1_results,
-        metadata.get("aggregate_rankings", [])
+        user_request, stage1_results, metadata.get("aggregate_rankings", [])
     )
 
     result = {
@@ -514,7 +515,7 @@ async def run_full_council_with_action(user_request: str, execute: bool = True) 
         "stage2": stage2_results,
         "stage3": stage3_result,
         "metadata": metadata,
-        "stage4_action_plan": action_plan_result
+        "stage4_action_plan": action_plan_result,
     }
 
     # Execute if requested and plan succeeded

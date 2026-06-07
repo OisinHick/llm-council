@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
-import ChatInterface from './components/ChatInterface';
-import { api } from './api';
-import './App.css';
+import { useState, useEffect } from "react";
+import Sidebar from "./components/Sidebar";
+import ChatInterface from "./components/ChatInterface";
+import { api } from "./api";
+import "./App.css";
 
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [actionPlanRequest, setActionPlanRequest] = useState('');
+  const [actionPlanRequest, setActionPlanRequest] = useState("");
   const [actionPlanResult, setActionPlanResult] = useState(null);
   const [actionExecutionResult, setActionExecutionResult] = useState(null);
   const [actionStageResults, setActionStageResults] = useState({
@@ -27,16 +27,17 @@ function App() {
   });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
-  const [generateActionPlanToggleState, setGenerateActionPlanToggleState] = useState(() => {
-    // Load toggle state from localStorage on initialization
-    try {
-      const saved = localStorage.getItem('generateActionPlanToggleState');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      console.error('Failed to load toggle state from localStorage:', e);
-      return {};
-    }
-  });
+  const [generateActionPlanToggleState, setGenerateActionPlanToggleState] =
+    useState(() => {
+      // Load toggle state from localStorage on initialization
+      try {
+        const saved = localStorage.getItem("generateActionPlanToggleState");
+        return saved ? JSON.parse(saved) : {};
+      } catch (e) {
+        console.error("Failed to load toggle state from localStorage:", e);
+        return {};
+      }
+    });
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -46,15 +47,23 @@ function App() {
 
     const actionMessage = [...conversation.messages]
       .reverse()
-      .find((msg) => msg.role === 'assistant' && (msg.action_request || msg.stage4 || msg.execution));
+      .find(
+        (msg) =>
+          msg.role === "assistant" &&
+          (msg.action_request || msg.stage4 || msg.execution),
+      );
 
     if (!actionMessage) {
       resetActionState();
       return;
     }
 
-    setActionPlanRequest(actionMessage.action_request || '');
-    setActionPlanResult(actionMessage.stage4 ? { stage4_action_plan: actionMessage.stage4 } : null);
+    setActionPlanRequest(actionMessage.action_request || "");
+    setActionPlanResult(
+      actionMessage.stage4
+        ? { stage4_action_plan: actionMessage.stage4 }
+        : null,
+    );
     setActionExecutionResult(actionMessage.execution || null);
     setActionStageResults({
       stage1: actionMessage.stage1 || null,
@@ -76,9 +85,9 @@ function App() {
   const appendActionRequestMessage = (requestText) => {
     if (!currentConversation) return;
 
-    const userMessage = { role: 'user', content: requestText };
+    const userMessage = { role: "user", content: requestText };
     const assistantMessage = {
-      role: 'assistant',
+      role: "assistant",
       action_request: requestText,
       stage1: null,
       stage2: null,
@@ -106,11 +115,30 @@ function App() {
       if (!prev?.messages?.length) return prev;
       const messages = [...prev.messages];
       const lastMsg = messages[messages.length - 1];
-      if (lastMsg.role !== 'assistant' || !lastMsg.action_request) return prev;
+      if (lastMsg.role !== "assistant" || !lastMsg.action_request) return prev;
       messages[messages.length - 1] = { ...lastMsg, ...updater(lastMsg) };
       return { ...prev, messages };
     });
   };
+
+  async function loadConversations() {
+    try {
+      const convs = await api.listConversations();
+      setConversations(convs);
+    } catch (error) {
+      console.error("Failed to load conversations:", error);
+    }
+  }
+
+  async function loadConversation(id) {
+    try {
+      const conv = await api.getConversation(id);
+      setCurrentConversation(conv);
+      syncActionStateFromConversation(conv);
+    } catch (error) {
+      console.error("Failed to load conversation:", error);
+    }
+  }
 
   // Load conversations on mount
   useEffect(() => {
@@ -122,43 +150,39 @@ function App() {
     if (currentConversationId) {
       loadConversation(currentConversationId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
 
   // Save toggle state to localStorage whenever it changes
   useEffect(() => {
     try {
-      localStorage.setItem('generateActionPlanToggleState', JSON.stringify(generateActionPlanToggleState));
+      localStorage.setItem(
+        "generateActionPlanToggleState",
+        JSON.stringify(generateActionPlanToggleState),
+      );
     } catch (e) {
-      console.error('Failed to save toggle state to localStorage:', e);
+      console.error("Failed to save toggle state to localStorage:", e);
     }
   }, [generateActionPlanToggleState]);
 
-  const loadConversations = async () => {
-    try {
-      const convs = await api.listConversations();
-      setConversations(convs);
-    } catch (error) {
-      console.error('Failed to load conversations:', error);
-    }
-  };
-
-  const loadConversation = async (id) => {
-    try {
-      const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
-      syncActionStateFromConversation(conv);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
-    }
-  };
-
   const resetActionState = () => {
-    setActionPlanRequest('');
+    setActionPlanRequest("");
     setActionPlanResult(null);
     setActionExecutionResult(null);
     setActionError(null);
-    setActionStageResults({ stage1: null, stage2: null, stage3: null, metadata: null });
-    setActionStageLoading({ stage1: false, stage2: false, stage3: false, stage4: false, execution: false });
+    setActionStageResults({
+      stage1: null,
+      stage2: null,
+      stage3: null,
+      metadata: null,
+    });
+    setActionStageLoading({
+      stage1: false,
+      stage2: false,
+      stage3: false,
+      stage4: false,
+      execution: false,
+    });
     setActionLoading(false);
   };
 
@@ -173,7 +197,7 @@ function App() {
       ]);
       setCurrentConversationId(newConv.id);
     } catch (error) {
-      console.error('Failed to create conversation:', error);
+      console.error("Failed to create conversation:", error);
     }
   };
 
@@ -189,12 +213,12 @@ function App() {
 
     setActionPlanResult(null);
     setActionExecutionResult(null);
-    setActionPlanRequest('');
+    setActionPlanRequest("");
     setActionError(null);
     setIsLoading(true);
     try {
       // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
+      const userMessage = { role: "user", content };
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
@@ -202,7 +226,7 @@ function App() {
 
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
-        role: 'assistant',
+        role: "assistant",
         stage1: null,
         stage2: null,
         stage3: null,
@@ -221,88 +245,92 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
-        switch (eventType) {
-          case 'stage1_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage1 = true;
-              return { ...prev, messages };
-            });
-            break;
+      await api.sendMessageStream(
+        currentConversationId,
+        content,
+        (eventType, event) => {
+          switch (eventType) {
+            case "stage1_start":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.loading.stage1 = true;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'stage1_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.stage1 = event.data;
-              lastMsg.loading.stage1 = false;
-              return { ...prev, messages };
-            });
-            break;
+            case "stage1_complete":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.stage1 = event.data;
+                lastMsg.loading.stage1 = false;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'stage2_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage2 = true;
-              return { ...prev, messages };
-            });
-            break;
+            case "stage2_start":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.loading.stage2 = true;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'stage2_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.stage2 = event.data;
-              lastMsg.metadata = event.metadata;
-              lastMsg.loading.stage2 = false;
-              return { ...prev, messages };
-            });
-            break;
+            case "stage2_complete":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.stage2 = event.data;
+                lastMsg.metadata = event.metadata;
+                lastMsg.loading.stage2 = false;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'stage3_start':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.loading.stage3 = true;
-              return { ...prev, messages };
-            });
-            break;
+            case "stage3_start":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.loading.stage3 = true;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'stage3_complete':
-            setCurrentConversation((prev) => {
-              const messages = [...prev.messages];
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.stage3 = event.data;
-              lastMsg.loading.stage3 = false;
-              return { ...prev, messages };
-            });
-            break;
+            case "stage3_complete":
+              setCurrentConversation((prev) => {
+                const messages = [...prev.messages];
+                const lastMsg = messages[messages.length - 1];
+                lastMsg.stage3 = event.data;
+                lastMsg.loading.stage3 = false;
+                return { ...prev, messages };
+              });
+              break;
 
-          case 'title_complete':
-            // Reload conversations to get updated title
-            loadConversations();
-            break;
+            case "title_complete":
+              // Reload conversations to get updated title
+              loadConversations();
+              break;
 
-          case 'complete':
-            // Stream complete, reload conversations list
-            loadConversations();
-            setIsLoading(false);
-            break;
+            case "complete":
+              // Stream complete, reload conversations list
+              loadConversations();
+              setIsLoading(false);
+              break;
 
-          case 'error':
-            console.error('Stream error:', event.message);
-            setIsLoading(false);
-            break;
+            case "error":
+              console.error("Stream error:", event.message);
+              setIsLoading(false);
+              break;
 
-          default:
-            console.log('Unknown event type:', eventType);
-        }
-      });
+            default:
+              console.log("Unknown event type:", eventType);
+          }
+        },
+      );
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error("Failed to send message:", error);
       // Remove optimistic messages on error
       setCurrentConversation((prev) => ({
         ...prev,
@@ -319,85 +347,127 @@ function App() {
     setActionError(null);
     setActionPlanResult(null);
     setActionExecutionResult(null);
-    setActionStageResults({ stage1: null, stage2: null, stage3: null, metadata: null });
-    setActionStageLoading({ stage1: false, stage2: false, stage3: false, stage4: false, execution: false });
+    setActionStageResults({
+      stage1: null,
+      stage2: null,
+      stage3: null,
+      metadata: null,
+    });
+    setActionStageLoading({
+      stage1: false,
+      stage2: false,
+      stage3: false,
+      stage4: false,
+      execution: false,
+    });
     setActionPlanRequest(requestText);
 
     appendActionRequestMessage(requestText);
 
     try {
-      await api.executeActionStream(requestText, false, (eventType, event) => {
-        switch (eventType) {
-          case 'stage1_start':
-            updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage1: true } }));
-            setActionStageLoading((prev) => ({ ...prev, stage1: true }));
-            break;
-          case 'stage1_complete':
-            updateLastActionMessage((lastMsg) => ({
-              stage1: event.data,
-              loading: { ...lastMsg.loading, stage1: false },
-            }));
-            setActionStageResults((prev) => ({ ...prev, stage1: event.data }));
-            setActionStageLoading((prev) => ({ ...prev, stage1: false }));
-            break;
-          case 'stage2_start':
-            updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage2: true } }));
-            setActionStageLoading((prev) => ({ ...prev, stage2: true }));
-            break;
-          case 'stage2_complete':
-            updateLastActionMessage((lastMsg) => ({
-              stage2: event.data,
-              metadata: event.metadata,
-              loading: { ...lastMsg.loading, stage2: false },
-            }));
-            setActionStageResults((prev) => ({ ...prev, stage2: event.data, metadata: event.metadata }));
-            setActionStageLoading((prev) => ({ ...prev, stage2: false }));
-            break;
-          case 'stage3_start':
-            updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage3: true } }));
-            setActionStageLoading((prev) => ({ ...prev, stage3: true }));
-            break;
-          case 'stage3_complete':
-            updateLastActionMessage((lastMsg) => ({
-              stage3: event.data,
-              loading: { ...lastMsg.loading, stage3: false },
-            }));
-            setActionStageResults((prev) => ({ ...prev, stage3: event.data }));
-            setActionStageLoading((prev) => ({ ...prev, stage3: false }));
-            break;
-          case 'stage4_start':
-            updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage4: true } }));
-            setActionStageLoading((prev) => ({ ...prev, stage4: true }));
-            break;
-          case 'stage4_action_plan':
-            updateLastActionMessage((lastMsg) => ({ stage4: event.data, loading: { ...lastMsg.loading, stage4: false } }));
-            setActionStageLoading((prev) => ({ ...prev, stage4: false }));
-            setActionPlanResult({ stage4_action_plan: event.data });
-            break;
-          case 'execution_start':
-            updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, execution: true } }));
-            setActionStageLoading((prev) => ({ ...prev, execution: true }));
-            break;
-          case 'execution_complete':
-            updateLastActionMessage((lastMsg) => ({ execution: event.data, loading: { ...lastMsg.loading, execution: false } }));
-            setActionExecutionResult(event.data);
-            setActionStageLoading((prev) => ({ ...prev, execution: false }));
-            break;
-          case 'complete':
-            setActionLoading(false);
-            loadConversations();
-            break;
-          case 'error':
-            setActionLoading(false);
-            setActionError(event.message);
-            break;
-          default:
-            console.log('Unknown action stream event:', eventType);
-        }
-      }, currentConversationId);
+      await api.executeActionStream(
+        requestText,
+        false,
+        (eventType, event) => {
+          switch (eventType) {
+            case "stage1_start":
+              updateLastActionMessage((lastMsg) => ({
+                loading: { ...lastMsg.loading, stage1: true },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage1: true }));
+              break;
+            case "stage1_complete":
+              updateLastActionMessage((lastMsg) => ({
+                stage1: event.data,
+                loading: { ...lastMsg.loading, stage1: false },
+              }));
+              setActionStageResults((prev) => ({
+                ...prev,
+                stage1: event.data,
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage1: false }));
+              break;
+            case "stage2_start":
+              updateLastActionMessage((lastMsg) => ({
+                loading: { ...lastMsg.loading, stage2: true },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage2: true }));
+              break;
+            case "stage2_complete":
+              updateLastActionMessage((lastMsg) => ({
+                stage2: event.data,
+                metadata: event.metadata,
+                loading: { ...lastMsg.loading, stage2: false },
+              }));
+              setActionStageResults((prev) => ({
+                ...prev,
+                stage2: event.data,
+                metadata: event.metadata,
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage2: false }));
+              break;
+            case "stage3_start":
+              updateLastActionMessage((lastMsg) => ({
+                loading: { ...lastMsg.loading, stage3: true },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage3: true }));
+              break;
+            case "stage3_complete":
+              updateLastActionMessage((lastMsg) => ({
+                stage3: event.data,
+                loading: { ...lastMsg.loading, stage3: false },
+              }));
+              setActionStageResults((prev) => ({
+                ...prev,
+                stage3: event.data,
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage3: false }));
+              break;
+            case "stage4_start":
+              updateLastActionMessage((lastMsg) => ({
+                loading: { ...lastMsg.loading, stage4: true },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage4: true }));
+              break;
+            case "stage4_action_plan":
+              updateLastActionMessage((lastMsg) => ({
+                stage4: event.data,
+                loading: { ...lastMsg.loading, stage4: false },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, stage4: false }));
+              setActionPlanResult({ stage4_action_plan: event.data });
+              break;
+            case "execution_start":
+              updateLastActionMessage((lastMsg) => ({
+                loading: { ...lastMsg.loading, execution: true },
+              }));
+              setActionStageLoading((prev) => ({ ...prev, execution: true }));
+              break;
+            case "execution_complete":
+              updateLastActionMessage((lastMsg) => ({
+                execution: event.data,
+                loading: { ...lastMsg.loading, execution: false },
+              }));
+              setActionExecutionResult(event.data);
+              setActionStageLoading((prev) => ({ ...prev, execution: false }));
+              break;
+            case "complete":
+              setActionLoading(false);
+              loadConversations();
+              break;
+            case "error":
+              setActionLoading(false);
+              setActionError(event.message);
+              break;
+            default:
+              console.log("Unknown action stream event:", eventType);
+          }
+        },
+        currentConversationId,
+      );
     } catch (error) {
-      console.error('Failed to generate action plan:', error);
-      setActionError(error.message || 'Could not generate action plan');
+      console.error("Failed to generate action plan:", error);
+      setActionError(error.message || "Could not generate action plan");
       setActionLoading(false);
     }
   };
@@ -422,105 +492,150 @@ function App() {
     try {
       let executeStream;
       if (actionPlanResult?.stage4_action_plan) {
-        executeStream = api.executeStoredActionPlanStream(currentConversationId, (eventType, event) => {
-          switch (eventType) {
-            case 'execution_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, execution: true } }));
-              setActionStageLoading((prev) => ({ ...prev, execution: true }));
-              break;
-            case 'execution_complete':
-              updateLastActionMessage((lastMsg) => ({ execution: event.data, loading: { ...lastMsg.loading, execution: false } }));
-              setActionExecutionResult(event.data);
-              setActionStageLoading((prev) => ({ ...prev, execution: false }));
-              break;
-            case 'complete':
-              setActionLoading(false);
-              loadConversations();
-              break;
-            case 'error':
-              setActionLoading(false);
-              setActionError(event.message);
-              break;
-            default:
-              console.log('Unknown action stream event:', eventType);
-          }
-        });
+        executeStream = api.executeStoredActionPlanStream(
+          currentConversationId,
+          (eventType, event) => {
+            switch (eventType) {
+              case "execution_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, execution: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, execution: true }));
+                break;
+              case "execution_complete":
+                updateLastActionMessage((lastMsg) => ({
+                  execution: event.data,
+                  loading: { ...lastMsg.loading, execution: false },
+                }));
+                setActionExecutionResult(event.data);
+                setActionStageLoading((prev) => ({
+                  ...prev,
+                  execution: false,
+                }));
+                break;
+              case "complete":
+                setActionLoading(false);
+                loadConversations();
+                break;
+              case "error":
+                setActionLoading(false);
+                setActionError(event.message);
+                break;
+              default:
+                console.log("Unknown action stream event:", eventType);
+            }
+          },
+        );
       } else {
-        executeStream = api.executeActionStream(actionPlanRequest, true, (eventType, event) => {
-          switch (eventType) {
-            case 'stage1_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage1: true } }));
-              setActionStageLoading((prev) => ({ ...prev, stage1: true }));
-              break;
-            case 'stage1_complete':
-              updateLastActionMessage((lastMsg) => ({
-                stage1: event.data,
-                loading: { ...lastMsg.loading, stage1: false },
-              }));
-              setActionStageResults((prev) => ({ ...prev, stage1: event.data }));
-              setActionStageLoading((prev) => ({ ...prev, stage1: false }));
-              break;
-            case 'stage2_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage2: true } }));
-              setActionStageLoading((prev) => ({ ...prev, stage2: true }));
-              break;
-            case 'stage2_complete':
-              updateLastActionMessage((lastMsg) => ({
-                stage2: event.data,
-                metadata: event.metadata,
-                loading: { ...lastMsg.loading, stage2: false },
-              }));
-              setActionStageResults((prev) => ({ ...prev, stage2: event.data, metadata: event.metadata }));
-              setActionStageLoading((prev) => ({ ...prev, stage2: false }));
-              break;
-            case 'stage3_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage3: true } }));
-              setActionStageLoading((prev) => ({ ...prev, stage3: true }));
-              break;
-            case 'stage3_complete':
-              updateLastActionMessage((lastMsg) => ({
-                stage3: event.data,
-                loading: { ...lastMsg.loading, stage3: false },
-              }));
-              setActionStageResults((prev) => ({ ...prev, stage3: event.data }));
-              setActionStageLoading((prev) => ({ ...prev, stage3: false }));
-              break;
-            case 'stage4_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, stage4: true } }));
-              setActionStageLoading((prev) => ({ ...prev, stage4: true }));
-              break;
-            case 'stage4_action_plan':
-              updateLastActionMessage((lastMsg) => ({ stage4: event.data, loading: { ...lastMsg.loading, stage4: false } }));
-              setActionStageLoading((prev) => ({ ...prev, stage4: false }));
-              setActionPlanResult({ stage4_action_plan: event.data });
-              break;
-            case 'execution_start':
-              updateLastActionMessage((lastMsg) => ({ loading: { ...lastMsg.loading, execution: true } }));
-              setActionStageLoading((prev) => ({ ...prev, execution: true }));
-              break;
-            case 'execution_complete':
-              updateLastActionMessage((lastMsg) => ({ execution: event.data, loading: { ...lastMsg.loading, execution: false } }));
-              setActionExecutionResult(event.data);
-              setActionStageLoading((prev) => ({ ...prev, execution: false }));
-              break;
-            case 'complete':
-              setActionLoading(false);
-              loadConversations();
-              break;
-            case 'error':
-              setActionLoading(false);
-              setActionError(event.message);
-              break;
-            default:
-              console.log('Unknown action stream event:', eventType);
-          }
-        }, currentConversationId);
+        executeStream = api.executeActionStream(
+          actionPlanRequest,
+          true,
+          (eventType, event) => {
+            switch (eventType) {
+              case "stage1_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, stage1: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage1: true }));
+                break;
+              case "stage1_complete":
+                updateLastActionMessage((lastMsg) => ({
+                  stage1: event.data,
+                  loading: { ...lastMsg.loading, stage1: false },
+                }));
+                setActionStageResults((prev) => ({
+                  ...prev,
+                  stage1: event.data,
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage1: false }));
+                break;
+              case "stage2_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, stage2: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage2: true }));
+                break;
+              case "stage2_complete":
+                updateLastActionMessage((lastMsg) => ({
+                  stage2: event.data,
+                  metadata: event.metadata,
+                  loading: { ...lastMsg.loading, stage2: false },
+                }));
+                setActionStageResults((prev) => ({
+                  ...prev,
+                  stage2: event.data,
+                  metadata: event.metadata,
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage2: false }));
+                break;
+              case "stage3_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, stage3: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage3: true }));
+                break;
+              case "stage3_complete":
+                updateLastActionMessage((lastMsg) => ({
+                  stage3: event.data,
+                  loading: { ...lastMsg.loading, stage3: false },
+                }));
+                setActionStageResults((prev) => ({
+                  ...prev,
+                  stage3: event.data,
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage3: false }));
+                break;
+              case "stage4_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, stage4: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage4: true }));
+                break;
+              case "stage4_action_plan":
+                updateLastActionMessage((lastMsg) => ({
+                  stage4: event.data,
+                  loading: { ...lastMsg.loading, stage4: false },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, stage4: false }));
+                setActionPlanResult({ stage4_action_plan: event.data });
+                break;
+              case "execution_start":
+                updateLastActionMessage((lastMsg) => ({
+                  loading: { ...lastMsg.loading, execution: true },
+                }));
+                setActionStageLoading((prev) => ({ ...prev, execution: true }));
+                break;
+              case "execution_complete":
+                updateLastActionMessage((lastMsg) => ({
+                  execution: event.data,
+                  loading: { ...lastMsg.loading, execution: false },
+                }));
+                setActionExecutionResult(event.data);
+                setActionStageLoading((prev) => ({
+                  ...prev,
+                  execution: false,
+                }));
+                break;
+              case "complete":
+                setActionLoading(false);
+                loadConversations();
+                break;
+              case "error":
+                setActionLoading(false);
+                setActionError(event.message);
+                break;
+              default:
+                console.log("Unknown action stream event:", eventType);
+            }
+          },
+          currentConversationId,
+        );
       }
 
       await executeStream;
     } catch (error) {
-      console.error('Failed to execute action plan:', error);
-      setActionError(error.message || 'Could not execute action plan');
+      console.error("Failed to execute action plan:", error);
+      setActionError(error.message || "Could not execute action plan");
       setActionLoading(false);
     }
   };
@@ -535,7 +650,9 @@ function App() {
       />
       <ChatInterface
         conversation={currentConversation}
-        generateActionPlanToggle={generateActionPlanToggleState[currentConversationId] ?? false}
+        generateActionPlanToggle={
+          generateActionPlanToggleState[currentConversationId] ?? false
+        }
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}

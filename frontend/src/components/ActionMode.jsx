@@ -1,13 +1,13 @@
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { api } from '../api';
-import Stage1 from './Stage1';
-import Stage2 from './Stage2';
-import Stage3 from './Stage3';
-import './ActionMode.css';
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { api } from "../api";
+import Stage1 from "./Stage1";
+import Stage2 from "./Stage2";
+import Stage3 from "./Stage3";
+import "./ActionMode.css";
 
 function ActionMode() {
-  const [request, setRequest] = useState('');
+  const [request, setRequest] = useState("");
   const [execute, setExecute] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -25,7 +25,7 @@ function ActionMode() {
     stage4: false,
     execution: false,
   });
-  const [activeTab, setActiveTab] = useState('plan');
+  const [activeTab, setActiveTab] = useState("plan");
 
   const handleExecuteAction = async (e) => {
     e.preventDefault();
@@ -44,18 +44,18 @@ function ActionMode() {
     try {
       await api.executeActionStream(request, execute, (eventType, event) => {
         switch (eventType) {
-          case 'stage1_start':
+          case "stage1_start":
             setLoadingStages((prev) => ({ ...prev, stage1: true }));
             break;
-          case 'stage1_complete':
+          case "stage1_complete":
             setStages((prev) => ({ ...prev, stage1: event.data }));
             setLoadingStages((prev) => ({ ...prev, stage1: false }));
             break;
 
-          case 'stage2_start':
+          case "stage2_start":
             setLoadingStages((prev) => ({ ...prev, stage2: true }));
             break;
-          case 'stage2_complete':
+          case "stage2_complete":
             setStages((prev) => ({
               ...prev,
               stage2: event.data,
@@ -64,30 +64,30 @@ function ActionMode() {
             setLoadingStages((prev) => ({ ...prev, stage2: false }));
             break;
 
-          case 'stage3_start':
+          case "stage3_start":
             setLoadingStages((prev) => ({ ...prev, stage3: true }));
             break;
-          case 'stage3_complete':
+          case "stage3_complete":
             setStages((prev) => ({ ...prev, stage3: event.data }));
             setLoadingStages((prev) => ({ ...prev, stage3: false }));
             break;
 
-          case 'stage4_action_plan':
+          case "stage4_action_plan":
             setStages((prev) => ({ ...prev, stage4: event.data }));
             setLoadingStages((prev) => ({ ...prev, stage4: false }));
-            setActiveTab('plan');
+            setActiveTab("plan");
             break;
 
-          case 'execution_start':
+          case "execution_start":
             setLoadingStages((prev) => ({ ...prev, execution: true }));
             break;
-          case 'execution_complete':
+          case "execution_complete":
             setStages((prev) => ({ ...prev, execution: event.data }));
             setLoadingStages((prev) => ({ ...prev, execution: false }));
-            setActiveTab('execution');
+            setActiveTab("execution");
             break;
 
-          case 'complete':
+          case "complete":
             setIsLoading(false);
             setResult({
               ...stages,
@@ -96,14 +96,14 @@ function ActionMode() {
             });
             break;
 
-          case 'error':
+          case "error":
             setIsLoading(false);
             setResult({ error: event.message });
             break;
         }
       });
     } catch (error) {
-      console.error('Action execution failed:', error);
+      console.error("Action execution failed:", error);
       setResult({ error: error.message });
       setIsLoading(false);
     }
@@ -128,14 +128,14 @@ function ActionMode() {
           <div className="form-options">
             <div className="checkbox-label">
               <button
-                className={`circular-toggle ${execute ? 'active' : ''}`}
+                className={`circular-toggle ${execute ? "active" : ""}`}
                 onClick={() => setExecute(!execute)}
                 disabled={isLoading}
-                title={execute ? 'Disable execution' : 'Enable execution'}
+                title={execute ? "Disable execution" : "Enable execution"}
               />
               Execute Action Plan
               <span className="checkbox-hint">
-                {execute ? '✓ Will execute' : 'ℹ Plan only'}
+                {execute ? "✓ Will execute" : "ℹ Plan only"}
               </span>
             </div>
 
@@ -144,7 +144,7 @@ function ActionMode() {
               disabled={isLoading || !request.trim()}
               className="submit-btn"
             >
-              {isLoading ? '⏳ Processing...' : '🚀 Execute Council'}
+              {isLoading ? "⏳ Processing..." : "🚀 Execute Council"}
             </button>
           </div>
         </form>
@@ -153,27 +153,41 @@ function ActionMode() {
       {/* Progress Indicators */}
       {(isLoading || stages.stage1) && (
         <div className="progress-indicators">
-          <div className={`indicator ${loadingStages.stage1 ? 'active' : 'done'}`}>
-            {loadingStages.stage1 ? '⏳' : '✓'} Stage 1: Council Approaches
+          <div
+            className={`indicator ${loadingStages.stage1 ? "active" : "done"}`}
+          >
+            {loadingStages.stage1 ? "⏳" : "✓"} Stage 1: Council Approaches
           </div>
           {stages.stage1 && (
-            <div className={`indicator ${loadingStages.stage2 ? 'active' : 'done'}`}>
-              {loadingStages.stage2 ? '⏳' : stages.stage2 ? '✓' : '⏸'} Stage 2: Voting
+            <div
+              className={`indicator ${loadingStages.stage2 ? "active" : "done"}`}
+            >
+              {loadingStages.stage2 ? "⏳" : stages.stage2 ? "✓" : "⏸"} Stage 2:
+              Voting
             </div>
           )}
           {stages.stage2 && (
-            <div className={`indicator ${loadingStages.stage3 ? 'active' : 'done'}`}>
-              {loadingStages.stage3 ? '⏳' : stages.stage3 ? '✓' : '⏸'} Stage 3: Synthesis
+            <div
+              className={`indicator ${loadingStages.stage3 ? "active" : "done"}`}
+            >
+              {loadingStages.stage3 ? "⏳" : stages.stage3 ? "✓" : "⏸"} Stage 3:
+              Synthesis
             </div>
           )}
           {stages.stage3 && (
-            <div className={`indicator ${loadingStages.stage4 ? 'active' : 'done'}`}>
-              {loadingStages.stage4 ? '⏳' : stages.stage4 ? '✓' : '⏸'} Stage 4: Action Plan
+            <div
+              className={`indicator ${loadingStages.stage4 ? "active" : "done"}`}
+            >
+              {loadingStages.stage4 ? "⏳" : stages.stage4 ? "✓" : "⏸"} Stage 4:
+              Action Plan
             </div>
           )}
           {stages.stage4 && execute && (
-            <div className={`indicator ${loadingStages.execution ? 'active' : 'done'}`}>
-              {loadingStages.execution ? '⏳' : stages.execution ? '✓' : '⏸'} Execution
+            <div
+              className={`indicator ${loadingStages.execution ? "active" : "done"}`}
+            >
+              {loadingStages.execution ? "⏳" : stages.execution ? "✓" : "⏸"}{" "}
+              Execution
             </div>
           )}
         </div>
@@ -184,39 +198,39 @@ function ActionMode() {
         <div className="results-container">
           <div className="tabs">
             <button
-              className={`tab ${activeTab === 'stage1' ? 'active' : ''}`}
-              onClick={() => setActiveTab('stage1')}
+              className={`tab ${activeTab === "stage1" ? "active" : ""}`}
+              onClick={() => setActiveTab("stage1")}
             >
               Stage 1: Approaches ({stages.stage1?.length || 0})
             </button>
             {stages.stage2 && (
               <button
-                className={`tab ${activeTab === 'stage2' ? 'active' : ''}`}
-                onClick={() => setActiveTab('stage2')}
+                className={`tab ${activeTab === "stage2" ? "active" : ""}`}
+                onClick={() => setActiveTab("stage2")}
               >
                 Stage 2: Voting
               </button>
             )}
             {stages.stage3 && (
               <button
-                className={`tab ${activeTab === 'stage3' ? 'active' : ''}`}
-                onClick={() => setActiveTab('stage3')}
+                className={`tab ${activeTab === "stage3" ? "active" : ""}`}
+                onClick={() => setActiveTab("stage3")}
               >
                 Stage 3: Synthesis
               </button>
             )}
             {stages.stage4 && (
               <button
-                className={`tab ${activeTab === 'plan' ? 'active' : ''}`}
-                onClick={() => setActiveTab('plan')}
+                className={`tab ${activeTab === "plan" ? "active" : ""}`}
+                onClick={() => setActiveTab("plan")}
               >
                 Stage 4: Action Plan
               </button>
             )}
             {stages.execution && (
               <button
-                className={`tab ${activeTab === 'execution' ? 'active' : ''}`}
-                onClick={() => setActiveTab('execution')}
+                className={`tab ${activeTab === "execution" ? "active" : ""}`}
+                onClick={() => setActiveTab("execution")}
               >
                 Execution Results
               </button>
@@ -224,22 +238,19 @@ function ActionMode() {
           </div>
 
           <div className="tab-content">
-            {activeTab === 'stage1' && stages.stage1 && (
+            {activeTab === "stage1" && stages.stage1 && (
               <Stage1 results={stages.stage1} />
             )}
-            {activeTab === 'stage2' && stages.stage2 && (
-              <Stage2
-                results={stages.stage2}
-                metadata={stages.metadata}
-              />
+            {activeTab === "stage2" && stages.stage2 && (
+              <Stage2 results={stages.stage2} metadata={stages.metadata} />
             )}
-            {activeTab === 'stage3' && stages.stage3 && (
+            {activeTab === "stage3" && stages.stage3 && (
               <Stage3 result={stages.stage3} />
             )}
-            {activeTab === 'plan' && stages.stage4 && (
+            {activeTab === "plan" && stages.stage4 && (
               <ActionPlanDisplay plan={stages.stage4} />
             )}
-            {activeTab === 'execution' && stages.execution && (
+            {activeTab === "execution" && stages.execution && (
               <ExecutionResultsDisplay result={stages.execution} />
             )}
           </div>
@@ -341,10 +352,10 @@ function ExecutionResultsDisplay({ result }) {
               <span className="result-tool">{toolResult.tool}</span>
               <span
                 className={`result-status ${
-                  toolResult.result.success ? 'success' : 'failure'
+                  toolResult.result.success ? "success" : "failure"
                 }`}
               >
-                {toolResult.result.success ? '✓' : '✗'}
+                {toolResult.result.success ? "✓" : "✗"}
               </span>
             </div>
 
@@ -364,7 +375,9 @@ function ExecutionResultsDisplay({ result }) {
                 {toolResult.result.response && (
                   <div className="output-section">
                     <h5>Response</h5>
-                    <pre>{JSON.stringify(toolResult.result.response, null, 2)}</pre>
+                    <pre>
+                      {JSON.stringify(toolResult.result.response, null, 2)}
+                    </pre>
                   </div>
                 )}
               </div>

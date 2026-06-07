@@ -1,32 +1,35 @@
 """FastAPI backend for LLM Council."""
 
+import asyncio
+import json
+import logging
+import uuid
+from typing import Any, Dict, List, Optional
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-import uuid
-import json
-import asyncio
-import logging
 
 from . import storage
 from .council import (
-    run_full_council,
+    calculate_aggregate_rankings,
+    execute_action_plan,
     generate_conversation_title,
+    run_full_council,
+    run_full_council_with_action,
     stage1_collect_responses,
     stage2_collect_rankings,
     stage3_synthesize_final,
-    calculate_aggregate_rankings,
     stage4_generate_action_plan,
-    execute_action_plan,
-    run_full_council_with_action
 )
 
 app = FastAPI(title="LLM Council API")
 
 # Basic logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger("llm_council.backend")
 
 # Enable CORS for local development
@@ -41,16 +44,19 @@ app.add_middleware(
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
+
     pass
 
 
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
+
     content: str
 
 
 class ActionRequest(BaseModel):
     """Request to perform an action with council voting."""
+
     request: str
     execute: bool = True  # Whether to actually execute the action
     conversation_id: Optional[str] = None
@@ -58,11 +64,13 @@ class ActionRequest(BaseModel):
 
 class ExecuteStoredActionRequest(BaseModel):
     """Request to execute an existing action plan stored in a conversation."""
+
     conversation_id: str
 
 
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
+
     id: str
     created_at: str
     title: str
@@ -71,6 +79,7 @@ class ConversationMetadata(BaseModel):
 
 class Conversation(BaseModel):
     """Full conversation with all messages."""
+
     id: str
     created_at: str
     title: str
@@ -135,10 +144,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     # Add assistant message with all stages
     storage.add_assistant_message(
-        conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result
+        conversation_id, stage1_results, stage2_results, stage3_result
     )
 
     # Return the complete response with metadata
@@ -146,7 +152,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         "stage1": stage1_results,
         "stage2": stage2_results,
         "stage3": stage3_result,
-        "metadata": metadata
+        "metadata": metadata,
     }
 
 
@@ -172,7 +178,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
+                title_task = asyncio.create_task(
+                    generate_conversation_title(request.content)
+                )
 
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
@@ -181,13 +189,19 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Stage 2: Collect rankings
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            stage2_results, label_to_model = await stage2_collect_rankings(
+                request.content, stage1_results
+            )
+            aggregate_rankings = calculate_aggregate_rankings(
+                stage2_results, label_to_model
+            )
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize final answer
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
+            stage3_result = await stage3_synthesize_final(
+                request.content, stage1_results, stage2_results
+            )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
@@ -198,10 +212,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Save complete assistant message
             storage.add_assistant_message(
-                conversation_id,
-                stage1_results,
-                stage2_results,
-                stage3_result
+                conversation_id, stage1_results, stage2_results, stage3_result
             )
 
             # Send completion event
@@ -217,7 +228,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
 
 
@@ -229,7 +240,7 @@ async def perform_action(request: ActionRequest):
     Stage 2: Models vote on best approach
     Stage 3: Chairman synthesizes
     Stage 4: Generate and execute MCP tool calls
-    
+
     Returns the complete result with execution details.
     """
     if request.conversation_id is not None:
@@ -244,7 +255,9 @@ async def perform_action(request: ActionRequest):
             storage.update_conversation_title(request.conversation_id, title)
 
     try:
-        result = await run_full_council_with_action(request.request, execute=request.execute)
+        result = await run_full_council_with_action(
+            request.request, execute=request.execute
+        )
 
         if request.conversation_id is not None:
             storage.add_assistant_message(
@@ -254,7 +267,7 @@ async def perform_action(request: ActionRequest):
                 result["stage3"],
                 stage4=result.get("stage4_action_plan"),
                 execution=result.get("execution"),
-                action_request=request.request
+                action_request=request.request,
             )
 
         return result
@@ -280,7 +293,9 @@ async def perform_action_stream(request: ActionRequest):
             if request.conversation_id is not None:
                 storage.add_user_message(request.conversation_id, request.request)
                 if is_first_message:
-                    title_task = asyncio.create_task(generate_conversation_title(request.request))
+                    title_task = asyncio.create_task(
+                        generate_conversation_title(request.request)
+                    )
                 else:
                     title_task = None
             else:
@@ -297,18 +312,26 @@ async def perform_action_stream(request: ActionRequest):
 
             # Stage 2: Collect rankings
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.request, stage1_results)
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            stage2_results, label_to_model = await stage2_collect_rankings(
+                request.request, stage1_results
+            )
+            aggregate_rankings = calculate_aggregate_rankings(
+                stage2_results, label_to_model
+            )
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.request, stage1_results, stage2_results)
+            stage3_result = await stage3_synthesize_final(
+                request.request, stage1_results, stage2_results
+            )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Stage 4: Generate action plan
             yield f"data: {json.dumps({'type': 'stage4_start'})}\n\n"
-            action_plan_result = await stage4_generate_action_plan(request.request, stage1_results, aggregate_rankings)
+            action_plan_result = await stage4_generate_action_plan(
+                request.request, stage1_results, aggregate_rankings
+            )
             yield f"data: {json.dumps({'type': 'stage4_action_plan', 'data': action_plan_result})}\n\n"
 
             execution_result = None
@@ -326,7 +349,7 @@ async def perform_action_stream(request: ActionRequest):
                     stage3_result,
                     stage4=action_plan_result,
                     execution=execution_result,
-                    action_request=request.request
+                    action_request=request.request,
                 )
 
             if title_task:
@@ -345,7 +368,7 @@ async def perform_action_stream(request: ActionRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
 
 
@@ -366,7 +389,9 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
             break
 
     if action_message is None:
-        raise HTTPException(status_code=400, detail="No stored action plan found in conversation")
+        raise HTTPException(
+            status_code=400, detail="No stored action plan found in conversation"
+        )
 
     async def event_generator():
         try:
@@ -374,7 +399,7 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
             execution_result = await execute_action_plan(action_message["stage4"])
             storage.update_last_assistant_message(
                 request.conversation_id,
-                lambda msg: {**msg, "execution": execution_result}
+                lambda msg: {**msg, "execution": execution_result},
             )
             yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
@@ -387,10 +412,11 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-        }
+        },
     )
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001)
