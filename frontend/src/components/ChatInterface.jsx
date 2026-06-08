@@ -300,7 +300,7 @@ export default function ChatInterface({
           ))
         )}
 
-        {isLoading && (
+        {(isLoading || actionLoading) && (
           <div className="loading-indicator">
             <div className="spinner"></div>
             <span>Consulting the council...</span>
