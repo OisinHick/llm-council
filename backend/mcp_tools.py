@@ -1,14 +1,65 @@
 """MCP Tools for the LLM Council - handles actual action execution."""
 
 import asyncio
+import inspect
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.session import ClientSession
 
 
 class MCPToolExecutor:
     """Handles execution of MCP tools called by the council."""
+
+    def __init__(self):
+        self.mcp_clients: Dict[str, ClientSession] = {}
+        self._exit_stack = AsyncExitStack()
+        self.mcp_tools = []
+        self._connected = False
+
+    async def connect_mcp_servers(self):
+        """Connect to configured external MCP servers."""
+        if self._connected:
+            return
+            
+        import os
+        try:
+            from .config import MCP_SERVERS
+        except ImportError:
+            MCP_SERVERS = {}
+            
+        for name, config in MCP_SERVERS.items():
+            try:
+                server_params = StdioServerParameters(
+                    command=config["command"],
+                    args=config.get("args", []),
+                    env={**os.environ}
+                )
+                stdio_transport = await self._exit_stack.enter_async_context(stdio_client(server_params))
+                read, write = stdio_transport
+                session = await self._exit_stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                self.mcp_clients[name] = session
+                
+                # Fetch tools
+                tools_result = await session.list_tools()
+                for t in tools_result.tools:
+                    self.mcp_tools.append({
+                        "server": name,
+                        "tool": t,
+                        "name": t.name,
+                        "description": t.description
+                    })
+            except Exception as e:
+                print(f"Error connecting to MCP server {name}: {e}")
+                
+        self._connected = True
+
+    async def _ensure_connected(self):
+        await self.connect_mcp_servers()
 
     async def execute_command(self, command: str, timeout: int = 30) -> Dict[str, Any]:
         """
@@ -153,35 +204,48 @@ class MCPToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def get_tool_descriptions(self) -> str:
+    async def get_tool_descriptions(self) -> str:
         """
         Dynamically discover available tools and return their descriptions.
         """
-        import inspect
+        await self._ensure_connected()
         
         descriptions = []
         index = 1
+        # Local tools
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
-            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"]:
+            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names", "connect_mcp_servers"]:
                 doc = inspect.getdoc(method)
                 if doc:
                     first_line = doc.strip().split("\n")[0]
                     descriptions.append(f"{index}. {name} - {first_line}")
                     index += 1
+                    
+        # Remote MCP tools
+        for t in self.mcp_tools:
+            descriptions.append(f"{index}. {t['name']} (from {t['server']}) - {t['description']}")
+            index += 1
         
         if not descriptions:
             return "No tools available."
         return "\n".join(descriptions)
 
-    def get_tool_names(self) -> List[str]:
+    async def get_tool_names(self) -> List[str]:
         """
         Dynamically discover available tools and return their names.
         """
-        import inspect
+        await self._ensure_connected()
+        
         names = []
+        # Local tools
         for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
-            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"]:
+            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names", "connect_mcp_servers"]:
                 names.append(name)
+                
+        # Remote MCP tools
+        for t in self.mcp_tools:
+            names.append(t["name"])
+            
         return names
 
     async def execute_tools(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -194,7 +258,7 @@ class MCPToolExecutor:
         Returns:
             Dict with execution results
         """
-        import inspect
+        await self._ensure_connected()
         
         results = []
 
@@ -203,12 +267,38 @@ class MCPToolExecutor:
             params = call.get("params", {})
 
             try:
-                # Dynamic execution
-                if hasattr(self, tool_name) and callable(getattr(self, tool_name)) and tool_name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"] and not tool_name.startswith("_"):
+                # Local tool execution
+                if hasattr(self, tool_name) and callable(getattr(self, tool_name)) and tool_name not in ["execute_tools", "get_tool_descriptions", "get_tool_names", "connect_mcp_servers"] and not tool_name.startswith("_"):
                     method = getattr(self, tool_name)
                     result = await method(**params)
                 else:
-                    result = {"success": False, "error": f"Unknown tool: {tool_name}"}
+                    # Remote MCP tool execution
+                    remote_tool = next((t for t in self.mcp_tools if t["name"] == tool_name), None)
+                    if remote_tool:
+                        session = self.mcp_clients[remote_tool["server"]]
+                        try:
+                            mcp_result = await session.call_tool(tool_name, arguments=params)
+                            
+                            content = []
+                            is_error = mcp_result.isError
+                            
+                            for item in mcp_result.content:
+                                if hasattr(item, "text"):
+                                    content.append(item.text)
+                                else:
+                                    content.append(str(item))
+                                    
+                            result_text = "\n".join(content)
+                            
+                            result = {
+                                "success": not is_error,
+                                "output": result_text,
+                                "raw_result": mcp_result.model_dump() if hasattr(mcp_result, "model_dump") else str(mcp_result)
+                            }
+                        except Exception as e:
+                            result = {"success": False, "error": f"MCP execution error: {str(e)}"}
+                    else:
+                        result = {"success": False, "error": f"Unknown tool: {tool_name}"}
 
                 results.append({"tool": tool_name, "params": params, "result": result})
             except Exception as e:

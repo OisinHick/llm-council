@@ -381,8 +381,8 @@ async def stage4_generate_action_plan(
         return {"success": False, "error": "Could not find the best response"}
 
     # Dynamically discover available tools
-    tool_descriptions = executor.get_tool_descriptions()
-    tool_names = executor.get_tool_names()
+    tool_descriptions = await executor.get_tool_descriptions()
+    tool_names = await executor.get_tool_names()
     tool_names_str = "|".join(tool_names) if tool_names else "unknown_tool"
 
     # Create prompt for action generation

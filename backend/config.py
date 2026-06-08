@@ -26,3 +26,11 @@ CHAIRMAN_MODEL = "stepfun/step-3.7-flash"
 
 # OpenRouter API endpoint
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# MCP Servers Configuration
+MCP_SERVERS = {
+    "kali-tools": {
+        "command": "uvx",
+        "args": ["zebbern-kali-mcp"]
+    }
+}
