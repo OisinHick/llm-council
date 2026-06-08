@@ -153,6 +153,37 @@ class MCPToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def get_tool_descriptions(self) -> str:
+        """
+        Dynamically discover available tools and return their descriptions.
+        """
+        import inspect
+        
+        descriptions = []
+        index = 1
+        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
+            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"]:
+                doc = inspect.getdoc(method)
+                if doc:
+                    first_line = doc.strip().split("\n")[0]
+                    descriptions.append(f"{index}. {name} - {first_line}")
+                    index += 1
+        
+        if not descriptions:
+            return "No tools available."
+        return "\n".join(descriptions)
+
+    def get_tool_names(self) -> List[str]:
+        """
+        Dynamically discover available tools and return their names.
+        """
+        import inspect
+        names = []
+        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
+            if not name.startswith("_") and name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"]:
+                names.append(name)
+        return names
+
     async def execute_tools(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Execute a list of tool calls from the council decision.
@@ -163,6 +194,8 @@ class MCPToolExecutor:
         Returns:
             Dict with execution results
         """
+        import inspect
+        
         results = []
 
         for call in tool_calls:
@@ -170,14 +203,10 @@ class MCPToolExecutor:
             params = call.get("params", {})
 
             try:
-                if tool_name == "execute_command":
-                    result = await self.execute_command(**params)
-                elif tool_name == "read_file":
-                    result = await self.read_file(**params)
-                elif tool_name == "write_file":
-                    result = await self.write_file(**params)
-                elif tool_name == "http_request":
-                    result = await self.http_request(**params)
+                # Dynamic execution
+                if hasattr(self, tool_name) and callable(getattr(self, tool_name)) and tool_name not in ["execute_tools", "get_tool_descriptions", "get_tool_names"] and not tool_name.startswith("_"):
+                    method = getattr(self, tool_name)
+                    result = await method(**params)
                 else:
                     result = {"success": False, "error": f"Unknown tool: {tool_name}"}
 

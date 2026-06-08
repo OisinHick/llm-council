@@ -380,6 +380,11 @@ async def stage4_generate_action_plan(
     if not best_response:
         return {"success": False, "error": "Could not find the best response"}
 
+    # Dynamically discover available tools
+    tool_descriptions = executor.get_tool_descriptions()
+    tool_names = executor.get_tool_names()
+    tool_names_str = "|".join(tool_names) if tool_names else "unknown_tool"
+
     # Create prompt for action generation
     action_prompt = f"""You are an expert at converting natural language requests into executable actions.
 
@@ -390,10 +395,7 @@ The council's best solution (voted by AI peers) is:
 
 Based on this solution, generate the specific MCP tool calls needed to execute it.
 You can use these tools:
-1. execute_command - Run shell/system commands
-2. read_file - Read file contents
-3. write_file - Write or append to files
-4. http_request - Make HTTP API calls
+{tool_descriptions}
 
 CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this exact structure:
 {{
@@ -401,7 +403,7 @@ CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this e
   "reasoning": "Why this approach solves the problem",
   "tool_calls": [
     {{
-      "tool": "execute_command|read_file|write_file|http_request",
+      "tool": "{tool_names_str}",
       "params": {{
         // Parameters specific to the tool - see examples below
       }},
