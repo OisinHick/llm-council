@@ -390,7 +390,7 @@ The council's best solution (voted by AI peers) is:
 
 Based on this solution, generate the specific MCP tool calls needed to execute it.
 You can use these tools:
-1. execute_command - Run shell/system commands (ideal for Kali Linux tools)
+1. execute_command - Run shell/system commands
 2. read_file - Read file contents
 3. write_file - Write or append to files
 4. http_request - Make HTTP API calls
@@ -411,7 +411,7 @@ CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this e
 }}
 
 Tool parameter examples:
-- execute_command: {{"command": "nmap -sV 192.168.1.0/24"}}
+- execute_command: {{"command": "ls -la /tmp"}}
 - read_file: {{"path": "/path/to/file"}}
 - write_file: {{"path": "/path/to/file", "content": "text", "mode": "write|append"}}
 - http_request: {{"method": "GET", "url": "https://api.example.com/...", "headers": {{}}, "data": null}}

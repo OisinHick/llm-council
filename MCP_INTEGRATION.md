@@ -16,13 +16,13 @@ The 4-stage system allows you to ask the council to perform tasks, have them vot
 
 ### API Endpoint: `/api/action`
 
-Send a JSON request with your task:
+Send a JSON request with your general automation task:
 
 ```bash
 curl -X POST http://localhost:8001/api/action \
   -H "Content-Type: application/json" \
   -d '{
-    "request": "Scan the network for open ports on 192.168.1.0/24 and save results to a file",
+    "request": "List files in the home directory and save the output to a summary file",
     "execute": true
   }'
 ```

@@ -44,7 +44,7 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
   - `write_file()`: Write or append to files
   - `http_request()`: Make HTTP API calls (GET, POST, etc.)
   - `execute_tools()`: Execute a list of tool calls from action plan
-- Supports Kali Linux tools, file operations, and API integration
+- Supports system commands, file operations, and API integration
 
 **`storage.py`**
 - JSON-based conversation storage in `data/conversations/`
@@ -170,7 +170,8 @@ The system now supports a 4th stage where the council's consensus recommendation
 
 ### Available Tools
 - `execute_command`: Run shell commands (Kali Linux compatible)
-- `read_file`: Read file contents
+- `execute_command`: Run shell/system commands
+- `read_file`: Read file contents from the filesystem
 - `write_file`: Create/modify files
 - `http_request`: Make HTTP API calls
 
