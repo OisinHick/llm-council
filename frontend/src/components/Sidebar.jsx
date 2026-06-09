@@ -13,10 +13,15 @@ export default function Sidebar({
       </div>
 
       <div className="conversation-list">
-        <button 
-          className="new-conversation-btn" 
+        <button
+          className="new-conversation-btn"
           onClick={onNewConversation}
-          style={{ width: '100%', display: 'block', boxSizing: 'border-box', marginBottom: '10px' }}
+          style={{
+            width: "100%",
+            display: "block",
+            boxSizing: "border-box",
+            marginBottom: "10px",
+          }}
         >
           + New Conversation
         </button>

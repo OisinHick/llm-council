@@ -307,8 +307,17 @@ function ActionPlanDisplay({ plan }) {
                 <span className="tool-name">{call.tool}</span>
                 <span className="tool-desc">{call.description}</span>
               </div>
-              <div className="tool-params">
-                <pre>{JSON.stringify(call.params, null, 2)}</pre>
+              <div className="tool-params formatted-params">
+                {Object.entries(call.params || {}).map(([key, value]) => (
+                  <div key={key} className="param-row">
+                    <span className="param-key">{key}</span>
+                    <span className="param-value">
+                      {typeof value === "object"
+                        ? JSON.stringify(value, null, 2)
+                        : String(value)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

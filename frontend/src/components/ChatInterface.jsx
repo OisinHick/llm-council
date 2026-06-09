@@ -172,9 +172,22 @@ export default function ChatInterface({
                                     <strong>{call.tool}</strong>
                                     <span>{call.description}</span>
                                   </div>
-                                  <pre>
-                                    {JSON.stringify(call.params, null, 2)}
-                                  </pre>
+                                  <div className="formatted-params">
+                                    {Object.entries(call.params || {}).map(
+                                      ([key, value]) => (
+                                        <div key={key} className="param-row">
+                                          <span className="param-key">
+                                            {key}
+                                          </span>
+                                          <span className="param-value">
+                                            {typeof value === "object"
+                                              ? JSON.stringify(value, null, 2)
+                                              : String(value)}
+                                          </span>
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
                                 </div>
                               ),
                             )}

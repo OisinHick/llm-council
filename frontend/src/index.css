@@ -95,10 +95,46 @@ body {
   background: none;
   padding: 0;
 }
-
 .markdown-content blockquote {
   margin: 0 0 12px 0;
   padding-left: 16px;
   border-left: 4px solid #ddd;
   color: #666;
+}
+
+/* Formatted Params */
+.formatted-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.param-key {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.param-value {
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  color: #334155;
+  word-break: break-word;
+  white-space: pre-wrap;
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
 }
