@@ -50,7 +50,8 @@
 }
 
 .new-conversation-btn {
-  width: 100%;
+  width: calc(100% - 32px);
+  margin: 16px;
   padding: 10px;
   background: #4a90e2;
   border: 1px solid #4a90e2;
@@ -60,7 +61,6 @@
   font-size: 14px;
   transition: background 0.2s;
   font-weight: 500;
-  margin: 12px 0;
 }
 
 .new-conversation-btn:hover {
