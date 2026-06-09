@@ -12,15 +12,11 @@ export default function Sidebar({
         <h1>LLM Council</h1>
       </div>
 
-      <div className="conversation-list">
-        <button 
-          className="new-conversation-btn" 
-          onClick={onNewConversation}
-          style={{ width: '100%', display: 'block', boxSizing: 'border-box', marginBottom: '10px' }}
-        >
-          + New Conversation
-        </button>
+      <button className="new-conversation-btn" onClick={onNewConversation}>
+        + New Conversation
+      </button>
 
+      <div className="conversation-list">
         {conversations.length === 0 ? (
           <div className="no-conversations">No conversations yet</div>
         ) : (
