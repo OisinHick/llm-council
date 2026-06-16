@@ -1,5 +1,6 @@
 """Manager for connecting to and orchestrating multiple stdio-based MCP servers."""
 
+import base64
 import json
 import logging
 from contextlib import AsyncExitStack
@@ -53,7 +54,6 @@ class MCPClientManager:
             try:
                 # Wrap the server invocation in a python filter script that swallows non-JSON lines
                 # from stdout (e.g. npm installs, node version warnings, progress bars).
-                import base64
                 full_cmd = [command] + args
                 
                 filter_script = f"""

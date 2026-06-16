@@ -1,5 +1,6 @@
 """OpenRouter API client for making LLM requests."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -73,8 +74,6 @@ async def query_models_parallel(
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
-    import asyncio
-
     # Create tasks for all models
     tasks = [asyncio.create_task(query_model(model, messages)) for model in models]
 

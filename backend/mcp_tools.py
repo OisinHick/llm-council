@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
+from .mcp_client_manager import mcp_manager
+
 
 class MCPToolExecutor:
     """Handles execution of MCP tools called by the council."""
@@ -188,7 +190,6 @@ class MCPToolExecutor:
                         }
                 else:
                     # Route to external MCP server
-                    from .mcp_client_manager import mcp_manager
                     result = await mcp_manager.call_tool(
                         server_name, tool_name, params
                     )

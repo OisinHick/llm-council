@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
 from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
@@ -226,8 +227,6 @@ def calculate_aggregate_rankings(
     Returns:
         List of dicts with model name and average rank, sorted best to worst
     """
-    from collections import defaultdict
-
     # Track positions for each model
     model_positions = defaultdict(list)
 

@@ -13,7 +13,7 @@ const tryParseJSON = (str) => {
     if (parsed && typeof parsed === "object") {
       return parsed;
     }
-  } catch (e) {
+  } catch {
     // Not JSON
   }
   return null;
@@ -397,7 +397,7 @@ export default function ChatInterface({
                                   {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
                                     <div className="formatted-params">
                                       {Object.entries(call.params)
-                                        .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                        .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
                                         .map(([key, value]) => (
                                           <div key={key} className="param-row">
                                             <span className="param-key">
@@ -478,7 +478,7 @@ export default function ChatInterface({
                                 <h5>Parameters</h5>
                                 <div className="formatted-params">
                                   {Object.entries(toolResult.params)
-                                    .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                    .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
                                     .map(([key, value]) => (
                                       <div key={key} className="param-row">
                                         <span className="param-key">{key}</span>
@@ -630,7 +630,7 @@ export default function ChatInterface({
                             {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
                               <div className="formatted-params">
                                 {Object.entries(call.params)
-                                  .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                  .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
                                   .map(([key, value]) => (
                                     <div key={key} className="param-row">
                                       <span className="param-key">{key}</span>
@@ -709,12 +709,12 @@ export default function ChatInterface({
                         </span>
                       </div>
 
-                      {toolResult.params && Object.keys(toolResult.params).filter(key => toolResult.params[key] !== null && toolResult.params[key] !== undefined && toolResult.params[key] !== "").length > 0 && (
+                      {toolResult.params && Object.entries(toolResult.params).filter(entry => entry[1] !== null && entry[1] !== undefined && entry[1] !== "").length > 0 && (
                         <div className="output-section">
                           <h5>Parameters</h5>
                           <div className="formatted-params">
                             {Object.entries(toolResult.params)
-                              .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                              .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
                               .map(([key, value]) => (
                                 <div key={key} className="param-row">
                                   <span className="param-key">{key}</span>
