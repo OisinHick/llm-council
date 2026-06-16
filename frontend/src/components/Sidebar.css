@@ -36,31 +36,77 @@
   color: #0f172a;
 }
 
-/* Appearance Settings Panel */
-.appearance-settings-panel {
-  position: absolute;
-  top: 55px;
-  left: 16px;
-  right: 16px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  z-index: 10;
+/* Appearance Settings Modal */
+.settings-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.5); /* Slate backdrop with blur */
+  backdrop-filter: blur(4px);
+  z-index: 1000;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  animation: slideDownFade 0.2s ease-out;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
 }
 
-.appearance-settings-panel h3 {
+.settings-modal-content {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.05);
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.settings-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.settings-modal-header h3 {
   margin: 0;
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 700;
-  color: #475569;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: #0f172a;
+}
+
+.close-settings-btn {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  cursor: pointer;
+  color: #94a3b8;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-settings-btn:hover {
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+.settings-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .settings-field {
@@ -71,7 +117,7 @@
 }
 
 .settings-field label {
-  font-size: 12px;
+  font-size: 13px;
   color: #475569;
   font-weight: 500;
 }
@@ -88,12 +134,12 @@
 
 .reset-colors-btn {
   width: 100%;
-  padding: 6px 12px;
+  padding: 8px 12px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   color: #475569;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -103,17 +149,6 @@
 .reset-colors-btn:hover {
   background: #e2e8f0;
   color: #0f172a;
-}
-
-@keyframes slideDownFade {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 

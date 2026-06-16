@@ -52,31 +52,44 @@ export default function Sidebar({
           ⚙️
         </button>
         {showSettings && (
-          <div className="appearance-settings-panel">
-            <h3>Appearance</h3>
-            <div className="settings-field">
-              <label>LLM Council Color</label>
-              <input 
-                type="color" 
-                value={assistantColor} 
-                onChange={handleAssistantColorChange} 
-              />
+          <div className="settings-modal-backdrop" onClick={() => setShowSettings(false)}>
+            <div className="settings-modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="settings-modal-header">
+                <h3>Appearance Settings</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(false)}
+                  className="close-settings-btn"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="settings-modal-body">
+                <div className="settings-field">
+                  <label>LLM Council Color</label>
+                  <input 
+                    type="color" 
+                    value={assistantColor} 
+                    onChange={handleAssistantColorChange} 
+                  />
+                </div>
+                <div className="settings-field">
+                  <label>User Message Color</label>
+                  <input 
+                    type="color" 
+                    value={userColor} 
+                    onChange={handleUserColorChange} 
+                  />
+                </div>
+                <button 
+                  type="button" 
+                  className="reset-colors-btn" 
+                  onClick={handleResetColors}
+                >
+                  Reset Defaults
+                </button>
+              </div>
             </div>
-            <div className="settings-field">
-              <label>User Message Color</label>
-              <input 
-                type="color" 
-                value={userColor} 
-                onChange={handleUserColorChange} 
-              />
-            </div>
-            <button 
-              type="button" 
-              className="reset-colors-btn" 
-              onClick={handleResetColors}
-            >
-              Reset Defaults
-            </button>
           </div>
         )}
       </div>
