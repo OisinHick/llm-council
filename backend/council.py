@@ -5,8 +5,10 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
+from .mcp_client_manager import mcp_manager
 from .mcp_tools import executor
 from .openrouter import query_model, query_models_parallel
+
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -378,6 +380,29 @@ async def stage4_generate_action_plan(
     if not best_response:
         return {"success": False, "error": "Could not find the best response"}
 
+    # Gather external tools from the manager
+    external_tools = await mcp_manager.get_available_tools()
+
+    # Document local legacy tools
+    tools_doc = """1. Local Tools (server: "local"):
+   - execute_command: Run shell/system commands (ideal for Kali Linux tools)
+     Parameters: {"command": str, "timeout": int (optional, default 30)}
+   - read_file: Read file contents from filesystem
+     Parameters: {"path": str}
+   - write_file: Create/modify files
+     Parameters: {"path": str, "content": str, "mode": "write"|"append" (optional, default "write")}
+   - http_request: Send HTTP requests to external APIs
+     Parameters: {"method": "GET"|"POST"|..., "url": str, "headers": dict (optional), "data": dict (optional), "timeout": int (optional)}
+"""
+
+    # Document dynamically loaded external tools
+    if external_tools:
+        tools_doc += "\n2. External MCP Server Tools:\n"
+        for i, tool in enumerate(external_tools, 1):
+            tools_doc += f"   - {tool['name']} (server: \"{tool['server']}\")\n"
+            tools_doc += f"     Description: {tool['description']}\n"
+            tools_doc += f"     Parameters Schema: {json.dumps(tool['input_schema'])}\n"
+
     # Create prompt for action generation
     action_prompt = f"""You are an expert at converting natural language requests into executable actions.
 
@@ -386,12 +411,9 @@ The user wants: {user_request}
 The council's best solution (voted by AI peers) is:
 {best_response}
 
-Based on this solution, generate the specific MCP tool calls needed to execute it.
+Based on this solution, generate the specific tool calls needed to execute it.
 You can use these tools:
-1. execute_command - Run shell/system commands (ideal for Kali Linux tools)
-2. read_file - Read file contents
-3. write_file - Write or append to files
-4. http_request - Make HTTP API calls
+{tools_doc}
 
 CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this exact structure:
 {{
@@ -399,20 +421,15 @@ CRITICAL: Respond with ONLY valid JSON, no other text. The JSON must have this e
   "reasoning": "Why this approach solves the problem",
   "tool_calls": [
     {{
-      "tool": "execute_command|read_file|write_file|http_request",
+      "tool": "tool_name",
+      "server": "local|server_name",
       "params": {{
-        // Parameters specific to the tool - see examples below
+        // parameters satisfying the schema of the tool
       }},
       "description": "What this call does"
     }}
   ]
 }}
-
-Tool parameter examples:
-- execute_command: {{"command": "nmap -sV 192.168.1.0/24"}}
-- read_file: {{"path": "/path/to/file"}}
-- write_file: {{"path": "/path/to/file", "content": "text", "mode": "write|append"}}
-- http_request: {{"method": "GET", "url": "https://api.example.com/...", "headers": {{}}, "data": null}}
 
 Now generate the action plan JSON:"""
 
@@ -450,6 +467,7 @@ Now generate the action plan JSON:"""
         "action_plan": action_plan,
         "best_response_model": best_model_name,
     }
+
 
 
 async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str, Any]:

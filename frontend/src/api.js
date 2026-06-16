@@ -191,4 +191,16 @@ export const api = {
       }
     }
   },
+
+  /**
+   * Get all active tools from connected MCP servers.
+   */
+  async getMcpTools() {
+    const response = await fetch(`${API_BASE}/api/mcp/tools`);
+    if (!response.ok) {
+      throw new Error("Failed to get MCP tools");
+    }
+    return response.json();
+  },
 };
+

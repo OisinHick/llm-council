@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from contextlib import asynccontextmanager
+
 from . import storage
 from .council import (
     calculate_aggregate_rankings,
@@ -23,8 +25,20 @@ from .council import (
     stage3_synthesize_final,
     stage4_generate_action_plan,
 )
+from .mcp_client_manager import mcp_manager
 
-app = FastAPI(title="LLM Council API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start all configured MCP servers on startup
+    await mcp_manager.start_all_servers()
+    yield
+    # Stop all active MCP servers on shutdown
+    await mcp_manager.stop_all_servers()
+
+
+app = FastAPI(title="LLM Council API", lifespan=lifespan)
+
 
 # Basic logging configuration
 logging.basicConfig(
@@ -90,6 +104,17 @@ class Conversation(BaseModel):
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
+
+
+@app.get("/api/mcp/tools")
+async def get_mcp_tools():
+    """Get all available tools from connected MCP servers."""
+    try:
+        tools = await mcp_manager.get_available_tools()
+        return {"success": True, "tools": tools}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])

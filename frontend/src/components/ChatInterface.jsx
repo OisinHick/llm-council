@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
+import { api } from "../api";
 import "./ChatInterface.css";
 
 export default function ChatInterface({
@@ -23,7 +24,24 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState("");
   const [generateActionPlan, setGenerateActionPlan] = useState(false);
+  const [mcpTools, setMcpTools] = useState([]);
+  const [showToolsList, setShowToolsList] = useState(false);
   const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    const fetchTools = async () => {
+      try {
+        const res = await api.getMcpTools();
+        if (res.success) {
+          setMcpTools(res.tools || []);
+        }
+      } catch (err) {
+        console.error("Error loading MCP tools:", err);
+      }
+    };
+    fetchTools();
+  }, [actionLoading, isLoading]);
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -169,7 +187,7 @@ export default function ChatInterface({
                               (call, idx) => (
                                 <div key={idx} className="tool-call">
                                   <div className="tool-call-header">
-                                    <strong>{call.tool}</strong>
+                                    <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
                                     <span>{call.description}</span>
                                   </div>
                                   <div className="formatted-params">
@@ -254,6 +272,12 @@ export default function ChatInterface({
                                       <pre>{toolResult.result.stdout}</pre>
                                     </div>
                                   )}
+                                  {toolResult.result.content && (
+                                    <div className="output-section">
+                                      <h5>Content</h5>
+                                      <pre>{toolResult.result.content}</pre>
+                                    </div>
+                                  )}
                                   {toolResult.result.message && (
                                     <div className="output-section">
                                       <p>{toolResult.result.message}</p>
@@ -272,6 +296,7 @@ export default function ChatInterface({
                                     </div>
                                   )}
                                   {!toolResult.result.stdout &&
+                                    !toolResult.result.content &&
                                     !toolResult.result.message &&
                                     !toolResult.result.response && (
                                       <pre>
@@ -430,7 +455,7 @@ export default function ChatInterface({
                         (call, idx) => (
                           <div key={idx} className="tool-call">
                             <div className="tool-call-header">
-                              <strong>{call.tool}</strong>
+                              <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
                               <span>{call.description}</span>
                             </div>
                             <pre>{JSON.stringify(call.params, null, 2)}</pre>
@@ -503,6 +528,12 @@ export default function ChatInterface({
                                 <pre>{toolResult.result.stdout}</pre>
                               </div>
                             )}
+                            {toolResult.result.content && (
+                              <div className="output-section">
+                                <h5>Content</h5>
+                                <pre>{toolResult.result.content}</pre>
+                              </div>
+                            )}
                             {toolResult.result.message && (
                               <div className="output-section">
                                 <p>{toolResult.result.message}</p>
@@ -521,6 +552,7 @@ export default function ChatInterface({
                               </div>
                             )}
                             {!toolResult.result.stdout &&
+                              !toolResult.result.content &&
                               !toolResult.result.message &&
                               !toolResult.result.response && (
                                 <pre>
@@ -554,6 +586,43 @@ export default function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
+      {showToolsList && (
+        <div className="mcp-tools-overlay">
+          <div className="mcp-tools-header">
+            <h4>Active MCP Tools ({mcpTools.length})</h4>
+            <button
+              type="button"
+              onClick={() => setShowToolsList(false)}
+              className="close-overlay-btn"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mcp-tools-list">
+            {mcpTools.length === 0 ? (
+              <p className="no-tools-text">
+                No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+              </p>
+            ) : (
+              mcpTools.map((tool, index) => (
+                <div key={index} className="mcp-tool-item">
+                  <div className="mcp-tool-meta">
+                    <span className="mcp-tool-server-badge">{tool.server}</span>
+                    <strong className="mcp-tool-name">{tool.name}</strong>
+                  </div>
+                  <p className="mcp-tool-desc">{tool.description}</p>
+                  {tool.input_schema && (
+                    <pre className="mcp-tool-schema">
+                      {JSON.stringify(tool.input_schema, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       <form className="input-form" onSubmit={handleSubmit}>
         <div className="input-row">
           <textarea
@@ -567,6 +636,20 @@ export default function ChatInterface({
           />
 
           <div className="input-actions">
+            <div
+              className="mcp-status"
+              onClick={() => setShowToolsList(!showToolsList)}
+              title="Click to view all active MCP tools"
+            >
+              <span
+                className={`status-dot ${mcpTools.length > 0 ? "connected" : ""}`}
+              ></span>
+              <span>
+                {mcpTools.length} Active MCP{" "}
+                {mcpTools.length === 1 ? "Tool" : "Tools"}
+              </span>
+            </div>
+
             <div className="generate-toggle">
               <button
                 type="button"

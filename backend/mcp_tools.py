@@ -167,25 +167,45 @@ class MCPToolExecutor:
 
         for call in tool_calls:
             tool_name = call.get("tool")
+            server_name = call.get("server", "local")
             params = call.get("params", {})
 
             try:
-                if tool_name == "execute_command":
-                    result = await self.execute_command(**params)
-                elif tool_name == "read_file":
-                    result = await self.read_file(**params)
-                elif tool_name == "write_file":
-                    result = await self.write_file(**params)
-                elif tool_name == "http_request":
-                    result = await self.http_request(**params)
+                if server_name == "local":
+                    # Run legacy local tools
+                    if tool_name == "execute_command":
+                        result = await self.execute_command(**params)
+                    elif tool_name == "read_file":
+                        result = await self.read_file(**params)
+                    elif tool_name == "write_file":
+                        result = await self.write_file(**params)
+                    elif tool_name == "http_request":
+                        result = await self.http_request(**params)
+                    else:
+                        result = {
+                            "success": False,
+                            "error": f"Unknown local tool: {tool_name}",
+                        }
                 else:
-                    result = {"success": False, "error": f"Unknown tool: {tool_name}"}
+                    # Route to external MCP server
+                    from .mcp_client_manager import mcp_manager
+                    result = await mcp_manager.call_tool(
+                        server_name, tool_name, params
+                    )
 
-                results.append({"tool": tool_name, "params": params, "result": result})
+                results.append(
+                    {
+                        "tool": tool_name,
+                        "server": server_name,
+                        "params": params,
+                        "result": result,
+                    }
+                )
             except Exception as e:
                 results.append(
                     {
                         "tool": tool_name,
+                        "server": server_name,
                         "params": params,
                         "result": {"success": False, "error": str(e)},
                     }
