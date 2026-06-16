@@ -45,7 +45,7 @@
 .assistant-message {
   margin-bottom: 16px;
   padding: 18px;
-  background: #f6f9ff;
+  background: var(--assistant-bg, #f6f9ff);
   border: 1px solid #e1e7f3;
   border-radius: 14px;
   min-width: 0;
@@ -84,7 +84,7 @@
 }
 
 .user-message .message-content {
-  background: #f0f7ff;
+  background: var(--user-bg, #f0f7ff);
   padding: 16px;
   border-radius: 8px;
   border: 1px solid #d0e7ff;
