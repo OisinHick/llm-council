@@ -42,12 +42,8 @@
   margin-bottom: 32px;
 }
 
-.user-message,
 .assistant-message {
   margin-bottom: 16px;
-}
-
-.assistant-message {
   padding: 18px;
   background: #f6f9ff;
   border: 1px solid #e1e7f3;
@@ -57,6 +53,12 @@
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-wrap: break-word;
+}
+
+.user-message {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
 }
 
 .message-group,
