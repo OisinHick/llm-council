@@ -5,6 +5,12 @@
       "args": [
         "mcp-server-fetch"
       ]
+    },
+    "kali-tools": {
+      "command": "uvx",
+      "args": [
+        "zebbern-kali-mcp"
+      ]
     }
   }
 }

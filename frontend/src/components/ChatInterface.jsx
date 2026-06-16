@@ -6,6 +6,160 @@ import Stage3 from "./Stage3";
 import { api } from "../api";
 import "./ChatInterface.css";
 
+const tryParseJSON = (str) => {
+  if (typeof str !== "string") return null;
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+  } catch (e) {
+    // Not JSON
+  }
+  return null;
+};
+
+const renderFormattedResult = (result) => {
+  if (!result) return null;
+
+  let stdout = result.stdout || "";
+  let stderr = result.stderr || "";
+  let content = result.content || "";
+  let message = result.message || "";
+  let response = result.response || "";
+  let error = result.error || "";
+  let metadata = {};
+
+  // Try parsing content
+  const parsedContent = tryParseJSON(content);
+  if (parsedContent) {
+    if (parsedContent.stdout) stdout = parsedContent.stdout;
+    if (parsedContent.stderr) stderr = parsedContent.stderr;
+    if (parsedContent.message) message = parsedContent.message;
+    if (parsedContent.error) error = parsedContent.error;
+    
+    Object.keys(parsedContent).forEach((key) => {
+      if (!["stdout", "stderr", "message", "error", "content"].includes(key)) {
+        metadata[key] = parsedContent[key];
+      }
+    });
+    content = "";
+  }
+
+  // Try parsing response
+  const parsedResponse = tryParseJSON(response);
+  if (parsedResponse) {
+    if (parsedResponse.stdout) stdout = parsedResponse.stdout;
+    if (parsedResponse.stderr) stderr = parsedResponse.stderr;
+    if (parsedResponse.message) message = parsedResponse.message;
+    if (parsedResponse.error) error = parsedResponse.error;
+    
+    Object.keys(parsedResponse).forEach((key) => {
+      if (!["stdout", "stderr", "message", "error", "response"].includes(key)) {
+        metadata[key] = parsedResponse[key];
+      }
+    });
+    response = "";
+  } else if (response && typeof response === "object") {
+    if (response.stdout) stdout = response.stdout;
+    if (response.stderr) stderr = response.stderr;
+    if (response.message) message = response.message;
+    if (response.error) error = response.error;
+    
+    Object.keys(response).forEach((key) => {
+      if (!["stdout", "stderr", "message", "error"].includes(key)) {
+        metadata[key] = response[key];
+      }
+    });
+    response = "";
+  }
+
+  // Top level fields
+  Object.keys(result).forEach((key) => {
+    if (!["stdout", "stderr", "message", "error", "content", "response", "success"].includes(key)) {
+      metadata[key] = result[key];
+    }
+  });
+
+  return (
+    <div className="formatted-result-container">
+      {message && (
+        <div className="output-section result-message-box">
+          <h5>Message</h5>
+          <p>{message}</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="output-section result-error-box">
+          <h5>Error</h5>
+          <p className="execution-failure">{error}</p>
+        </div>
+      )}
+
+      {stdout && (
+        <div className="output-section result-stdout-box">
+          <h5>Output (stdout)</h5>
+          <pre className="stdout-pre">{stdout}</pre>
+        </div>
+      )}
+
+      {stderr && (
+        <div className="output-section result-stderr-box">
+          <h5>Error Output (stderr)</h5>
+          <pre className="stderr-pre">{stderr}</pre>
+        </div>
+      )}
+
+      {content && (
+        <div className="output-section result-content-box">
+          <h5>Content</h5>
+          <pre className="content-pre">
+            {typeof content === "object" ? JSON.stringify(content, null, 2) : String(content)}
+          </pre>
+        </div>
+      )}
+
+      {response && (
+        <div className="output-section result-response-box">
+          <h5>Response</h5>
+          <pre className="response-pre">
+            {typeof response === "object" ? JSON.stringify(response, null, 2) : String(response)}
+          </pre>
+        </div>
+      )}
+
+      {Object.keys(metadata).length > 0 && (
+        <div className="output-section result-metadata-box">
+          <details className="metadata-details">
+            <summary className="metadata-summary">
+              <h5>Metadata</h5>
+              <span className="expand-icon">▼</span>
+            </summary>
+            <div className="metadata-grid">
+              {Object.entries(metadata).map(([key, val]) => (
+                <div key={key} className="metadata-badge">
+                  <span className="metadata-key">{key}:</span>{" "}
+                  <span className="metadata-value">
+                    {typeof val === "object" ? JSON.stringify(val) : String(val)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+      
+      {!stdout && !stderr && !content && !response && !message && !error && Object.keys(metadata).length === 0 && (
+        <div className="output-section">
+          <h5>Result</h5>
+          <pre>{JSON.stringify(result, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function ChatInterface({
   conversation,
   generateActionPlanToggle,
@@ -190,22 +344,24 @@ export default function ChatInterface({
                                     <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
                                     <span>{call.description}</span>
                                   </div>
-                                  <div className="formatted-params">
-                                    {Object.entries(call.params || {}).map(
-                                      ([key, value]) => (
-                                        <div key={key} className="param-row">
-                                          <span className="param-key">
-                                            {key}
-                                          </span>
-                                          <span className="param-value">
-                                            {typeof value === "object"
-                                              ? JSON.stringify(value, null, 2)
-                                              : String(value)}
-                                          </span>
-                                        </div>
-                                      ),
-                                    )}
-                                  </div>
+                                  {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
+                                    <div className="formatted-params">
+                                      {Object.entries(call.params)
+                                        .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                        .map(([key, value]) => (
+                                          <div key={key} className="param-row">
+                                            <span className="param-key">
+                                              {key}
+                                            </span>
+                                            <span className="param-value">
+                                              {typeof value === "object"
+                                                ? JSON.stringify(value, null, 2)
+                                                : String(value)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  )}
                                 </div>
                               ),
                             )}
@@ -256,76 +412,39 @@ export default function ChatInterface({
                         (toolResult, idx) => (
                           <div key={idx} className="tool-result">
                             <div className="result-header">
-                              <strong>{toolResult.tool}</strong>
-                              <span>
-                                {toolResult.result.success
-                                  ? "Success"
-                                  : "Failure"}
+                              <strong>
+                                {toolResult.tool}
+                                {toolResult.server && toolResult.server !== "local" && (
+                                  <span className="server-tag">({toolResult.server})</span>
+                                )}
+                              </strong>
+                              <span className={toolResult.result.success ? "execution-success" : "execution-failure"}>
+                                {toolResult.result.success ? "✓ Success" : "✗ Failure"}
                               </span>
                             </div>
-                            <div className="result-output">
-                              {toolResult.result.success ? (
-                                <>
-                                  {toolResult.result.stdout && (
-                                    <div className="output-section">
-                                      <h5>Output</h5>
-                                      <pre>{toolResult.result.stdout}</pre>
-                                    </div>
-                                  )}
-                                  {toolResult.result.content && (
-                                    <div className="output-section">
-                                      <h5>Content</h5>
-                                      <pre>{toolResult.result.content}</pre>
-                                    </div>
-                                  )}
-                                  {toolResult.result.message && (
-                                    <div className="output-section">
-                                      <p>{toolResult.result.message}</p>
-                                    </div>
-                                  )}
-                                  {toolResult.result.response && (
-                                    <div className="output-section">
-                                      <h5>Response</h5>
-                                      <pre>
-                                        {JSON.stringify(
-                                          toolResult.result.response,
-                                          null,
-                                          2,
-                                        )}
-                                      </pre>
-                                    </div>
-                                  )}
-                                  {!toolResult.result.stdout &&
-                                    !toolResult.result.content &&
-                                    !toolResult.result.message &&
-                                    !toolResult.result.response && (
-                                      <pre>
-                                        {JSON.stringify(
-                                          toolResult.result,
-                                          null,
-                                          2,
-                                        )}
-                                      </pre>
-                                    )}
-                                </>
-                              ) : (
-                                <div className="error-output">
-                                  {toolResult.result.error && (
-                                    <p>{toolResult.result.error}</p>
-                                  )}
-                                  {toolResult.result.stderr ? (
-                                    <pre>{toolResult.result.stderr}</pre>
-                                  ) : (
-                                    <pre>
-                                      {JSON.stringify(
-                                        toolResult.result,
-                                        null,
-                                        2,
-                                      )}
-                                    </pre>
-                                  )}
+
+                            {toolResult.params && Object.keys(toolResult.params).filter(key => toolResult.params[key] !== null && toolResult.params[key] !== undefined && toolResult.params[key] !== "").length > 0 && (
+                              <div className="output-section">
+                                <h5>Parameters</h5>
+                                <div className="formatted-params">
+                                  {Object.entries(toolResult.params)
+                                    .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                    .map(([key, value]) => (
+                                      <div key={key} className="param-row">
+                                        <span className="param-key">{key}</span>
+                                        <span className="param-value">
+                                          {typeof value === "object"
+                                            ? JSON.stringify(value, null, 2)
+                                            : String(value)}
+                                        </span>
+                                      </div>
+                                    ))}
                                 </div>
-                              )}
+                              </div>
+                            )}
+
+                            <div className="result-output">
+                              {renderFormattedResult(toolResult.result)}
                             </div>
                           </div>
                         ),
@@ -458,7 +577,22 @@ export default function ChatInterface({
                               <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
                               <span>{call.description}</span>
                             </div>
-                            <pre>{JSON.stringify(call.params, null, 2)}</pre>
+                            {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
+                              <div className="formatted-params">
+                                {Object.entries(call.params)
+                                  .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                                  .map(([key, value]) => (
+                                    <div key={key} className="param-row">
+                                      <span className="param-key">{key}</span>
+                                      <span className="param-value">
+                                        {typeof value === "object"
+                                          ? JSON.stringify(value, null, 2)
+                                          : String(value)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
                           </div>
                         ),
                       )}
@@ -514,66 +648,39 @@ export default function ChatInterface({
                   (toolResult, idx) => (
                     <div key={idx} className="tool-result">
                       <div className="result-header">
-                        <strong>{toolResult.tool}</strong>
-                        <span>
-                          {toolResult.result.success ? "Success" : "Failure"}
+                        <strong>
+                          {toolResult.tool}
+                          {toolResult.server && toolResult.server !== "local" && (
+                            <span className="server-tag">({toolResult.server})</span>
+                          )}
+                        </strong>
+                        <span className={toolResult.result.success ? "execution-success" : "execution-failure"}>
+                          {toolResult.result.success ? "✓ Success" : "✗ Failure"}
                         </span>
                       </div>
-                      <div className="result-output">
-                        {toolResult.result.success ? (
-                          <>
-                            {toolResult.result.stdout && (
-                              <div className="output-section">
-                                <h5>Output</h5>
-                                <pre>{toolResult.result.stdout}</pre>
-                              </div>
-                            )}
-                            {toolResult.result.content && (
-                              <div className="output-section">
-                                <h5>Content</h5>
-                                <pre>{toolResult.result.content}</pre>
-                              </div>
-                            )}
-                            {toolResult.result.message && (
-                              <div className="output-section">
-                                <p>{toolResult.result.message}</p>
-                              </div>
-                            )}
-                            {toolResult.result.response && (
-                              <div className="output-section">
-                                <h5>Response</h5>
-                                <pre>
-                                  {JSON.stringify(
-                                    toolResult.result.response,
-                                    null,
-                                    2,
-                                  )}
-                                </pre>
-                              </div>
-                            )}
-                            {!toolResult.result.stdout &&
-                              !toolResult.result.content &&
-                              !toolResult.result.message &&
-                              !toolResult.result.response && (
-                                <pre>
-                                  {JSON.stringify(toolResult.result, null, 2)}
-                                </pre>
-                              )}
-                          </>
-                        ) : (
-                          <div className="error-output">
-                            {toolResult.result.error && (
-                              <p>{toolResult.result.error}</p>
-                            )}
-                            {toolResult.result.stderr ? (
-                              <pre>{toolResult.result.stderr}</pre>
-                            ) : (
-                              <pre>
-                                {JSON.stringify(toolResult.result, null, 2)}
-                              </pre>
-                            )}
+
+                      {toolResult.params && Object.keys(toolResult.params).filter(key => toolResult.params[key] !== null && toolResult.params[key] !== undefined && toolResult.params[key] !== "").length > 0 && (
+                        <div className="output-section">
+                          <h5>Parameters</h5>
+                          <div className="formatted-params">
+                            {Object.entries(toolResult.params)
+                              .filter(([_, value]) => value !== null && value !== undefined && value !== "")
+                              .map(([key, value]) => (
+                                <div key={key} className="param-row">
+                                  <span className="param-key">{key}</span>
+                                  <span className="param-value">
+                                    {typeof value === "object"
+                                      ? JSON.stringify(value, null, 2)
+                                      : String(value)}
+                                  </span>
+                                </div>
+                              ))}
                           </div>
-                        )}
+                        </div>
+                      )}
+
+                      <div className="result-output">
+                        {renderFormattedResult(toolResult.result)}
                       </div>
                     </div>
                   ),
