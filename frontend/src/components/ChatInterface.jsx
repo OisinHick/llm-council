@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
@@ -159,6 +159,56 @@ const renderFormattedResult = (result) => {
     </div>
   );
 };
+
+const McpToolItem = memo(({ tool }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const stringifiedSchema = useMemo(() => {
+    if (!tool.input_schema) return "";
+    return JSON.stringify(tool.input_schema, null, 2);
+  }, [tool.input_schema]);
+
+  return (
+    <div className="mcp-tool-item">
+      <div className="mcp-tool-meta">
+        <span className="mcp-tool-server-badge">{tool.server}</span>
+        <strong className="mcp-tool-name">{tool.name}</strong>
+      </div>
+      <p className="mcp-tool-desc">{tool.description}</p>
+      {tool.input_schema && (
+        <details 
+          className="mcp-schema-details"
+          open={isOpen}
+          onToggle={(e) => setIsOpen(e.target.open)}
+        >
+          <summary className="mcp-schema-summary">
+            <span>Input Schema</span>
+            <span className="expand-icon">▼</span>
+          </summary>
+          {isOpen && (
+            <pre className="mcp-tool-schema">
+              {stringifiedSchema}
+            </pre>
+          )}
+        </details>
+      )}
+    </div>
+  );
+});
+
+const McpToolsList = memo(({ mcpTools }) => {
+  if (mcpTools.length === 0) {
+    return (
+      <p className="no-tools-text">
+        No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+      </p>
+    );
+  }
+
+  return mcpTools.map((tool, index) => (
+    <McpToolItem key={`${tool.server}-${tool.name}-${index}`} tool={tool} />
+  ));
+});
 
 export default function ChatInterface({
   conversation,
@@ -707,32 +757,7 @@ export default function ChatInterface({
               </button>
             </div>
             <div className="mcp-tools-list">
-              {mcpTools.length === 0 ? (
-                <p className="no-tools-text">
-                  No external MCP tools active. Configured tools in mcp_servers.json will appear here.
-                </p>
-              ) : (
-                mcpTools.map((tool, index) => (
-                  <div key={index} className="mcp-tool-item">
-                    <div className="mcp-tool-meta">
-                      <span className="mcp-tool-server-badge">{tool.server}</span>
-                      <strong className="mcp-tool-name">{tool.name}</strong>
-                    </div>
-                    <p className="mcp-tool-desc">{tool.description}</p>
-                    {tool.input_schema && (
-                      <details className="mcp-schema-details">
-                        <summary className="mcp-schema-summary">
-                          <span>Input Schema</span>
-                          <span className="expand-icon">▼</span>
-                        </summary>
-                        <pre className="mcp-tool-schema">
-                          {JSON.stringify(tool.input_schema, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                  </div>
-                ))
-              )}
+              <McpToolsList mcpTools={mcpTools} />
             </div>
           </div>
         </div>

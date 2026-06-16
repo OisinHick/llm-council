@@ -632,6 +632,8 @@
   flex-direction: column;
   padding: 24px;
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 
 .mcp-tools-header {
@@ -673,6 +675,8 @@
   overflow-y: auto;
   margin-top: 16px;
   padding-right: 8px;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 
 .no-tools-text {
