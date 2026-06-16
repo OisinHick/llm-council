@@ -694,38 +694,46 @@ export default function ChatInterface({
       </div>
 
       {showToolsList && (
-        <div className="mcp-tools-overlay">
-          <div className="mcp-tools-header">
-            <h4>Active MCP Tools ({mcpTools.length})</h4>
-            <button
-              type="button"
-              onClick={() => setShowToolsList(false)}
-              className="close-overlay-btn"
-            >
-              ×
-            </button>
-          </div>
-          <div className="mcp-tools-list">
-            {mcpTools.length === 0 ? (
-              <p className="no-tools-text">
-                No external MCP tools active. Configured tools in mcp_servers.json will appear here.
-              </p>
-            ) : (
-              mcpTools.map((tool, index) => (
-                <div key={index} className="mcp-tool-item">
-                  <div className="mcp-tool-meta">
-                    <span className="mcp-tool-server-badge">{tool.server}</span>
-                    <strong className="mcp-tool-name">{tool.name}</strong>
+        <div className="mcp-tools-modal-backdrop" onClick={() => setShowToolsList(false)}>
+          <div className="mcp-tools-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="mcp-tools-header">
+              <h4>Active MCP Tools ({mcpTools.length})</h4>
+              <button
+                type="button"
+                onClick={() => setShowToolsList(false)}
+                className="close-overlay-btn"
+              >
+                ×
+              </button>
+            </div>
+            <div className="mcp-tools-list">
+              {mcpTools.length === 0 ? (
+                <p className="no-tools-text">
+                  No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+                </p>
+              ) : (
+                mcpTools.map((tool, index) => (
+                  <div key={index} className="mcp-tool-item">
+                    <div className="mcp-tool-meta">
+                      <span className="mcp-tool-server-badge">{tool.server}</span>
+                      <strong className="mcp-tool-name">{tool.name}</strong>
+                    </div>
+                    <p className="mcp-tool-desc">{tool.description}</p>
+                    {tool.input_schema && (
+                      <details className="mcp-schema-details">
+                        <summary className="mcp-schema-summary">
+                          <span>Input Schema</span>
+                          <span className="expand-icon">▼</span>
+                        </summary>
+                        <pre className="mcp-tool-schema">
+                          {JSON.stringify(tool.input_schema, null, 2)}
+                        </pre>
+                      </details>
+                    )}
                   </div>
-                  <p className="mcp-tool-desc">{tool.description}</p>
-                  {tool.input_schema && (
-                    <pre className="mcp-tool-schema">
-                      {JSON.stringify(tool.input_schema, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

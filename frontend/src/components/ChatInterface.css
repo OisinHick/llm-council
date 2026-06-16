@@ -604,51 +604,75 @@
   box-shadow: 0 0 6px #67c23a;
 }
 
-.mcp-tools-overlay {
+/* Modal Backdrop & Content Container */
+.mcp-tools-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.5); /* Slate backdrop with blur */
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.mcp-tools-modal-content {
   background: #ffffff;
-  border: 1px solid #dcdfe6;
-  border-radius: 12px;
-  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.08);
-  margin-bottom: 12px;
-  padding: 16px;
-  max-height: 280px;
-  overflow-y: auto;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.05);
+  width: 100%;
+  max-width: 700px;
+  max-height: 80vh;
   display: flex;
   flex-direction: column;
+  padding: 24px;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mcp-tools-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #ebeef5;
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 12px;
 }
 
 .mcp-tools-header h4 {
   margin: 0;
-  font-size: 14px;
-  color: #303133;
+  font-size: 18px !important;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .close-overlay-btn {
   border: none;
   background: transparent;
-  font-size: 20px;
+  font-size: 24px;
   cursor: pointer;
-  color: #909399;
+  color: #94a3b8;
   line-height: 1;
+  padding: 4px;
+  border-radius: 50%;
+  transition: all 0.2s;
 }
 
 .close-overlay-btn:hover {
-  color: #303133;
+  color: #1e293b;
+  background: #f1f5f9;
 }
 
 .mcp-tools-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  overflow-y: auto;
+  margin-top: 16px;
+  padding-right: 8px;
 }
 
 .no-tools-text {
@@ -658,17 +682,24 @@
 }
 
 .mcp-tool-item {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fafafa;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+}
+
+.mcp-tool-item:hover {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .mcp-tool-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .mcp-tool-server-badge {
@@ -682,27 +713,79 @@
 }
 
 .mcp-tool-name {
-  font-size: 13px;
-  color: #303133;
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 600;
 }
 
 .mcp-tool-desc {
-  font-size: 12px;
-  color: #606266;
+  font-size: 13px;
+  color: #475569;
   margin: 4px 0 8px;
-  line-height: 1.4;
+  line-height: 1.5;
+}
+
+.mcp-schema-details {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.mcp-schema-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #f1f5f9;
+  user-select: none;
+  list-style: none;
+}
+
+.mcp-schema-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mcp-schema-summary::marker {
+  display: none;
+  content: "";
+}
+
+.mcp-schema-summary span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.mcp-schema-summary .expand-icon {
+  font-size: 10px;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+
+.mcp-schema-details[open] .mcp-schema-summary {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.mcp-schema-details[open] .expand-icon {
+  transform: rotate(180deg);
 }
 
 .mcp-tool-schema {
-  margin: 0;
-  font-family: monospace;
-  font-size: 11px;
-  color: #555;
-  background: #f4f4f5;
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid #e4e7ed;
-  overflow-x: auto;
+  margin: 0 !important;
+  font-family: Consolas, "Liberation Mono", Courier, monospace !important;
+  font-size: 12px !important;
+  color: #334155 !important;
+  background: #fafafa !important;
+  padding: 12px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  max-height: 250px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .server-tag {
