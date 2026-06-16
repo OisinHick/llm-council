@@ -2,7 +2,11 @@
 
 ## Installation
 
-Install the new dependency:
+Install dependencies using `uv` (recommended):
+```bash
+uv sync
+```
+Or, if you are using pip:
 ```bash
 pip install -e .
 # or
@@ -11,9 +15,11 @@ pip install aiohttp>=3.9.0
 
 ## Start the Backend
 
+Start the FastAPI backend server using `uv`:
 ```bash
-python -m backend.main
+uv run python -m backend.main
 ```
+*(Or, if your virtual environment is active, you can run `python -m backend.main` directly.)*
 
 The API will be available at `http://localhost:8001`
 
@@ -21,8 +27,11 @@ The API will be available at `http://localhost:8001`
 
 ### Option 1: Using the Example Script
 
+Run the example script using `uv`:
 ```bash
-python example_action.py "List all files in /tmp directory"
+uv run python example_action.py "List all files in /tmp directory"
+```
+*(Or `python example_action.py "List all files in /tmp directory"` inside an active environment.)*
 ```
 
 Output shows real-time council voting and execution:
@@ -119,22 +128,22 @@ curl -X POST http://localhost:8001/api/action/stream \
 
 ### Security Assessment
 ```bash
-python example_action.py "Check for common vulnerabilities: open SSH ports, weak sudo config, world-writable directories"
+uv run python example_action.py "Check for common vulnerabilities: open SSH ports, weak sudo config, world-writable directories"
 ```
 
 ### System Monitoring
 ```bash
-python example_action.py "Gather system information: OS, running services, disk usage, and save to /tmp/sysinfo.txt"
+uv run python example_action.py "Gather system information: OS, running services, disk usage, and save to /tmp/sysinfo.txt"
 ```
 
 ### Network Scanning
 ```bash
-python example_action.py "Scan the local network 192.168.1.0/24 for active hosts and save results"
+uv run python example_action.py "Scan the local network 192.168.1.0/24 for active hosts and save results"
 ```
 
 ### File Analysis
 ```bash
-python example_action.py "Find all executable files in /usr/local/bin and create a CSV with permissions"
+uv run python example_action.py "Find all executable files in /usr/local/bin and create a CSV with permissions"
 ```
 
 ## Available Tools

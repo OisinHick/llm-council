@@ -145,18 +145,17 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 3. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
 4. **Missing Metadata**: Metadata is ephemeral (not persisted), only available in API responses
 
-## Future Enhancement Ideas
-
-- Configurable council/chairman via UI instead of config file
-- Streaming responses instead of batch loading
-- Export conversations to markdown/PDF
-- Model performance analytics over time
-- Custom ranking criteria (not just accuracy/insight)
-- Support for reasoning models (o1, etc.) with special handling
-
 ## Testing Notes
 
-Use `test_openrouter.py` to verify API connectivity and test different model identifiers before adding to council. The script tests both streaming and non-streaming modes.
+Use `example_action.py` to verify API connectivity and test the full 4-stage council deliberation and execution. Run it from the root directory with:
+```bash
+uv run python example_action.py "List all files in /tmp"
+```
+Or to run without actually executing actions (plan only):
+```bash
+uv run python example_action.py --plan "List all files in /tmp"
+```
+
 
 ## MCP Integration (Stage 4)
 

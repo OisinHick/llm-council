@@ -2,23 +2,42 @@
 
 ![llmcouncil](header.jpg)
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, eg.c), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g., OpenAI GPT-4o, Google Gemini 2.5 Pro, Anthropic Claude 3.5 Sonnet, Meta Llama 3.3, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT, except it uses OpenRouter to send your query to multiple LLMs, asks them to review and rank each other's work anonymized, and finally compiles a synthesized final response using a Chairman LLM.
 
-In a bit more detail, here is what happens when you submit a query:
+Additionally, LLM Council supports **Stage 4 Action Execution** using the Model Context Protocol (MCP) to turn the council's recommendations into executable system tools, CLI commands, file operations, or API calls.
 
-1. **Stage 1: First opinions**. The user query is given to all LLMs individually, and the responses are collected. The individual responses are shown in a "tab view", so that the user can inspect them all one by one.
-2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
-3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
+## How it Works
+
+When you submit a query or task, the system orchestrates a 4-stage workflow:
+
+1. **Stage 1: First Opinions**: The query is sent to all council models individually. Their responses are collected and shown in a tabbed view, allowing you to inspect each output.
+2. **Stage 2: Peer Review**: Each model evaluates and ranks all other responses. The identities of the models are anonymized (labeled as Response A, B, etc.) during this stage to prevent favoritism.
+3. **Stage 3: Final Synthesis**: The designated **Chairman LLM** takes all individual responses and peer reviews, then synthesizes them into a single, cohesive final answer.
+4. **Stage 4: Action Execution (Optional)**: For action-oriented requests, the top-voted approach is analyzed, and the Chairman generates specific tool calls (shell commands, file reads/writes, or API requests) which can be executed directly or reviewed in the UI.
+
+---
+
+## Documentation Index
+
+- **[Main README](README.md)**: Project overview and setup instructions.
+- **[MCP Integration Guide](MCP_INTEGRATION.md)**: Detailed technical specifications for Stage 4 action execution.
+- **[Quick Start: MCP Integration](QUICKSTART_MCP.md)**: Hands-on tutorials for running and testing the action flow.
+- **[Developer Guidelines (CLAUDE.md)](CLAUDE.md)**: Architecture details, API endpoints, and common development patterns.
+- **[Frontend Guide (frontend/README.md)](frontend/README.md)**: Directory layout, component design, and interface explanation.
+
+---
 
 ## Vibe Code Alert
 
 This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
 
+---
+
 ## Setup
 
 ### 1. Install Dependencies
 
-The project uses [uv](https://docs.astral.sh/uv/) for project management.
+The project uses [uv](https://docs.astral.sh/uv/) for Python dependency management.
 
 **Backend:**
 ```bash
@@ -40,22 +59,26 @@ Create a `.env` file in the project root:
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase credits or configure automatic top-ups.
 
 ### 3. Configure Models (Optional)
 
-Edit `backend/config.py` to customize the council:
+Edit `backend/config.py` to customize the council members and the Chairman:
 
 ```python
+# Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
+    "openai/gpt-4o-mini",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-3.5-haiku",
+    "meta-llama/llama-3.3-70b-instruct",
 ]
 
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+# Chairman that synthesizes results and generates tool actions
+CHAIRMAN_MODEL = "google/gemini-2.5-flash"
 ```
+
+---
 
 ## Running the Application
 
@@ -66,22 +89,25 @@ CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 
 **Option 2: Run manually**
 
-Terminal 1 (Backend):
+Terminal 1 (Backend - runs on port **8001**):
 ```bash
 uv run python -m backend.main
 ```
 
-Terminal 2 (Frontend):
+Terminal 2 (Frontend - runs on port **5173**):
 ```bash
 cd frontend
 npm run dev
 ```
 
-Then open http://localhost:5173 in your browser.
+Then open [http://localhost:5173](http://localhost:5173) in your browser.
+
+---
 
 ## Tech Stack
 
 - **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
-- **Frontend:** React + Vite, react-markdown for rendering
-- **Storage:** JSON files in `data/conversations/`
-- **Package Management:** uv for Python, npm for JavaScript
+- **Frontend:** React + Vite, CSS, ReactMarkdown
+- **Storage:** local JSON files in `data/conversations/`
+- **Package Management:** `uv` for Python, `npm` for JavaScript
+

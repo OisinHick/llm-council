@@ -16,13 +16,14 @@ DATA_DIR = str(BASE_DIR / "data" / "conversations")
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-chat-latest",
-    "~google/gemini-pro-latest",
-    "anthropic/claude-opus-4.8",
-    "x-ai/grok-4.3",
+    "openai/gpt-4o-mini",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-3.5-haiku",
+    "meta-llama/llama-3.3-70b-instruct",
 ]
 
-CHAIRMAN_MODEL = "stepfun/step-3.7-flash"
+CHAIRMAN_MODEL = "google/gemini-2.5-flash"
+
 
 # OpenRouter API endpoint
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
