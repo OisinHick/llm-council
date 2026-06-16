@@ -314,8 +314,8 @@ export default function ChatInterface({
             <div key={index} className="message-group">
               {msg.role === "user" ? (
                 <div className="user-message">
-                  <div className="message-label">You</div>
                   <div className="message-content">
+                    <div className="message-label">You</div>
                     <div className="markdown-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
