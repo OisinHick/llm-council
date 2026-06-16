@@ -230,7 +230,25 @@ export default function ChatInterface({
   const [generateActionPlan, setGenerateActionPlan] = useState(false);
   const [mcpTools, setMcpTools] = useState([]);
   const [showToolsList, setShowToolsList] = useState(false);
+  const [selectedServer, setSelectedServer] = useState(null);
   const messagesEndRef = useRef(null);
+
+  // Extract unique server names from mcpTools
+  const servers = useMemo(() => {
+    const serverSet = new Set(mcpTools.map((t) => t.server));
+    return Array.from(serverSet);
+  }, [mcpTools]);
+
+  // Set default selected server on load/mcpTools change
+  useEffect(() => {
+    if (servers.length > 0) {
+      if (!selectedServer || !servers.includes(selectedServer)) {
+        setSelectedServer(servers[0]);
+      }
+    } else {
+      setSelectedServer(null);
+    }
+  }, [servers, selectedServer]);
 
   useEffect(() => {
     const fetchTools = async () => {
@@ -756,8 +774,42 @@ export default function ChatInterface({
                 ×
               </button>
             </div>
-            <div className="mcp-tools-list">
-              <McpToolsList mcpTools={mcpTools} />
+            <div className="mcp-modal-layout">
+              <div className="mcp-modal-sidebar">
+                <h5>Servers</h5>
+                <div className="mcp-sidebar-list">
+                  {servers.map((server) => {
+                    const count = mcpTools.filter((t) => t.server === server).length;
+                    return (
+                      <button
+                        key={server}
+                        type="button"
+                        className={`mcp-sidebar-item ${selectedServer === server ? "active" : ""}`}
+                        onClick={() => setSelectedServer(server)}
+                      >
+                        <span className="mcp-server-name">{server}</span>
+                        <span className="mcp-server-count">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="mcp-modal-panel">
+                {selectedServer ? (
+                  <>
+                    <h5 className="mcp-panel-title">
+                      Tools on <span>{selectedServer}</span>
+                    </h5>
+                    <div className="mcp-tools-list">
+                      <McpToolsList mcpTools={mcpTools.filter((t) => t.server === selectedServer)} />
+                    </div>
+                  </>
+                ) : (
+                  <p className="no-tools-text">
+                    No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
