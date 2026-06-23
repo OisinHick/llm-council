@@ -229,17 +229,25 @@ export default function ChatInterface({
   const [input, setInput] = useState("");
   const [generateActionPlan, setGenerateActionPlan] = useState(false);
   const [mcpTools, setMcpTools] = useState([]);
+  const [mcpStatuses, setMcpStatuses] = useState({});
   const [showToolsList, setShowToolsList] = useState(false);
   const [selectedServer, setSelectedServer] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Extract unique server names from mcpTools
+  // Extract unique server names from both mcpTools and mcpStatuses keys
   const servers = useMemo(() => {
-    const serverSet = new Set(mcpTools.map((t) => t.server));
+    const serverSet = new Set([
+      ...mcpTools.map((t) => t.server),
+      ...Object.keys(mcpStatuses)
+    ]);
     return Array.from(serverSet);
-  }, [mcpTools]);
+  }, [mcpTools, mcpStatuses]);
 
-  // Set default selected server on load/mcpTools change
+  const unavailableServersCount = useMemo(() => {
+    return Object.values(mcpStatuses).filter((status) => status !== "connected").length;
+  }, [mcpStatuses]);
+
+  // Set default selected server on load/mcpTools/mcpStatuses change
   useEffect(() => {
     if (servers.length > 0) {
       if (!selectedServer || !servers.includes(selectedServer)) {
@@ -256,12 +264,15 @@ export default function ChatInterface({
         const res = await api.getMcpTools();
         if (res.success) {
           setMcpTools(res.tools || []);
+          setMcpStatuses(res.statuses || {});
         }
       } catch (err) {
         console.error("Error loading MCP tools:", err);
       }
     };
     fetchTools();
+    const interval = setInterval(fetchTools, 5000);
+    return () => clearInterval(interval);
   }, [actionLoading, isLoading]);
 
 
@@ -765,7 +776,12 @@ export default function ChatInterface({
         <div className="mcp-tools-modal-backdrop" onClick={() => setShowToolsList(false)}>
           <div className="mcp-tools-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="mcp-tools-header">
-              <h4>Active MCP Tools ({mcpTools.length})</h4>
+              <h4>
+                Active MCP Tools ({mcpTools.length})
+                {unavailableServersCount > 0 && (
+                  <span className="header-warning-text"> ({unavailableServersCount} offline)</span>
+                )}
+              </h4>
               <button
                 type="button"
                 onClick={() => setShowToolsList(false)}
@@ -780,14 +796,19 @@ export default function ChatInterface({
                 <div className="mcp-sidebar-list">
                   {servers.map((server) => {
                     const count = mcpTools.filter((t) => t.server === server).length;
+                    const status = mcpStatuses[server];
+                    const isOffline = status && status !== "connected";
                     return (
                       <button
                         key={server}
                         type="button"
-                        className={`mcp-sidebar-item ${selectedServer === server ? "active" : ""}`}
+                        className={`mcp-sidebar-item ${selectedServer === server ? "active" : ""} ${isOffline ? "offline" : ""}`}
                         onClick={() => setSelectedServer(server)}
                       >
-                        <span className="mcp-server-name">{server}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
+                          <span className="mcp-server-name">{server}</span>
+                          {isOffline && <span className="mcp-server-status-tag">{status}</span>}
+                        </div>
                         <span className="mcp-server-count">{count}</span>
                       </button>
                     );
@@ -800,9 +821,21 @@ export default function ChatInterface({
                     <h5 className="mcp-panel-title">
                       Tools on <span>{selectedServer}</span>
                     </h5>
-                    <div className="mcp-tools-list">
-                      <McpToolsList mcpTools={mcpTools.filter((t) => t.server === selectedServer)} />
-                    </div>
+                    {mcpStatuses[selectedServer] && mcpStatuses[selectedServer] !== "connected" ? (
+                      <div className="mcp-server-error-container">
+                        <p className="mcp-server-error-title">⚠️ Connection Failed</p>
+                        <p className="mcp-server-error-detail">
+                          The MCP server <strong>{selectedServer}</strong> is currently unavailable (Status: {mcpStatuses[selectedServer]}).
+                        </p>
+                        <p className="mcp-server-error-hint">
+                          Please check the server logs or verify that the server is running correctly.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mcp-tools-list">
+                        <McpToolsList mcpTools={mcpTools.filter((t) => t.server === selectedServer)} />
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="no-tools-text">
@@ -831,14 +864,25 @@ export default function ChatInterface({
             <div
               className="mcp-status"
               onClick={() => setShowToolsList(!showToolsList)}
-              title="Click to view all active MCP tools"
+              title={
+                unavailableServersCount > 0
+                  ? `Click to view all MCP tools (${unavailableServersCount} server(s) offline)`
+                  : "Click to view all active MCP tools"
+              }
             >
               <span
-                className={`status-dot ${mcpTools.length > 0 ? "connected" : ""}`}
+                className={`status-dot ${
+                  mcpTools.length > 0 && unavailableServersCount === 0
+                    ? "connected"
+                    : unavailableServersCount > 0
+                    ? "warning"
+                    : ""
+                }`}
               ></span>
               <span>
                 {mcpTools.length} Active MCP{" "}
                 {mcpTools.length === 1 ? "Tool" : "Tools"}
+                {unavailableServersCount > 0 && ` (${unavailableServersCount} offline)`}
               </span>
             </div>
 

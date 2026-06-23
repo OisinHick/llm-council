@@ -1038,3 +1038,66 @@
   padding: 12px;
   margin-top: 0;
 }
+
+/* MCP Offline/Warning Server Styles */
+.mcp-sidebar-item.offline {
+  border-left: 3px solid #ef4444;
+}
+
+.mcp-server-status-tag {
+  font-size: 10px;
+  background: #fee2e2;
+  color: #ef4444;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+  display: inline-block;
+}
+
+.status-dot.warning {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+.status-dot.error {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+.header-warning-text {
+  color: #ef4444;
+  font-size: 13px;
+  font-weight: normal;
+}
+
+.mcp-server-error-container {
+  padding: 16px;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+
+.mcp-server-error-title {
+  color: #991b1b;
+  font-weight: 600;
+  font-size: 14px;
+  margin: 0 0 8px 0;
+}
+
+.mcp-server-error-detail {
+  color: #7f1d1d;
+  font-size: 13px;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.mcp-server-error-hint {
+  color: #4b5563;
+  font-size: 12px;
+  margin: 0;
+  font-style: italic;
+}

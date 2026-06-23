@@ -111,7 +111,11 @@ async def get_mcp_tools():
     """Get all available tools from connected MCP servers."""
     try:
         tools = await mcp_manager.get_available_tools()
-        return {"success": True, "tools": tools}
+        return {
+            "success": True, 
+            "tools": tools, 
+            "statuses": mcp_manager.server_statuses
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
