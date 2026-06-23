@@ -37,7 +37,7 @@ const renderFormattedResult = (result) => {
     if (parsedContent.stderr) stderr = parsedContent.stderr;
     if (parsedContent.message) message = parsedContent.message;
     if (parsedContent.error) error = parsedContent.error;
-    
+
     Object.keys(parsedContent).forEach((key) => {
       if (!["stdout", "stderr", "message", "error", "content"].includes(key)) {
         metadata[key] = parsedContent[key];
@@ -53,7 +53,7 @@ const renderFormattedResult = (result) => {
     if (parsedResponse.stderr) stderr = parsedResponse.stderr;
     if (parsedResponse.message) message = parsedResponse.message;
     if (parsedResponse.error) error = parsedResponse.error;
-    
+
     Object.keys(parsedResponse).forEach((key) => {
       if (!["stdout", "stderr", "message", "error", "response"].includes(key)) {
         metadata[key] = parsedResponse[key];
@@ -65,7 +65,7 @@ const renderFormattedResult = (result) => {
     if (response.stderr) stderr = response.stderr;
     if (response.message) message = response.message;
     if (response.error) error = response.error;
-    
+
     Object.keys(response).forEach((key) => {
       if (!["stdout", "stderr", "message", "error"].includes(key)) {
         metadata[key] = response[key];
@@ -76,7 +76,17 @@ const renderFormattedResult = (result) => {
 
   // Top level fields
   Object.keys(result).forEach((key) => {
-    if (!["stdout", "stderr", "message", "error", "content", "response", "success"].includes(key)) {
+    if (
+      ![
+        "stdout",
+        "stderr",
+        "message",
+        "error",
+        "content",
+        "response",
+        "success",
+      ].includes(key)
+    ) {
       metadata[key] = result[key];
     }
   });
@@ -115,7 +125,9 @@ const renderFormattedResult = (result) => {
         <div className="output-section result-content-box">
           <h5>Content</h5>
           <pre className="content-pre">
-            {typeof content === "object" ? JSON.stringify(content, null, 2) : String(content)}
+            {typeof content === "object"
+              ? JSON.stringify(content, null, 2)
+              : String(content)}
           </pre>
         </div>
       )}
@@ -124,7 +136,9 @@ const renderFormattedResult = (result) => {
         <div className="output-section result-response-box">
           <h5>Response</h5>
           <pre className="response-pre">
-            {typeof response === "object" ? JSON.stringify(response, null, 2) : String(response)}
+            {typeof response === "object"
+              ? JSON.stringify(response, null, 2)
+              : String(response)}
           </pre>
         </div>
       )}
@@ -141,7 +155,9 @@ const renderFormattedResult = (result) => {
                 <div key={key} className="metadata-badge">
                   <span className="metadata-key">{key}:</span>{" "}
                   <span className="metadata-value">
-                    {typeof val === "object" ? JSON.stringify(val) : String(val)}
+                    {typeof val === "object"
+                      ? JSON.stringify(val)
+                      : String(val)}
                   </span>
                 </div>
               ))}
@@ -149,13 +165,19 @@ const renderFormattedResult = (result) => {
           </details>
         </div>
       )}
-      
-      {!stdout && !stderr && !content && !response && !message && !error && Object.keys(metadata).length === 0 && (
-        <div className="output-section">
-          <h5>Result</h5>
-          <pre>{JSON.stringify(result, null, 2)}</pre>
-        </div>
-      )}
+
+      {!stdout &&
+        !stderr &&
+        !content &&
+        !response &&
+        !message &&
+        !error &&
+        Object.keys(metadata).length === 0 && (
+          <div className="output-section">
+            <h5>Result</h5>
+            <pre>{JSON.stringify(result, null, 2)}</pre>
+          </div>
+        )}
     </div>
   );
 };
@@ -176,7 +198,7 @@ const McpToolItem = memo(({ tool }) => {
       </div>
       <p className="mcp-tool-desc">{tool.description}</p>
       {tool.input_schema && (
-        <details 
+        <details
           className="mcp-schema-details"
           open={isOpen}
           onToggle={(e) => setIsOpen(e.target.open)}
@@ -185,11 +207,7 @@ const McpToolItem = memo(({ tool }) => {
             <span>Input Schema</span>
             <span className="expand-icon">▼</span>
           </summary>
-          {isOpen && (
-            <pre className="mcp-tool-schema">
-              {stringifiedSchema}
-            </pre>
-          )}
+          {isOpen && <pre className="mcp-tool-schema">{stringifiedSchema}</pre>}
         </details>
       )}
     </div>
@@ -200,7 +218,8 @@ const McpToolsList = memo(({ mcpTools }) => {
   if (mcpTools.length === 0) {
     return (
       <p className="no-tools-text">
-        No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+        No external MCP tools active. Configured tools in mcp_servers.json will
+        appear here.
       </p>
     );
   }
@@ -238,13 +257,14 @@ export default function ChatInterface({
   const servers = useMemo(() => {
     const serverSet = new Set([
       ...mcpTools.map((t) => t.server),
-      ...Object.keys(mcpStatuses)
+      ...Object.keys(mcpStatuses),
     ]);
     return Array.from(serverSet);
   }, [mcpTools, mcpStatuses]);
 
   const unavailableServersCount = useMemo(() => {
-    return Object.values(mcpStatuses).filter((status) => status !== "connected").length;
+    return Object.values(mcpStatuses).filter((status) => status !== "connected")
+      .length;
   }, [mcpStatuses]);
 
   // Set default selected server on load/mcpTools/mcpStatuses change
@@ -274,7 +294,6 @@ export default function ChatInterface({
     const interval = setInterval(fetchTools, 5000);
     return () => clearInterval(interval);
   }, [actionLoading, isLoading]);
-
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -420,27 +439,53 @@ export default function ChatInterface({
                               (call, idx) => (
                                 <div key={idx} className="tool-call">
                                   <div className="tool-call-header">
-                                    <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
+                                    <strong>
+                                      {call.tool}{" "}
+                                      {call.server &&
+                                        call.server !== "local" && (
+                                          <span className="server-tag">
+                                            ({call.server})
+                                          </span>
+                                        )}
+                                    </strong>
                                     <span>{call.description}</span>
                                   </div>
-                                  {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
-                                    <div className="formatted-params">
-                                      {Object.entries(call.params)
-                                        .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
-                                        .map(([key, value]) => (
-                                          <div key={key} className="param-row">
-                                            <span className="param-key">
-                                              {key}
-                                            </span>
-                                            <span className="param-value">
-                                              {typeof value === "object"
-                                                ? JSON.stringify(value, null, 2)
-                                                : String(value)}
-                                            </span>
-                                          </div>
-                                        ))}
-                                    </div>
-                                  )}
+                                  {call.params &&
+                                    Object.values(call.params).some(
+                                      (val) =>
+                                        val !== null &&
+                                        val !== undefined &&
+                                        val !== "",
+                                    ) && (
+                                      <div className="formatted-params">
+                                        {Object.entries(call.params)
+                                          .filter(
+                                            (entry) =>
+                                              entry[1] !== null &&
+                                              entry[1] !== undefined &&
+                                              entry[1] !== "",
+                                          )
+                                          .map(([key, value]) => (
+                                            <div
+                                              key={key}
+                                              className="param-row"
+                                            >
+                                              <span className="param-key">
+                                                {key}
+                                              </span>
+                                              <span className="param-value">
+                                                {typeof value === "object"
+                                                  ? JSON.stringify(
+                                                      value,
+                                                      null,
+                                                      2,
+                                                    )
+                                                  : String(value)}
+                                              </span>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    )}
                                 </div>
                               ),
                             )}
@@ -493,34 +538,58 @@ export default function ChatInterface({
                             <div className="result-header">
                               <strong>
                                 {toolResult.tool}
-                                {toolResult.server && toolResult.server !== "local" && (
-                                  <span className="server-tag">({toolResult.server})</span>
-                                )}
+                                {toolResult.server &&
+                                  toolResult.server !== "local" && (
+                                    <span className="server-tag">
+                                      ({toolResult.server})
+                                    </span>
+                                  )}
                               </strong>
-                              <span className={toolResult.result.success ? "execution-success" : "execution-failure"}>
-                                {toolResult.result.success ? "✓ Success" : "✗ Failure"}
+                              <span
+                                className={
+                                  toolResult.result.success
+                                    ? "execution-success"
+                                    : "execution-failure"
+                                }
+                              >
+                                {toolResult.result.success
+                                  ? "✓ Success"
+                                  : "✗ Failure"}
                               </span>
                             </div>
 
-                            {toolResult.params && Object.keys(toolResult.params).filter(key => toolResult.params[key] !== null && toolResult.params[key] !== undefined && toolResult.params[key] !== "").length > 0 && (
-                              <div className="output-section">
-                                <h5>Parameters</h5>
-                                <div className="formatted-params">
-                                  {Object.entries(toolResult.params)
-                                    .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
-                                    .map(([key, value]) => (
-                                      <div key={key} className="param-row">
-                                        <span className="param-key">{key}</span>
-                                        <span className="param-value">
-                                          {typeof value === "object"
-                                            ? JSON.stringify(value, null, 2)
-                                            : String(value)}
-                                        </span>
-                                      </div>
-                                    ))}
+                            {toolResult.params &&
+                              Object.keys(toolResult.params).filter(
+                                (key) =>
+                                  toolResult.params[key] !== null &&
+                                  toolResult.params[key] !== undefined &&
+                                  toolResult.params[key] !== "",
+                              ).length > 0 && (
+                                <div className="output-section">
+                                  <h5>Parameters</h5>
+                                  <div className="formatted-params">
+                                    {Object.entries(toolResult.params)
+                                      .filter(
+                                        (entry) =>
+                                          entry[1] !== null &&
+                                          entry[1] !== undefined &&
+                                          entry[1] !== "",
+                                      )
+                                      .map(([key, value]) => (
+                                        <div key={key} className="param-row">
+                                          <span className="param-key">
+                                            {key}
+                                          </span>
+                                          <span className="param-value">
+                                            {typeof value === "object"
+                                              ? JSON.stringify(value, null, 2)
+                                              : String(value)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
 
                             <div className="result-output">
                               {renderFormattedResult(toolResult.result)}
@@ -653,25 +722,43 @@ export default function ChatInterface({
                         (call, idx) => (
                           <div key={idx} className="tool-call">
                             <div className="tool-call-header">
-                              <strong>{call.tool} {call.server && call.server !== 'local' && <span className="server-tag">({call.server})</span>}</strong>
+                              <strong>
+                                {call.tool}{" "}
+                                {call.server && call.server !== "local" && (
+                                  <span className="server-tag">
+                                    ({call.server})
+                                  </span>
+                                )}
+                              </strong>
                               <span>{call.description}</span>
                             </div>
-                            {call.params && Object.values(call.params).some(val => val !== null && val !== undefined && val !== "") && (
-                              <div className="formatted-params">
-                                {Object.entries(call.params)
-                                  .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
-                                  .map(([key, value]) => (
-                                    <div key={key} className="param-row">
-                                      <span className="param-key">{key}</span>
-                                      <span className="param-value">
-                                        {typeof value === "object"
-                                          ? JSON.stringify(value, null, 2)
-                                          : String(value)}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            )}
+                            {call.params &&
+                              Object.values(call.params).some(
+                                (val) =>
+                                  val !== null &&
+                                  val !== undefined &&
+                                  val !== "",
+                              ) && (
+                                <div className="formatted-params">
+                                  {Object.entries(call.params)
+                                    .filter(
+                                      (entry) =>
+                                        entry[1] !== null &&
+                                        entry[1] !== undefined &&
+                                        entry[1] !== "",
+                                    )
+                                    .map(([key, value]) => (
+                                      <div key={key} className="param-row">
+                                        <span className="param-key">{key}</span>
+                                        <span className="param-value">
+                                          {typeof value === "object"
+                                            ? JSON.stringify(value, null, 2)
+                                            : String(value)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
                           </div>
                         ),
                       )}
@@ -729,34 +816,56 @@ export default function ChatInterface({
                       <div className="result-header">
                         <strong>
                           {toolResult.tool}
-                          {toolResult.server && toolResult.server !== "local" && (
-                            <span className="server-tag">({toolResult.server})</span>
-                          )}
+                          {toolResult.server &&
+                            toolResult.server !== "local" && (
+                              <span className="server-tag">
+                                ({toolResult.server})
+                              </span>
+                            )}
                         </strong>
-                        <span className={toolResult.result.success ? "execution-success" : "execution-failure"}>
-                          {toolResult.result.success ? "✓ Success" : "✗ Failure"}
+                        <span
+                          className={
+                            toolResult.result.success
+                              ? "execution-success"
+                              : "execution-failure"
+                          }
+                        >
+                          {toolResult.result.success
+                            ? "✓ Success"
+                            : "✗ Failure"}
                         </span>
                       </div>
 
-                      {toolResult.params && Object.entries(toolResult.params).filter(entry => entry[1] !== null && entry[1] !== undefined && entry[1] !== "").length > 0 && (
-                        <div className="output-section">
-                          <h5>Parameters</h5>
-                          <div className="formatted-params">
-                            {Object.entries(toolResult.params)
-                              .filter((entry) => entry[1] !== null && entry[1] !== undefined && entry[1] !== "")
-                              .map(([key, value]) => (
-                                <div key={key} className="param-row">
-                                  <span className="param-key">{key}</span>
-                                  <span className="param-value">
-                                    {typeof value === "object"
-                                      ? JSON.stringify(value, null, 2)
-                                      : String(value)}
-                                  </span>
-                                </div>
-                              ))}
+                      {toolResult.params &&
+                        Object.entries(toolResult.params).filter(
+                          (entry) =>
+                            entry[1] !== null &&
+                            entry[1] !== undefined &&
+                            entry[1] !== "",
+                        ).length > 0 && (
+                          <div className="output-section">
+                            <h5>Parameters</h5>
+                            <div className="formatted-params">
+                              {Object.entries(toolResult.params)
+                                .filter(
+                                  (entry) =>
+                                    entry[1] !== null &&
+                                    entry[1] !== undefined &&
+                                    entry[1] !== "",
+                                )
+                                .map(([key, value]) => (
+                                  <div key={key} className="param-row">
+                                    <span className="param-key">{key}</span>
+                                    <span className="param-value">
+                                      {typeof value === "object"
+                                        ? JSON.stringify(value, null, 2)
+                                        : String(value)}
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
 
                       <div className="result-output">
                         {renderFormattedResult(toolResult.result)}
@@ -773,13 +882,22 @@ export default function ChatInterface({
       </div>
 
       {showToolsList && (
-        <div className="mcp-tools-modal-backdrop" onClick={() => setShowToolsList(false)}>
-          <div className="mcp-tools-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="mcp-tools-modal-backdrop"
+          onClick={() => setShowToolsList(false)}
+        >
+          <div
+            className="mcp-tools-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mcp-tools-header">
               <h4>
                 Active MCP Tools ({mcpTools.length})
                 {unavailableServersCount > 0 && (
-                  <span className="header-warning-text"> ({unavailableServersCount} offline)</span>
+                  <span className="header-warning-text">
+                    {" "}
+                    ({unavailableServersCount} offline)
+                  </span>
                 )}
               </h4>
               <button
@@ -795,7 +913,9 @@ export default function ChatInterface({
                 <h5>Servers</h5>
                 <div className="mcp-sidebar-list">
                   {servers.map((server) => {
-                    const count = mcpTools.filter((t) => t.server === server).length;
+                    const count = mcpTools.filter(
+                      (t) => t.server === server,
+                    ).length;
                     const status = mcpStatuses[server];
                     const isOffline = status && status !== "connected";
                     return (
@@ -805,9 +925,20 @@ export default function ChatInterface({
                         className={`mcp-sidebar-item ${selectedServer === server ? "active" : ""} ${isOffline ? "offline" : ""}`}
                         onClick={() => setSelectedServer(server)}
                       >
-                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "2px",
+                            alignItems: "flex-start",
+                          }}
+                        >
                           <span className="mcp-server-name">{server}</span>
-                          {isOffline && <span className="mcp-server-status-tag">{status}</span>}
+                          {isOffline && (
+                            <span className="mcp-server-status-tag">
+                              {status}
+                            </span>
+                          )}
                         </div>
                         <span className="mcp-server-count">{count}</span>
                       </button>
@@ -821,25 +952,36 @@ export default function ChatInterface({
                     <h5 className="mcp-panel-title">
                       Tools on <span>{selectedServer}</span>
                     </h5>
-                    {mcpStatuses[selectedServer] && mcpStatuses[selectedServer] !== "connected" ? (
+                    {mcpStatuses[selectedServer] &&
+                    mcpStatuses[selectedServer] !== "connected" ? (
                       <div className="mcp-server-error-container">
-                        <p className="mcp-server-error-title">⚠️ Connection Failed</p>
+                        <p className="mcp-server-error-title">
+                          ⚠️ Connection Failed
+                        </p>
                         <p className="mcp-server-error-detail">
-                          The MCP server <strong>{selectedServer}</strong> is currently unavailable (Status: {mcpStatuses[selectedServer]}).
+                          The MCP server <strong>{selectedServer}</strong> is
+                          currently unavailable (Status:{" "}
+                          {mcpStatuses[selectedServer]}).
                         </p>
                         <p className="mcp-server-error-hint">
-                          Please check the server logs or verify that the server is running correctly.
+                          Please check the server logs or verify that the server
+                          is running correctly.
                         </p>
                       </div>
                     ) : (
                       <div className="mcp-tools-list">
-                        <McpToolsList mcpTools={mcpTools.filter((t) => t.server === selectedServer)} />
+                        <McpToolsList
+                          mcpTools={mcpTools.filter(
+                            (t) => t.server === selectedServer,
+                          )}
+                        />
                       </div>
                     )}
                   </>
                 ) : (
                   <p className="no-tools-text">
-                    No external MCP tools active. Configured tools in mcp_servers.json will appear here.
+                    No external MCP tools active. Configured tools in
+                    mcp_servers.json will appear here.
                   </p>
                 )}
               </div>
@@ -875,14 +1017,15 @@ export default function ChatInterface({
                   mcpTools.length > 0 && unavailableServersCount === 0
                     ? "connected"
                     : unavailableServersCount > 0
-                    ? "warning"
-                    : ""
+                      ? "warning"
+                      : ""
                 }`}
               ></span>
               <span>
                 {mcpTools.length} Active MCP{" "}
                 {mcpTools.length === 1 ? "Tool" : "Tools"}
-                {unavailableServersCount > 0 && ` (${unavailableServersCount} offline)`}
+                {unavailableServersCount > 0 &&
+                  ` (${unavailableServersCount} offline)`}
               </span>
             </div>
 

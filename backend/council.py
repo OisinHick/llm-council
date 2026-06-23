@@ -11,7 +11,6 @@ from .mcp_tools import executor
 from .openrouter import query_model, query_models_parallel
 
 
-
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
@@ -398,7 +397,7 @@ async def stage4_generate_action_plan(
     if external_tools:
         tools_doc += "\n2. External MCP Server Tools:\n"
         for i, tool in enumerate(external_tools, 1):
-            tools_doc += f"   - {tool['name']} (server: \"{tool['server']}\")\n"
+            tools_doc += f'   - {tool["name"]} (server: "{tool["server"]}")\n'
             tools_doc += f"     Description: {tool['description']}\n"
             tools_doc += f"     Parameters Schema: {json.dumps(tool['input_schema'])}\n"
 
@@ -466,7 +465,6 @@ Now generate the action plan JSON:"""
         "action_plan": action_plan,
         "best_response_model": best_model_name,
     }
-
 
 
 async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str, Any]:

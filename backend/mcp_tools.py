@@ -190,9 +190,7 @@ class MCPToolExecutor:
                         }
                 else:
                     # Route to external MCP server
-                    result = await mcp_manager.call_tool(
-                        server_name, tool_name, params
-                    )
+                    result = await mcp_manager.call_tool(server_name, tool_name, params)
 
                 results.append(
                     {

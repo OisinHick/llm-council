@@ -17,7 +17,10 @@ export default function Sidebar({
 
   // Apply colors on mount and state changes
   useEffect(() => {
-    document.documentElement.style.setProperty("--assistant-bg", assistantColor);
+    document.documentElement.style.setProperty(
+      "--assistant-bg",
+      assistantColor,
+    );
     localStorage.setItem("llmCouncilColor", assistantColor);
   }, [assistantColor]);
 
@@ -43,17 +46,23 @@ export default function Sidebar({
     <div className="sidebar">
       <div className="sidebar-header">
         <h1>LLM Council</h1>
-        <button 
-          type="button" 
-          className="settings-cog-btn" 
+        <button
+          type="button"
+          className="settings-cog-btn"
           onClick={() => setShowSettings(!showSettings)}
           title="Appearance Settings"
         >
           ⚙️
         </button>
         {showSettings && (
-          <div className="settings-modal-backdrop" onClick={() => setShowSettings(false)}>
-            <div className="settings-modal-content" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="settings-modal-backdrop"
+            onClick={() => setShowSettings(false)}
+          >
+            <div
+              className="settings-modal-content"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="settings-modal-header">
                 <h3>Appearance Settings</h3>
                 <button
@@ -67,23 +76,23 @@ export default function Sidebar({
               <div className="settings-modal-body">
                 <div className="settings-field">
                   <label>LLM Council Color</label>
-                  <input 
-                    type="color" 
-                    value={assistantColor} 
-                    onChange={handleAssistantColorChange} 
+                  <input
+                    type="color"
+                    value={assistantColor}
+                    onChange={handleAssistantColorChange}
                   />
                 </div>
                 <div className="settings-field">
                   <label>User Message Color</label>
-                  <input 
-                    type="color" 
-                    value={userColor} 
-                    onChange={handleUserColorChange} 
+                  <input
+                    type="color"
+                    value={userColor}
+                    onChange={handleUserColorChange}
                   />
                 </div>
-                <button 
-                  type="button" 
-                  className="reset-colors-btn" 
+                <button
+                  type="button"
+                  className="reset-colors-btn"
                   onClick={handleResetColors}
                 >
                   Reset Defaults

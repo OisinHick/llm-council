@@ -112,13 +112,12 @@ async def get_mcp_tools():
     try:
         tools = await mcp_manager.get_available_tools()
         return {
-            "success": True, 
-            "tools": tools, 
-            "statuses": mcp_manager.server_statuses
+            "success": True,
+            "tools": tools,
+            "statuses": mcp_manager.server_statuses,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])

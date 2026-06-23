@@ -67,14 +67,12 @@ class MCPClientManager:
                 self.server_statuses[name] = "configuration_error"
                 continue
 
-            logger.info(
-                f"Starting MCP server '{name}' via command: {command} {args}"
-            )
+            logger.info(f"Starting MCP server '{name}' via command: {command} {args}")
             try:
                 # Wrap the server invocation in a python filter script that swallows non-JSON lines
                 # from stdout (e.g. npm installs, node version warnings, progress bars).
                 full_cmd = [command] + args
-                
+
                 filter_script = f"""
 import subprocess, sys, threading, json
 
@@ -104,12 +102,20 @@ for line in iter(proc.stdout.readline, b''):
     except Exception:
         pass
 """
-                encoded_script = base64.b64encode(filter_script.encode('utf-8')).decode('utf-8')
+                encoded_script = base64.b64encode(filter_script.encode("utf-8")).decode(
+                    "utf-8"
+                )
                 wrapped_command = "python"
-                wrapped_args = ["-u", "-c", f"import base64; exec(base64.b64decode('{encoded_script}').decode('utf-8'))"]
+                wrapped_args = [
+                    "-u",
+                    "-c",
+                    f"import base64; exec(base64.b64decode('{encoded_script}').decode('utf-8'))",
+                ]
 
-                params = StdioServerParameters(command=wrapped_command, args=wrapped_args, env=env)
-                
+                params = StdioServerParameters(
+                    command=wrapped_command, args=wrapped_args, env=env
+                )
+
                 # Enter stdio client context
                 read, write = await self.exit_stack.enter_async_context(
                     stdio_client(params)
@@ -157,7 +163,9 @@ for line in iter(proc.stdout.readline, b''):
             except asyncio.CancelledError:
                 break
 
-    async def get_available_tools(self, bypass_cache: bool = False) -> List[Dict[str, Any]]:
+    async def get_available_tools(
+        self, bypass_cache: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         List all available tools exposed by all running servers.
 
@@ -184,7 +192,9 @@ for line in iter(proc.stdout.readline, b''):
         for server_name, session in list(self.sessions.items()):
             if server_name == "kali-tools":
                 if not check_kali_tools_health():
-                    self.server_statuses[server_name] = "error: Kali Linux Docker backend is offline"
+                    self.server_statuses[server_name] = (
+                        "error: Kali Linux Docker backend is offline"
+                    )
                     continue
 
             try:
@@ -201,9 +211,7 @@ for line in iter(proc.stdout.readline, b''):
                     )
                 self.server_statuses[server_name] = "connected"
             except Exception as e:
-                logger.error(
-                    f"Failed to list tools for server '{server_name}': {e}"
-                )
+                logger.error(f"Failed to list tools for server '{server_name}': {e}")
                 self.server_statuses[server_name] = f"error: {str(e)}"
 
         self.cached_tools = all_tools
