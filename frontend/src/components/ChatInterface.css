@@ -557,10 +557,23 @@
   margin-top: 16px;
 }
 
-.plan-summary h4 {
-  margin: 0 0 8px 0;
+.action-request-block,
+.action-plan-block,
+.execution-block {
+  padding: 16px;
+  border: 1px solid #e3e8f1;
+  border-radius: 12px;
+  background: #ffffff;
+  margin-top: 18px;
+}
+
+.action-request-block h4,
+.action-plan-block h4,
+.execution-block h4 {
+  margin: 0 0 12px 0;
   font-size: 16px;
-  color: #333;
+  font-weight: 700;
+  color: #1e293b;
 }
 
 .plan-summary p {

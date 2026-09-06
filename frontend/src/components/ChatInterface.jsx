@@ -380,92 +380,100 @@ export default function ChatInterface({
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          messages.map((msg, index) => (
-            <div key={index} className="message-group">
-              {msg.role === "user" ? (
-                <div className="user-message">
-                  <div className="message-content">
-                    <div className="message-label">You</div>
-                    <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="assistant-message">
-                  <div className="message-label">
-                    {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
-                  </div>
+          messages.map((msg, index) => {
+            const actionRequestText =
+              msg.action_request ||
+              (msg.stage4 && messages[index - 1]?.role === "user"
+                ? messages[index - 1].content
+                : null);
 
-                  {msg.type === "agent" || msg.steps ? (
-                    <AgentTimeline
-                      agentData={msg}
-                      isRunning={msg.isRunning || (msg.status === "running")}
-                      onCancel={onCancelAgent}
-                    />
-                  ) : (
-                    <>
-                      {/* Stage 1 */}
-                      {msg.loading?.stage1 && (
-                        <div className="stage-loading">
-                          <div className="spinner"></div>
-                          <span>
-                            Running Stage 1: Collecting individual responses...
-                          </span>
-                        </div>
-                      )}
-                      {msg.stage1 && <Stage1 responses={msg.stage1} />}
-
-                  {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
-                    </div>
-                  )}
-                  {msg.stage2 && (
-                    <Stage2
-                      rankings={msg.stage2}
-                      labelToModel={msg.metadata?.label_to_model}
-                      aggregateRankings={msg.metadata?.aggregate_rankings}
-                    />
-                  )}
-
-                  {/* Stage 3 */}
-                  {msg.loading?.stage3 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 3: Final synthesis...</span>
-                    </div>
-                  )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
-
-                  {msg.action_request && (
-                    <div className="action-request-block">
-                      <h4>Action Request</h4>
+            return (
+              <div key={index} className="message-group">
+                {msg.role === "user" ? (
+                  <div className="user-message">
+                    <div className="message-content">
+                      <div className="message-label">You</div>
                       <div className="markdown-content">
-                        <ReactMarkdown>{msg.action_request}</ReactMarkdown>
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
                     </div>
-                  )}
-
-                  {msg.loading?.stage4 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Generating action plan...</span>
+                  </div>
+                ) : (
+                  <div className="assistant-message">
+                    <div className="message-label">
+                      {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
                     </div>
-                  )}
 
-                  {msg.stage4 && (
-                    <div className="action-plan-block">
-                      <h4>Action Plan</h4>
-                      {msg.stage4.success || msg.stage4.action_plan ? (
-                        <>
-                          <div className="plan-summary">
-                            <h4>Action Plan Summary</h4>
-                            <p>{msg.stage4.action_plan?.description}</p>
-                            <p>{msg.stage4.action_plan?.reasoning}</p>
+                    {msg.type === "agent" || msg.steps ? (
+                      <AgentTimeline
+                        agentData={msg}
+                        isRunning={msg.isRunning || (msg.status === "running")}
+                        onCancel={onCancelAgent}
+                      />
+                    ) : (
+                      <>
+                        {/* Stage 1 */}
+                        {msg.loading?.stage1 && (
+                          <div className="stage-loading">
+                            <div className="spinner"></div>
+                            <span>
+                              Running Stage 1: Collecting individual responses...
+                            </span>
                           </div>
+                        )}
+                        {msg.stage1 && <Stage1 responses={msg.stage1} />}
+
+                    {/* Stage 2 */}
+                    {msg.loading?.stage2 && (
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>Running Stage 2: Peer rankings...</span>
+                      </div>
+                    )}
+                    {msg.stage2 && (
+                      <Stage2
+                        rankings={msg.stage2}
+                        labelToModel={msg.metadata?.label_to_model}
+                        aggregateRankings={msg.metadata?.aggregate_rankings}
+                      />
+                    )}
+
+                    {/* Stage 3 */}
+                    {msg.loading?.stage3 && (
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>Running Stage 3: Final synthesis...</span>
+                      </div>
+                    )}
+                    {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+
+                    {/* Action Request */}
+                    {actionRequestText && (
+                      <div className="action-request-block">
+                        <h4>Action Request</h4>
+                        <div className="markdown-content">
+                          <ReactMarkdown>{actionRequestText}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Plan */}
+                    {msg.loading?.stage4 && (
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>Generating action plan...</span>
+                      </div>
+                    )}
+
+                    {msg.stage4 && (
+                      <div className="action-plan-block">
+                        <h4>Action Plan</h4>
+                        {msg.stage4.success || msg.stage4.action_plan ? (
+                          <>
+                            <div className="plan-summary">
+                              <p>{msg.stage4.action_plan?.description}</p>
+                              <p>{msg.stage4.action_plan?.reasoning}</p>
+                            </div>
                           <div className="tool-calls">
                             {msg.stage4.action_plan?.tool_calls?.map(
                               (call, idx) => (
@@ -636,8 +644,9 @@ export default function ChatInterface({
                 </div>
               )}
             </div>
-          ))
-        )}
+          );
+        })
+      )}
 
         {(isLoading || actionLoading) && (
           <div className="loading-indicator">
@@ -648,13 +657,6 @@ export default function ChatInterface({
 
         {showActionPanel && (
           <div className="action-panel">
-            <div className="action-panel-header">
-              <h3>Action Plan</h3>
-              {actionPlanRequest && (
-                <p className="action-request">Request: {actionPlanRequest}</p>
-              )}
-            </div>
-
             {actionLoading && (
               <div className="action-loading">
                 <div className="spinner"></div>
@@ -735,6 +737,17 @@ export default function ChatInterface({
               </div>
             )}
 
+            {/* Action Request */}
+            {actionPlanRequest && (
+              <div className="action-request-block">
+                <h4>Action Request</h4>
+                <div className="markdown-content">
+                  <ReactMarkdown>{actionPlanRequest}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {/* Action Plan */}
             {actionStageLoading.stage4 && (
               <div className="stage-loading">
                 <div className="spinner"></div>
@@ -743,12 +756,12 @@ export default function ChatInterface({
             )}
 
             {actionPlanResult?.stage4_action_plan ? (
-              <div className="plan-details">
+              <div className="action-plan-block plan-details">
+                <h4>Action Plan</h4>
                 {actionPlanResult.stage4_action_plan.success ||
                 actionPlanResult.stage4_action_plan.action_plan ? (
                   <>
                     <div className="plan-summary">
-                      <h4>Action Plan Summary</h4>
                       <p>
                         {
                           actionPlanResult.stage4_action_plan.action_plan
@@ -837,7 +850,7 @@ export default function ChatInterface({
             ) : null}
 
             {actionExecutionResult && (
-              <div className="execution-details">
+              <div className="execution-block execution-details">
                 <h4>Execution Results</h4>
                 <p
                   className={
