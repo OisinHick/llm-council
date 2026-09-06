@@ -57,6 +57,7 @@ function App() {
       return {};
     }
   });
+  const [pendingMode, setPendingMode] = useState("informational");
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState(null);
 
@@ -146,6 +147,15 @@ function App() {
     try {
       const convs = await api.listConversations();
       setConversations(convs);
+      setCouncilModeState((prev) => {
+        const next = { ...prev };
+        convs.forEach((c) => {
+          if (c.mode && !next[c.id]) {
+            next[c.id] = c.mode;
+          }
+        });
+        return next;
+      });
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }
@@ -160,6 +170,12 @@ function App() {
         }
         return conv;
       });
+      if (conv?.mode) {
+        setCouncilModeState((prev) => {
+          if (prev[id] === conv.mode) return prev;
+          return { ...prev, [id]: conv.mode };
+        });
+      }
       syncActionStateFromConversation(conv);
     } catch (error) {
       console.error("Failed to load conversation:", error);
@@ -212,16 +228,38 @@ function App() {
     setActionLoading(false);
   };
 
+  const activeMode = currentConversationId
+    ? councilModeState[currentConversationId] || "informational"
+    : pendingMode;
+
   const handleNewConversation = async () => {
     try {
       resetActionState();
       setCurrentConversation(null);
-      const newConv = await api.createConversation();
-      setConversations([
-        { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
-        ...conversations,
+      const modeToUse = activeMode;
+      const newConv = await api.createConversation(modeToUse);
+      setConversations((prev) => [
+        {
+          id: newConv.id,
+          created_at: newConv.created_at,
+          title: "New Conversation",
+          message_count: 0,
+          mode: modeToUse,
+        },
+        ...prev,
       ]);
       setCurrentConversationId(newConv.id);
+      setCurrentConversation({
+        id: newConv.id,
+        created_at: newConv.created_at,
+        title: "New Conversation",
+        mode: modeToUse,
+        messages: [],
+      });
+      setCouncilModeState((prev) => ({
+        ...prev,
+        [newConv.id]: modeToUse,
+      }));
     } catch (error) {
       console.error("Failed to create conversation:", error);
     }
@@ -239,19 +277,31 @@ function App() {
       return currentConversationId;
     }
     resetActionState();
-    const newConv = await api.createConversation();
+    const modeToUse = activeMode;
+    const newConv = await api.createConversation(modeToUse);
     const convObj = {
       id: newConv.id,
       created_at: newConv.created_at,
       title: "New Conversation",
+      mode: modeToUse,
       messages: [],
     };
     setConversations((prev) => [
-      { id: newConv.id, created_at: newConv.created_at, title: "New Conversation", message_count: 0 },
+      {
+        id: newConv.id,
+        created_at: newConv.created_at,
+        title: "New Conversation",
+        message_count: 0,
+        mode: modeToUse,
+      },
       ...prev,
     ]);
     setCurrentConversationId(newConv.id);
     setCurrentConversation(convObj);
+    setCouncilModeState((prev) => ({
+      ...prev,
+      [newConv.id]: modeToUse,
+    }));
     return newConv.id;
   };
 
@@ -562,12 +612,23 @@ function App() {
     }
   };
 
-  const handleModeChange = (mode) => {
+  const handleModeChange = async (mode) => {
+    setPendingMode(mode);
     if (currentConversationId) {
       setCouncilModeState((prev) => ({
         ...prev,
         [currentConversationId]: mode,
       }));
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === currentConversationId ? { ...c, mode } : c,
+        ),
+      );
+      try {
+        await api.updateConversationMode(currentConversationId, mode);
+      } catch (err) {
+        console.warn("Failed to persist conversation mode to backend:", err);
+      }
     }
   };
 
@@ -970,7 +1031,7 @@ function App() {
       />
       <ChatInterface
         conversation={currentConversation}
-        mode={councilModeState[currentConversationId] || "informational"}
+        mode={activeMode}
         onModeChange={handleModeChange}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}

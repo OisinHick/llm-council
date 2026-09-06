@@ -88,7 +88,16 @@ export default function Sidebar({
                 {conv.title || "New Conversation"}
               </div>
               <div className="conversation-meta">
-                {conv.message_count} messages
+                <span
+                  className={`conv-mode-tag mode-${conv.mode || "informational"}`}
+                >
+                  {conv.mode === "agentic"
+                    ? "🤖 Agentic"
+                    : conv.mode === "one_shot"
+                      ? "⚡ One Shot"
+                      : "💬 Info"}
+                </span>
+                <span>{conv.message_count} msgs</span>
               </div>
             </div>
           ))

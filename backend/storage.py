@@ -19,12 +19,15 @@ def get_conversation_path(conversation_id: str) -> str:
     return os.path.join(DATA_DIR, f"{conversation_id}.json")
 
 
-def create_conversation(conversation_id: str) -> Dict[str, Any]:
+def create_conversation(
+    conversation_id: str, mode: str = "informational"
+) -> Dict[str, Any]:
     """
     Create a new conversation.
 
     Args:
         conversation_id: Unique identifier for the conversation
+        mode: Initial mode ('informational', 'one_shot', 'agentic')
 
     Returns:
         New conversation dict
@@ -35,6 +38,7 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
         "id": conversation_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "title": "New Conversation",
+        "mode": mode,
         "messages": [],
     }
 
@@ -101,6 +105,7 @@ def list_conversations() -> List[Dict[str, Any]]:
                         "created_at": data["created_at"],
                         "title": data.get("title", "New Conversation"),
                         "message_count": len(data["messages"]),
+                        "mode": data.get("mode", "informational"),
                     }
                 )
 
@@ -245,3 +250,22 @@ def update_conversation_title(conversation_id: str, title: str):
 
     conversation["title"] = title
     save_conversation(conversation)
+
+
+def update_conversation_mode(
+    conversation_id: str, mode: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Update the mode of a conversation.
+
+    Args:
+        conversation_id: Conversation identifier
+        mode: New mode ('informational', 'one_shot', 'agentic')
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        return None
+
+    conversation["mode"] = mode
+    save_conversation(conversation)
+    return conversation

@@ -372,12 +372,18 @@ export default function ChatInterface({
         {!hasConversation ? (
           <div className="empty-state">
             <h2>Welcome to LLM Council</h2>
-            <p>Ask a question below to consult the LLM Council</p>
+            <p>
+              Choose Informational, One Shot, or Agentic using the slider below
+              to begin.
+            </p>
           </div>
         ) : messages.length === 0 && !actionPanelActive ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
-            <p>Ask a question to consult the LLM Council</p>
+            <p>
+              Choose Informational, One Shot, or Agentic using the slider below
+              to begin.
+            </p>
           </div>
         ) : (
           messages.map((msg, index) => {

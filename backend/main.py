@@ -62,7 +62,14 @@ app.add_middleware(
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
 
-    pass
+    mode: Optional[str] = "informational"
+
+
+class UpdateConversationModeRequest(BaseModel):
+    """Request to update conversation mode."""
+
+    mode: str
+
 
 
 class SendMessageRequest(BaseModel):
@@ -114,6 +121,7 @@ class ConversationMetadata(BaseModel):
     created_at: str
     title: str
     message_count: int
+    mode: Optional[str] = "informational"
 
 
 class Conversation(BaseModel):
@@ -122,6 +130,7 @@ class Conversation(BaseModel):
     id: str
     created_at: str
     title: str
+    mode: Optional[str] = "informational"
     messages: List[Dict[str, Any]]
 
 
@@ -178,11 +187,23 @@ async def list_conversations():
 
 
 @app.post("/api/conversations", response_model=Conversation)
-async def create_conversation(request: CreateConversationRequest):
+async def create_conversation(request: Optional[CreateConversationRequest] = None):
     """Create a new conversation."""
+    mode = request.mode if request and request.mode else "informational"
     conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(conversation_id)
+    conversation = storage.create_conversation(conversation_id, mode=mode)
     return conversation
+
+
+@app.patch("/api/conversations/{conversation_id}/mode")
+async def update_conversation_mode_endpoint(
+    conversation_id: str, request: UpdateConversationModeRequest
+):
+    """Update the mode of a specific conversation."""
+    updated = storage.update_conversation_mode(conversation_id, request.mode)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok", "mode": request.mode}
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)

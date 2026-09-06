@@ -46,17 +46,40 @@ export const api = {
 
   /**
    * Create a new conversation.
+   * @param {string} mode - Conversation mode ('informational', 'one_shot', 'agentic')
    */
-  async createConversation() {
+  async createConversation(mode = "informational") {
     const response = await fetch(`${API_BASE}/api/conversations`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ mode }),
     });
     if (!response.ok) {
       throw new Error("Failed to create conversation");
+    }
+    return response.json();
+  },
+
+  /**
+   * Update the mode of an existing conversation.
+   * @param {string} conversationId
+   * @param {string} mode
+   */
+  async updateConversationMode(conversationId, mode) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/mode`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mode }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("Failed to update conversation mode");
     }
     return response.json();
   },
