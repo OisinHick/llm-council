@@ -158,6 +158,61 @@ export const api = {
   },
 
   /**
+   * Run the Council Autonomous Agent with streaming updates.
+   * @param {string} request - The task request
+   * @param {string} [conversationId] - Optional conversation ID
+   * @param {function} onEvent - Callback for SSE events: (eventType, data) => void
+   * @param {number} [maxSteps=20] - Maximum agent loop steps
+   * @returns {Promise<void>}
+   */
+  async runAgentStream(
+    request,
+    conversationId = undefined,
+    onEvent,
+    maxSteps = 20,
+  ) {
+    const payload = {
+      request,
+      conversation_id: conversationId,
+      max_steps: maxSteps,
+    };
+
+    const response = await fetch(`${API_BASE}/api/agent/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to start agent stream");
+    }
+
+    await consumeSSEStream(response, onEvent);
+  },
+
+  /**
+   * Cancel an active agent run for a conversation.
+   * @param {string} conversationId - The conversation ID
+   */
+  async cancelAgent(conversationId) {
+    const response = await fetch(`${API_BASE}/api/agent/cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to cancel agent run");
+    }
+
+    return response.json();
+  },
+
+  /**
    * Get all active tools from connected MCP servers.
    */
   async getMcpTools() {

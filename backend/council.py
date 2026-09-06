@@ -3,7 +3,7 @@
 import json
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
@@ -542,3 +542,60 @@ async def run_full_council_with_action(
         result["execution"] = execution_result
 
     return result
+
+
+async def run_sub_council(
+    question: str,
+    context: Optional[str] = None,
+    on_event: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Run an on-demand sub-council deliberation on a specific subtask, code problem, or dilemma.
+
+    Args:
+        question: The specific question or dilemma for the council
+        context: Relevant background context, code, or error output
+        on_event: Optional async callback for streaming events
+
+    Returns:
+        Dict with stage1, stage2, stage3, aggregate_rankings, and consensus_recommendation
+    """
+    full_prompt = question
+    if context:
+        full_prompt = f"Context:\n{context}\n\nQuestion/Dilemma:\n{question}"
+
+    if on_event:
+        await on_event("sub_council_stage1_start", {"question": question})
+
+    stage1 = await stage1_collect_responses(full_prompt)
+    if on_event:
+        await on_event("sub_council_stage1_complete", {"data": stage1})
+
+    if on_event:
+        await on_event("sub_council_stage2_start", {})
+
+    stage2, label_to_model = await stage2_collect_rankings(full_prompt, stage1)
+    aggregate = calculate_aggregate_rankings(stage2, label_to_model)
+    if on_event:
+        await on_event(
+            "sub_council_stage2_complete",
+            {"data": stage2, "aggregate_rankings": aggregate},
+        )
+
+    if on_event:
+        await on_event("sub_council_stage3_start", {})
+
+    stage3 = await stage3_synthesize_final(full_prompt, stage1, stage2)
+    if on_event:
+        await on_event("sub_council_stage3_complete", {"data": stage3})
+
+    return {
+        "question": question,
+        "context": context,
+        "stage1": stage1,
+        "stage2": stage2,
+        "stage3": stage3,
+        "aggregate_rankings": aggregate,
+        "consensus_recommendation": stage3.get("response", ""),
+    }
+

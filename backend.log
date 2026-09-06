@@ -1,0 +1,15 @@
+INFO:     Started server process [315734]
+INFO:     Waiting for application startup.
+2026-09-06 15:16:27,258 INFO llm_council.mcp_client_manager: Starting MCP server 'fetch' via command: uvx ['mcp-server-fetch']
+2026-09-06 15:16:28,315 INFO llm_council.mcp_client_manager: Successfully connected to MCP server 'fetch'
+2026-09-06 15:16:28,315 INFO llm_council.mcp_client_manager: Starting MCP server 'kali-tools' via command: uvx ['zebbern-kali-mcp']
+2026-09-06 15:16:29,046 [INFO] Initialized Kali Tools Client connecting to http://127.0.0.1:5000
+2026-09-06 15:16:29,048 [ERROR] GET /health failed: ConnectionError
+2026-09-06 15:16:29,049 [WARNING] Unable to connect to Kali API server at http://127.0.0.1:5000: Request failed: ConnectionError - cannot reach the Kali API server at http://127.0.0.1:5000. Start it with 'docker compose up -d', or point KALI_API_URL at a running server.
+2026-09-06 15:16:29,049 [WARNING] MCP server will start, but tool execution may fail
+2026-09-06 15:16:29,051 [WARNING] Auto capability discovery unavailable; registering the full tool set
+2026-09-06 15:16:29,209 [INFO] Starting Kali MCP server with 'auto' tool profile
+2026-09-06 15:16:29,228 INFO llm_council.mcp_client_manager: Successfully connected to MCP server 'kali-tools'
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:36296 - "GET / HTTP/1.1" 200 OK

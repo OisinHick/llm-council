@@ -35,28 +35,39 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 - `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
 - **`stage4_generate_action_plan()`** (NEW): Takes top-voted response and generates MCP tool calls
 - **`execute_action_plan()`** (NEW): Executes the generated MCP tool calls
-- **`run_full_council_with_action()`** (NEW): Runs all 4 stages with optional execution
+- **`run_sub_council()`** (NEW): Runs an on-demand sub-council deliberation with peer rankings for Chairperson tool consultations
 
-**`mcp_tools.py`** (NEW)
+**`agent.py`** (NEW)
+- `CouncilAgent` class: Multi-turn ReAct autonomous agent loop
+- Chairperson acts as the executive agent writing code, creating documents, and executing tools
+- Equipped with `consult_council` to obtain cross-referenced guidance on demand from AI peers
+- Robust JSON action parser with error recovery and output truncation
+
+**`agent_tools.py`** (NEW)
+- `AgentToolExecutor`: File operations (`read_file`, `write_file`, `edit_file`, `list_directory`)
+- Safe shell execution with timeout and output limits (`execute_command`)
+- External MCP tool dispatch via `mcp_client_manager`
+
+**`mcp_tools.py`**
 - `MCPToolExecutor` class with async methods:
   - `execute_command()`: Run shell/system commands with timeout support
   - `read_file()`: Read file contents from filesystem
   - `write_file()`: Write or append to files
   - `http_request()`: Make HTTP API calls (GET, POST, etc.)
   - `execute_tools()`: Execute a list of tool calls from action plan
-- Supports Kali Linux tools, file operations, and API integration
 
 **`storage.py`**
 - JSON-based conversation storage in `data/conversations/`
 - Each conversation: `{id, created_at, messages[]}`
-- Assistant messages contain: `{role, stage1, stage2, stage3}`
-- Note: metadata (label_to_model, aggregate_rankings) is NOT persisted to storage, only returned via API
+- Supports standard 3-stage council messages and autonomous agent runs (`type: "agent"`, `steps`, `artifacts`, `summary`)
 
 **`main.py`**
 - FastAPI app with CORS enabled for localhost:5173 and localhost:3000
 - POST `/api/conversations/{id}/message` - Original 3-stage council
-- POST `/api/action` - Full 4-stage council with action execution (NEW)
-- POST `/api/action/stream` - Streaming version of action endpoint (NEW)
+- POST `/api/action` - Full 4-stage council with action execution
+- POST `/api/action/stream` - Streaming version of action endpoint
+- POST `/api/agent/stream` - Full autonomous agent with initial Council deliberation + multi-turn execution (NEW)
+- POST `/api/agent/cancel` - Cancel active agent execution (NEW)
 
 ### Frontend Structure (`frontend/src/`)
 

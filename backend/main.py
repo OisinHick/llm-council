@@ -27,6 +27,7 @@ from .council import (
     stage3_synthesize_final,
     stage4_generate_action_plan,
 )
+from .agent import CouncilAgent
 from .mcp_client_manager import mcp_manager
 
 
@@ -80,6 +81,20 @@ class ActionRequest(BaseModel):
 
 class ExecuteStoredActionRequest(BaseModel):
     """Request to execute an existing action plan stored in a conversation."""
+
+    conversation_id: str
+
+
+class AgentRunRequest(BaseModel):
+    """Request to run the Council Chairperson agent."""
+
+    request: str
+    conversation_id: Optional[str] = None
+    max_steps: int = 20
+
+
+class CancelAgentRequest(BaseModel):
+    """Request to cancel an active agent run."""
 
     conversation_id: str
 
@@ -469,6 +484,152 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# In-memory registry of active agent runs
+active_agents: Dict[str, CouncilAgent] = {}
+
+
+@app.post("/api/agent/cancel")
+async def cancel_agent(request: CancelAgentRequest):
+    """Cancel an active agent execution."""
+    agent = active_agents.get(request.conversation_id)
+    if agent:
+        agent.cancel()
+        return {"success": True, "message": "Agent cancellation requested."}
+    return {"success": False, "message": "No active agent found for conversation."}
+
+
+@app.post("/api/agent/stream")
+async def run_agent_stream(request: AgentRunRequest):
+    """
+    Run autonomous CouncilAgent with initial Council Deliberation and
+    streaming multi-step Chairperson execution loop.
+    """
+    conversation = None
+    is_first_message = False
+    conv_id = request.conversation_id
+
+    if conv_id is not None:
+        conversation = storage.get_conversation(conv_id)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        is_first_message = len(conversation["messages"]) == 0
+
+    async def event_generator():
+        nonlocal is_first_message
+        title_task = None
+        agent = None
+        try:
+            if conv_id is not None:
+                storage.add_user_message(conv_id, request.request)
+                if is_first_message:
+                    title_task = asyncio.create_task(
+                        generate_conversation_title(request.request)
+                    )
+
+            # --- PHASE 1: INITIAL COUNCIL CROSS-REFERENCED DELIBERATION ---
+            yield f"data: {json.dumps({'type': 'council_deliberation_start'})}\n\n"
+
+            # Stage 1: Collect proposals from all council models
+            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            stage1_results = await stage1_collect_responses(request.request)
+            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+            if not stage1_results:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond in council deliberation.'})}\n\n"
+                return
+
+            # Stage 2: Peer ranking & evaluation
+            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            stage2_results, label_to_model = await stage2_collect_rankings(
+                request.request, stage1_results
+            )
+            aggregate_rankings = calculate_aggregate_rankings(
+                stage2_results, label_to_model
+            )
+            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+
+            # Stage 3: Cross-referenced synthesis & blueprint
+            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            stage3_result = await stage3_synthesize_final(
+                request.request, stage1_results, stage2_results
+            )
+            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+
+            initial_council = {
+                "stage1": stage1_results,
+                "stage2": stage2_results,
+                "stage3": stage3_result,
+                "metadata": {
+                    "label_to_model": label_to_model,
+                    "aggregate_rankings": aggregate_rankings,
+                },
+            }
+
+            # --- PHASE 2: CHAIRPERSON AUTONOMOUS AGENT LOOP ---
+            agent = CouncilAgent(
+                user_request=request.request,
+                initial_council=initial_council,
+                max_steps=request.max_steps,
+            )
+
+            if conv_id:
+                active_agents[conv_id] = agent
+
+            # Event forwarder from agent to SSE
+            queue = asyncio.Queue()
+
+            async def on_agent_event(event_type: str, data: Dict[str, Any]):
+                await queue.put((event_type, data))
+
+            # Run agent loop as a task so we can stream events from queue
+            agent_task = asyncio.create_task(agent.run(on_event=on_agent_event))
+
+            while not agent_task.done() or not queue.empty():
+                try:
+                    event_type, data = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    yield f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+
+            agent_result = await agent_task
+
+            # Save agent run into conversation storage
+            if conv_id is not None:
+                storage.add_agent_message(
+                    conversation_id=conv_id,
+                    user_request=request.request,
+                    initial_council=initial_council,
+                    steps=agent.steps,
+                    artifacts=agent.artifacts,
+                    summary=agent.summary,
+                    error=agent.error,
+                    status="cancelled" if agent.is_cancelled else ("completed" if agent.is_completed else "failed"),
+                )
+
+            if title_task:
+                title = await title_task
+                storage.update_conversation_title(conv_id, title)
+                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'complete', 'data': agent_result})}\n\n"
+
+        except Exception as e:
+            logger.exception("Error in agent stream: %s", str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        finally:
+            if conv_id and conv_id in active_agents:
+                active_agents.pop(conv_id, None)
 
     return StreamingResponse(
         event_generator(),

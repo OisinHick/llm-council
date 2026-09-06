@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
+import AgentTimeline from "./AgentTimeline";
 import { api } from "../api";
 import "./ChatInterface.css";
 
@@ -236,6 +237,12 @@ export default function ChatInterface({
   onGenerateActionPlan,
   onExecuteActionPlan,
   onToggleGenerateActionPlan,
+  onRunAgent,
+  onCancelAgent,
+  agentToggle,
+  onToggleAgent,
+  agentLoading = false,
+  agentError = null,
   actionPlanResult,
   actionExecutionResult,
   actionStageResults,
@@ -247,6 +254,7 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState("");
   const [generateActionPlan, setGenerateActionPlan] = useState(false);
+  const [isAgentMode, setIsAgentMode] = useState(false);
   const [mcpTools, setMcpTools] = useState([]);
   const [mcpStatuses, setMcpStatuses] = useState({});
   const [showToolsList, setShowToolsList] = useState(false);
@@ -293,16 +301,22 @@ export default function ChatInterface({
     fetchTools();
     const interval = setInterval(fetchTools, 5000);
     return () => clearInterval(interval);
-  }, [actionLoading, isLoading]);
+  }, [actionLoading, isLoading, agentLoading]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Sync toggle state with prop
+  // Sync toggle states with props
   useEffect(() => {
     setGenerateActionPlan(generateActionPlanToggle);
   }, [generateActionPlanToggle]);
+
+  useEffect(() => {
+    if (agentToggle !== undefined) {
+      setIsAgentMode(agentToggle);
+    }
+  }, [agentToggle]);
 
   useEffect(() => {
     scrollToBottom();
@@ -310,9 +324,13 @@ export default function ChatInterface({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading || actionLoading) return;
+    if (!input.trim() || isLoading || actionLoading || agentLoading) return;
 
-    if (generateActionPlan) {
+    if (isAgentMode) {
+      if (onRunAgent) {
+        onRunAgent(input);
+      }
+    } else if (generateActionPlan) {
       onGenerateActionPlan(input);
     } else {
       onSendMessage(input);
@@ -371,18 +389,28 @@ export default function ChatInterface({
                 </div>
               ) : (
                 <div className="assistant-message">
-                  <div className="message-label">LLM Council</div>
+                  <div className="message-label">
+                    {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
+                  </div>
 
-                  {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>
-                        Running Stage 1: Collecting individual responses...
-                      </span>
-                    </div>
-                  )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
+                  {msg.type === "agent" || msg.steps ? (
+                    <AgentTimeline
+                      agentData={msg}
+                      isRunning={msg.isRunning || (msg.status === "running")}
+                      onCancel={onCancelAgent}
+                    />
+                  ) : (
+                    <>
+                      {/* Stage 1 */}
+                      {msg.loading?.stage1 && (
+                        <div className="stage-loading">
+                          <div className="spinner"></div>
+                          <span>
+                            Running Stage 1: Collecting individual responses...
+                          </span>
+                        </div>
+                      )}
+                      {msg.stage1 && <Stage1 responses={msg.stage1} />}
 
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
@@ -598,6 +626,8 @@ export default function ChatInterface({
                         ),
                       )}
                     </div>
+                  )}
+                    </>
                   )}
                 </div>
               )}
@@ -994,11 +1024,15 @@ export default function ChatInterface({
         <div className="input-row">
           <textarea
             className="message-input"
-            placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
+            placeholder={
+              isAgentMode
+                ? "Describe the goal for the Council Chairperson Agent (e.g. write code, generate documentation, run tests)..."
+                : "Ask your question... (Shift+Enter for new line, Enter to send)"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isLoading || actionLoading}
+            disabled={isLoading || actionLoading || agentLoading}
             rows={3}
           />
 
@@ -1029,6 +1063,24 @@ export default function ChatInterface({
               </span>
             </div>
 
+            <div
+              className="generate-toggle"
+              title="Enable autonomous agent mode where Chairperson writes code, docs, and executes tools"
+            >
+              <button
+                type="button"
+                className={`circular-toggle ${isAgentMode ? "active" : ""}`}
+                onClick={() => {
+                  const next = !isAgentMode;
+                  setIsAgentMode(next);
+                  if (next) setGenerateActionPlan(false);
+                  if (onToggleAgent) onToggleAgent(next);
+                }}
+                disabled={isLoading || actionLoading || agentLoading}
+              />
+              <strong>⚡ Agent Mode</strong>
+            </div>
+
             <div className="generate-toggle">
               <button
                 type="button"
@@ -1036,27 +1088,45 @@ export default function ChatInterface({
                 onClick={() => {
                   const newState = !generateActionPlan;
                   setGenerateActionPlan(newState);
+                  if (newState) setIsAgentMode(false);
                   if (onToggleGenerateActionPlan) {
                     onToggleGenerateActionPlan(newState);
                   }
                 }}
-                disabled={isLoading || actionLoading}
+                disabled={isLoading || actionLoading || agentLoading}
                 title={
                   generateActionPlan
                     ? "Disable action plan generation"
                     : "Enable action plan generation"
                 }
               />
-              Generate Action Plan
+              Action Plan (1-shot)
             </div>
 
-            <button
-              type="submit"
-              className="send-button"
-              disabled={!input.trim() || isLoading || actionLoading}
-            >
-              {generateActionPlan ? "Generate Plan" : "Send"}
-            </button>
+            {agentLoading && onCancelAgent ? (
+              <button
+                type="button"
+                className="send-button"
+                style={{ background: "#dc2626" }}
+                onClick={onCancelAgent}
+              >
+                Stop Agent
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="send-button"
+                disabled={
+                  !input.trim() || isLoading || actionLoading || agentLoading
+                }
+              >
+                {isAgentMode
+                  ? "Run Agent"
+                  : generateActionPlan
+                    ? "Generate Plan"
+                    : "Send"}
+              </button>
+            )}
           </div>
         </div>
       </form>

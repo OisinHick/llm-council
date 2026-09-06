@@ -38,6 +38,17 @@ function App() {
         return {};
       }
     });
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentError, setAgentError] = useState(null);
+  const [agentToggleState, setAgentToggleState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("agentToggleState");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error("Failed to load agent toggle state from localStorage:", e);
+      return {};
+    }
+  });
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -550,6 +561,250 @@ function App() {
     }
   };
 
+  const handleToggleAgent = (checked) => {
+    if (currentConversationId) {
+      setAgentToggleState((prev) => {
+        const next = { ...prev, [currentConversationId]: checked };
+        try {
+          localStorage.setItem("agentToggleState", JSON.stringify(next));
+        } catch (e) {
+          console.error("Failed to save agent toggle state:", e);
+        }
+        return next;
+      });
+    }
+  };
+
+  const handleRunAgent = async (requestText) => {
+    if (!requestText.trim()) return;
+
+    setAgentLoading(true);
+    setAgentError(null);
+
+    let activeId = currentConversationId;
+    if (!activeId || !currentConversation) {
+      try {
+        activeId = await ensureActiveConversation();
+      } catch (error) {
+        console.error("Failed to create conversation:", error);
+        setAgentError("Could not create conversation");
+        setAgentLoading(false);
+        return;
+      }
+    }
+
+    const userMessage = { role: "user", content: requestText };
+    const agentAssistantMessage = {
+      role: "assistant",
+      type: "agent",
+      action_request: requestText,
+      initial_council: {
+        stage1: null,
+        stage2: null,
+        stage3: null,
+        metadata: null,
+      },
+      steps: [],
+      artifacts: [],
+      summary: null,
+      error: null,
+      status: "running",
+      isRunning: true,
+    };
+
+    setCurrentConversation((prev) => ({
+      ...prev,
+      messages: [...(prev?.messages || []), userMessage, agentAssistantMessage],
+    }));
+
+    const updateCurrentAgentMessage = (updater) => {
+      setCurrentConversation((prev) => {
+        if (!prev?.messages?.length) return prev;
+        const messages = [...prev.messages];
+        const lastIdx = messages.length - 1;
+        if (messages[lastIdx]?.role !== "assistant") return prev;
+        messages[lastIdx] = updater(messages[lastIdx]);
+        return { ...prev, messages };
+      });
+    };
+
+    try {
+      await api.runAgentStream(
+        requestText,
+        activeId,
+        (eventType, event) => {
+          switch (eventType) {
+            case "stage1_start":
+              break;
+            case "stage1_complete":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                initial_council: {
+                  ...msg.initial_council,
+                  stage1: event.data,
+                },
+              }));
+              break;
+            case "stage2_start":
+              break;
+            case "stage2_complete":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                initial_council: {
+                  ...msg.initial_council,
+                  stage2: event.data,
+                  metadata: event.metadata,
+                },
+              }));
+              break;
+            case "stage3_start":
+              break;
+            case "stage3_complete":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                initial_council: {
+                  ...msg.initial_council,
+                  stage3: event.data,
+                },
+              }));
+              break;
+            case "agent_thought":
+              updateCurrentAgentMessage((msg) => {
+                const steps = [...(msg.steps || [])];
+                const existingIdx = steps.findIndex(
+                  (s) => s.step === event.data.step,
+                );
+                const stepObj = {
+                  step: event.data.step,
+                  thought: event.data.thought,
+                  action: event.data.action,
+                  params: event.data.params,
+                  observation: null,
+                  council_consultation: null,
+                };
+                if (existingIdx >= 0) {
+                  steps[existingIdx] = { ...steps[existingIdx], ...stepObj };
+                } else {
+                  steps.push(stepObj);
+                }
+                return { ...msg, steps };
+              });
+              break;
+            case "consult_council_complete":
+              updateCurrentAgentMessage((msg) => {
+                const steps = [...(msg.steps || [])];
+                const existingIdx = steps.findIndex(
+                  (s) => s.step === event.data.step,
+                );
+                if (existingIdx >= 0) {
+                  steps[existingIdx] = {
+                    ...steps[existingIdx],
+                    council_consultation: event.data.council_data,
+                  };
+                }
+                return { ...msg, steps };
+              });
+              break;
+            case "agent_tool_result":
+              updateCurrentAgentMessage((msg) => {
+                const steps = [...(msg.steps || [])];
+                const existingIdx = steps.findIndex(
+                  (s) => s.step === event.data.step,
+                );
+                if (existingIdx >= 0) {
+                  steps[existingIdx] = {
+                    ...steps[existingIdx],
+                    observation: event.data.observation,
+                  };
+                }
+                const newArtifacts = [...(msg.artifacts || [])];
+                if (
+                  (event.data.action === "write_file" ||
+                    event.data.action === "edit_file") &&
+                  event.data.observation?.success
+                ) {
+                  const p =
+                    steps[existingIdx]?.params?.path ||
+                    event.data.observation?.path;
+                  if (p && !newArtifacts.includes(p)) newArtifacts.push(p);
+                }
+                return { ...msg, steps, artifacts: newArtifacts };
+              });
+              break;
+            case "agent_complete":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                status: "completed",
+                isRunning: false,
+                summary: event.data.summary,
+                artifacts: event.data.artifacts || msg.artifacts,
+              }));
+              setAgentLoading(false);
+              loadConversations();
+              break;
+            case "agent_cancelled":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                status: "cancelled",
+                isRunning: false,
+                error: event.data.message || "Agent cancelled by user.",
+              }));
+              setAgentLoading(false);
+              break;
+            case "agent_error":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                status: "failed",
+                isRunning: false,
+                error: event.data.error,
+              }));
+              setAgentLoading(false);
+              setAgentError(event.data.error);
+              break;
+            case "title_complete":
+              loadConversations();
+              break;
+            case "complete":
+              setAgentLoading(false);
+              loadConversations();
+              break;
+            case "error":
+              setAgentLoading(false);
+              setAgentError(event.message);
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                status: "failed",
+                isRunning: false,
+                error: event.message,
+              }));
+              break;
+            default:
+              console.log("Agent event:", eventType, event);
+          }
+        },
+      );
+    } catch (err) {
+      console.error("Agent run error:", err);
+      setAgentError(err.message || "Failed to run agent");
+      setAgentLoading(false);
+      updateCurrentAgentMessage((msg) => ({
+        ...msg,
+        status: "failed",
+        isRunning: false,
+        error: err.message,
+      }));
+    }
+  };
+
+  const handleCancelAgent = async () => {
+    if (!currentConversationId) return;
+    try {
+      await api.cancelAgent(currentConversationId);
+    } catch (err) {
+      console.error("Failed to cancel agent:", err);
+    }
+  };
+
   const handleExecuteActionPlan = async () => {
     if (!actionPlanRequest || !currentConversationId) return;
 
@@ -726,6 +981,12 @@ function App() {
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}
         onToggleGenerateActionPlan={handleToggleGenerateActionPlan}
+        onRunAgent={handleRunAgent}
+        onCancelAgent={handleCancelAgent}
+        agentToggle={agentToggleState[currentConversationId] ?? false}
+        onToggleAgent={handleToggleAgent}
+        agentLoading={agentLoading}
+        agentError={agentError}
         actionPlanResult={actionPlanResult}
         actionExecutionResult={actionExecutionResult}
         actionStageResults={actionStageResults}

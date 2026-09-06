@@ -171,7 +171,45 @@ def add_assistant_message(
     save_conversation(conversation)
 
 
+def add_agent_message(
+    conversation_id: str,
+    user_request: str,
+    initial_council: Dict[str, Any],
+    steps: List[Dict[str, Any]],
+    artifacts: List[str],
+    summary: Optional[str] = None,
+    error: Optional[str] = None,
+    status: str = "completed",
+):
+    """
+    Add an agent run message to a conversation.
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    message = {
+        "role": "assistant",
+        "type": "agent",
+        "action_request": user_request,
+        "initial_council": initial_council,
+        "steps": steps,
+        "artifacts": artifacts,
+        "summary": summary,
+        "error": error,
+        "status": status,
+        "stage1": initial_council.get("stage1", []),
+        "stage2": initial_council.get("stage2", []),
+        "stage3": initial_council.get("stage3", {}),
+        "metadata": initial_council.get("metadata", {}),
+    }
+
+    conversation["messages"].append(message)
+    save_conversation(conversation)
+
+
 def update_last_assistant_message(conversation_id: str, updater):
+
     """
     Update the most recent assistant message in a conversation.
 
