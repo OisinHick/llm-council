@@ -564,14 +564,16 @@ export default function ChatInterface({
 
                   {msg.execution && (
                     <div className="execution-block">
-                      <h4>Execution Results</h4>
-                      {msg.execution.success ? (
-                        <p className="execution-success">
-                          ✅ Execution succeeded
-                        </p>
-                      ) : (
-                        <p className="execution-failure">⚠️ Execution failed</p>
-                      )}
+                      <h4 className="execution-heading">
+                        <span>Execution Results</span>
+                        <span
+                          className={`execution-status-badge ${
+                            msg.execution.success ? "success" : "failure"
+                          }`}
+                        >
+                          {msg.execution.success ? "✅ Success" : "⚠️ Failed"}
+                        </span>
+                      </h4>
                       {msg.execution.execution_results?.results?.map(
                         (toolResult, idx) => (
                           <div key={idx} className="tool-result">
@@ -585,17 +587,6 @@ export default function ChatInterface({
                                     </span>
                                   )}
                               </strong>
-                              <span
-                                className={
-                                  toolResult.result.success
-                                    ? "execution-success"
-                                    : "execution-failure"
-                                }
-                              >
-                                {toolResult.result.success
-                                  ? "✓ Success"
-                                  : "✗ Failure"}
-                              </span>
                             </div>
 
                             {toolResult.params &&
@@ -851,18 +842,16 @@ export default function ChatInterface({
 
             {actionExecutionResult && (
               <div className="execution-block execution-details">
-                <h4>Execution Results</h4>
-                <p
-                  className={
-                    actionExecutionResult.success
-                      ? "execution-success"
-                      : "execution-failure"
-                  }
-                >
-                  {actionExecutionResult.success
-                    ? "✅ Execution succeeded"
-                    : "⚠️ Execution failed"}
-                </p>
+                <h4 className="execution-heading">
+                  <span>Execution Results</span>
+                  <span
+                    className={`execution-status-badge ${
+                      actionExecutionResult.success ? "success" : "failure"
+                    }`}
+                  >
+                    {actionExecutionResult.success ? "✅ Success" : "⚠️ Failed"}
+                  </span>
+                </h4>
                 {actionExecutionResult.action_plan && (
                   <div className="plan-summary">
                     <h5>Executed Plan</h5>
@@ -883,17 +872,6 @@ export default function ChatInterface({
                               </span>
                             )}
                         </strong>
-                        <span
-                          className={
-                            toolResult.result.success
-                              ? "execution-success"
-                              : "execution-failure"
-                          }
-                        >
-                          {toolResult.result.success
-                            ? "✓ Success"
-                            : "✗ Failure"}
-                        </span>
                       </div>
 
                       {toolResult.params &&
