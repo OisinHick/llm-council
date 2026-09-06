@@ -167,4 +167,50 @@ export const api = {
     }
     return response.json();
   },
+
+  /**
+   * Fetch available models from OpenRouter.
+   * @param {string} [apiKey] - Optional OpenRouter API key override
+   */
+  async getModels(apiKey = undefined) {
+    const url = apiKey
+      ? `${API_BASE}/api/models?api_key=${encodeURIComponent(apiKey)}`
+      : `${API_BASE}/api/models`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to fetch OpenRouter models");
+    }
+    return response.json();
+  },
+
+  /**
+   * Get current configuration settings.
+   */
+  async getSettings() {
+    const response = await fetch(`${API_BASE}/api/settings`);
+    if (!response.ok) {
+      throw new Error("Failed to load settings");
+    }
+    return response.json();
+  },
+
+  /**
+   * Update configuration settings.
+   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model }
+   */
+  async updateSettings(settings) {
+    const response = await fetch(`${API_BASE}/api/settings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to save settings");
+    }
+    return response.json();
+  },
 };

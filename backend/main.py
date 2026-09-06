@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
 from . import storage
+from .config import get_settings, save_settings
+from .openrouter import fetch_openrouter_models
 from .council import (
     calculate_aggregate_rankings,
     execute_action_plan,
@@ -82,6 +84,14 @@ class ExecuteStoredActionRequest(BaseModel):
     conversation_id: str
 
 
+class UpdateSettingsRequest(BaseModel):
+    """Request to update configuration settings."""
+
+    openrouter_api_key: Optional[str] = None
+    council_models: Optional[List[str]] = None
+    chairman_model: Optional[str] = None
+
+
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
 
@@ -104,6 +114,32 @@ class Conversation(BaseModel):
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
+
+
+@app.get("/api/models")
+async def get_openrouter_models_endpoint(api_key: Optional[str] = None):
+    """Fetch available OpenRouter models."""
+    try:
+        models = await fetch_openrouter_models(api_key)
+        return {"success": True, "models": models}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/settings")
+async def get_settings_endpoint():
+    """Get current settings."""
+    return get_settings()
+
+
+@app.post("/api/settings")
+async def save_settings_endpoint(request: UpdateSettingsRequest):
+    """Update settings."""
+    try:
+        updated = save_settings(request.dict(exclude_unset=True))
+        return {"success": True, "settings": updated}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/mcp/tools")

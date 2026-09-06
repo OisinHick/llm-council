@@ -6,14 +6,49 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from .config import OPENROUTER_API_URL, OPENROUTER_MODELS_URL, get_openrouter_api_key
 
 logger = logging.getLogger(__name__)
 
-if not OPENROUTER_API_KEY:
-    logger.warning(
-        "OPENROUTER_API_KEY is not set; OpenRouter requests will likely fail."
-    )
+
+async def fetch_openrouter_models(api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Fetch list of available models from OpenRouter API.
+
+    Args:
+        api_key: Optional OpenRouter API key override
+
+    Returns:
+        List of dicts containing model 'id', 'name', and 'context_length'
+    """
+    key = api_key or get_openrouter_api_key()
+    if not key:
+        raise ValueError("OpenRouter API key is required to fetch models.")
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(OPENROUTER_MODELS_URL, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        raw_models = data.get("data", [])
+
+        formatted_models = []
+        for model in raw_models:
+            formatted_models.append({
+                "id": model.get("id", ""),
+                "name": model.get("name") or model.get("id", ""),
+                "context_length": model.get("context_length"),
+                "description": model.get("description", ""),
+            })
+
+        # Sort by name alphabetically
+        formatted_models.sort(key=lambda m: m["name"].lower())
+        return formatted_models
 
 
 async def query_model(
@@ -30,8 +65,12 @@ async def query_model(
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
     """
+    key = get_openrouter_api_key()
+    if not key:
+        logger.warning("OPENROUTER_API_KEY is not set; OpenRouter request will fail.")
+
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
 
@@ -75,7 +114,7 @@ async def query_models_parallel(
         Dict mapping model identifier to response dict (or None if failed)
     """
     # Create tasks for all models
-    tasks = [asyncio.create_task(query_model(model, messages)) for model in models]
+    tasks = [asyncio.create_task(query_model(model, messages, timeout=timeout)) for model in models]
 
     try:
         responses = await asyncio.wait_for(
@@ -106,3 +145,4 @@ async def query_models_parallel(
 
     # Map models to their responses
     return {model: response for model, response in zip(models, responses)}
+

@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
-from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
+from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
 from .mcp_tools import executor
 from .openrouter import query_model, query_models_parallel
@@ -24,7 +24,7 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel with an overall timeout
-    responses = await query_models_parallel(COUNCIL_MODELS, messages, timeout=180.0)
+    responses = await query_models_parallel(get_council_models(), messages, timeout=180.0)
 
     # Format results
     stage1_results = []
@@ -101,7 +101,7 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel with an overall timeout
-    responses = await query_models_parallel(COUNCIL_MODELS, messages, timeout=180.0)
+    responses = await query_models_parallel(get_council_models(), messages, timeout=90.0)
 
     # Format results
     stage2_results = []
@@ -142,7 +142,9 @@ async def stage3_synthesize_final(
 
     stage2_text = "\n\n".join(
         [
-            f"Model: {result['model']}\nRanking: {result['ranking']}"
+            f"Model {result['model']} ranking: {', '.join(result.get('parsed_ranking', []))}\nEvaluation Summary: {result['ranking'][:400]}..."
+            if len(result.get('ranking', '')) > 400
+            else f"Model {result['model']} ranking: {', '.join(result.get('parsed_ranking', []))}\nEvaluation: {result.get('ranking', '')}"
             for result in stage2_results
         ]
     )
@@ -154,7 +156,7 @@ Original Question: {user_query}
 STAGE 1 - Individual Responses:
 {stage1_text}
 
-STAGE 2 - Peer Rankings:
+STAGE 2 - Peer Ranking Summaries:
 {stage2_text}
 
 Your task as Chairman is to synthesize all of this information into a single, comprehensive, accurate answer to the user's original question. Consider:
@@ -166,17 +168,18 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    # Query the chairman model with 120s timeout
+    chairman = get_chairman_model()
+    response = await query_model(chairman, messages, timeout=120.0)
 
     if response is None:
         # Fallback if chairman fails
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "response": "Error: Unable to generate final synthesis.",
         }
 
-    return {"model": CHAIRMAN_MODEL, "response": response.get("content", "")}
+    return {"model": chairman, "response": response.get("content", "")}
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
@@ -278,8 +281,9 @@ Title:"""
 
     messages = [{"role": "user", "content": title_prompt}]
 
-    # Use gemini-2.5-flash for title generation (fast and cheap)
-    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0)
+    # Use chairman model for title generation
+    chairman = get_chairman_model()
+    response = await query_model(chairman, messages, timeout=30.0)
 
     if response is None:
         # Fallback to a generic title
@@ -434,7 +438,8 @@ Now generate the action plan JSON:"""
     messages = [{"role": "user", "content": action_prompt}]
 
     # Query chairman to generate action plan
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    chairman = get_chairman_model()
+    response = await query_model(chairman, messages)
 
     if response is None:
         return {"success": False, "error": "Failed to generate action plan"}

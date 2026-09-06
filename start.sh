@@ -7,7 +7,7 @@ echo ""
 
 # Start backend
 echo "Starting backend on http://localhost:8001..."
-uv run python -m backend.main &
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload &
 BACKEND_PID=$!
 
 # Wait a bit for backend to start

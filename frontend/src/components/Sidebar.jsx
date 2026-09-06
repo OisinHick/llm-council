@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import SettingsModal from "./SettingsModal";
 import "./Sidebar.css";
 
 export default function Sidebar({
@@ -19,7 +20,7 @@ export default function Sidebar({
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--assistant-bg",
-      assistantColor,
+      assistantColor
     );
     localStorage.setItem("llmCouncilColor", assistantColor);
   }, [assistantColor]);
@@ -28,14 +29,6 @@ export default function Sidebar({
     document.documentElement.style.setProperty("--user-bg", userColor);
     localStorage.setItem("userColor", userColor);
   }, [userColor]);
-
-  const handleAssistantColorChange = (e) => {
-    setAssistantColor(e.target.value);
-  };
-
-  const handleUserColorChange = (e) => {
-    setUserColor(e.target.value);
-  };
 
   const handleResetColors = () => {
     setAssistantColor("#f6f9ff");
@@ -49,59 +42,22 @@ export default function Sidebar({
         <button
           type="button"
           className="settings-cog-btn"
-          onClick={() => setShowSettings(!showSettings)}
-          title="Appearance Settings"
+          onClick={() => setShowSettings(true)}
+          title="Settings"
         >
           ⚙️
         </button>
-        {showSettings && (
-          <div
-            className="settings-modal-backdrop"
-            onClick={() => setShowSettings(false)}
-          >
-            <div
-              className="settings-modal-content"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="settings-modal-header">
-                <h3>Appearance Settings</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(false)}
-                  className="close-settings-btn"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="settings-modal-body">
-                <div className="settings-field">
-                  <label>LLM Council Color</label>
-                  <input
-                    type="color"
-                    value={assistantColor}
-                    onChange={handleAssistantColorChange}
-                  />
-                </div>
-                <div className="settings-field">
-                  <label>User Message Color</label>
-                  <input
-                    type="color"
-                    value={userColor}
-                    onChange={handleUserColorChange}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="reset-colors-btn"
-                  onClick={handleResetColors}
-                >
-                  Reset Defaults
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        assistantColor={assistantColor}
+        setAssistantColor={setAssistantColor}
+        userColor={userColor}
+        setUserColor={setUserColor}
+        onResetColors={handleResetColors}
+      />
 
       <div className="conversation-list">
         <button
