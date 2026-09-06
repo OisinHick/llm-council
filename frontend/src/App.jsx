@@ -27,28 +27,38 @@ function App() {
   });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
-  const [generateActionPlanToggleState, setGenerateActionPlanToggleState] =
-    useState(() => {
-      // Load toggle state from localStorage on initialization
-      try {
-        const saved = localStorage.getItem("generateActionPlanToggleState");
-        return saved ? JSON.parse(saved) : {};
-      } catch (e) {
-        console.error("Failed to load toggle state from localStorage:", e);
-        return {};
-      }
-    });
-  const [agentLoading, setAgentLoading] = useState(false);
-  const [agentError, setAgentError] = useState(null);
-  const [agentToggleState, setAgentToggleState] = useState(() => {
+  const [councilModeState, setCouncilModeState] = useState(() => {
     try {
-      const saved = localStorage.getItem("agentToggleState");
-      return saved ? JSON.parse(saved) : {};
+      const saved = localStorage.getItem("councilModeState");
+      if (saved) return JSON.parse(saved);
+
+      // Fallback migration from legacy toggle states
+      const legacyAgent = localStorage.getItem("agentToggleState");
+      const legacyAction = localStorage.getItem("generateActionPlanToggleState");
+      const parsedAgent = legacyAgent ? JSON.parse(legacyAgent) : {};
+      const parsedAction = legacyAction ? JSON.parse(legacyAction) : {};
+      const migrated = {};
+      const allKeys = new Set([
+        ...Object.keys(parsedAgent),
+        ...Object.keys(parsedAction),
+      ]);
+      allKeys.forEach((key) => {
+        if (parsedAgent[key]) {
+          migrated[key] = "agentic";
+        } else if (parsedAction[key]) {
+          migrated[key] = "one_shot";
+        } else {
+          migrated[key] = "informational";
+        }
+      });
+      return migrated;
     } catch (e) {
-      console.error("Failed to load agent toggle state from localStorage:", e);
+      console.error("Failed to load council mode state from localStorage:", e);
       return {};
     }
   });
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentError, setAgentError] = useState(null);
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -169,17 +179,17 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentConversationId]);
 
-  // Save toggle state to localStorage whenever it changes
+  // Save council mode state to localStorage whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem(
-        "generateActionPlanToggleState",
-        JSON.stringify(generateActionPlanToggleState),
+        "councilModeState",
+        JSON.stringify(councilModeState),
       );
     } catch (e) {
-      console.error("Failed to save toggle state to localStorage:", e);
+      console.error("Failed to save council mode state to localStorage:", e);
     }
-  }, [generateActionPlanToggleState]);
+  }, [councilModeState]);
 
   const resetActionState = () => {
     setActionPlanRequest("");
@@ -552,26 +562,12 @@ function App() {
     }
   };
 
-  const handleToggleGenerateActionPlan = (checked) => {
+  const handleModeChange = (mode) => {
     if (currentConversationId) {
-      setGenerateActionPlanToggleState((prev) => ({
+      setCouncilModeState((prev) => ({
         ...prev,
-        [currentConversationId]: checked,
+        [currentConversationId]: mode,
       }));
-    }
-  };
-
-  const handleToggleAgent = (checked) => {
-    if (currentConversationId) {
-      setAgentToggleState((prev) => {
-        const next = { ...prev, [currentConversationId]: checked };
-        try {
-          localStorage.setItem("agentToggleState", JSON.stringify(next));
-        } catch (e) {
-          console.error("Failed to save agent toggle state:", e);
-        }
-        return next;
-      });
     }
   };
 
@@ -974,17 +970,13 @@ function App() {
       />
       <ChatInterface
         conversation={currentConversation}
-        generateActionPlanToggle={
-          generateActionPlanToggleState[currentConversationId] ?? false
-        }
+        mode={councilModeState[currentConversationId] || "informational"}
+        onModeChange={handleModeChange}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}
-        onToggleGenerateActionPlan={handleToggleGenerateActionPlan}
         onRunAgent={handleRunAgent}
         onCancelAgent={handleCancelAgent}
-        agentToggle={agentToggleState[currentConversationId] ?? false}
-        onToggleAgent={handleToggleAgent}
         agentLoading={agentLoading}
         agentError={agentError}
         actionPlanResult={actionPlanResult}

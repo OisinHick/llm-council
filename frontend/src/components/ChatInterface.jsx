@@ -232,6 +232,8 @@ const McpToolsList = memo(({ mcpTools }) => {
 
 export default function ChatInterface({
   conversation,
+  mode = "informational",
+  onModeChange,
   generateActionPlanToggle,
   onSendMessage,
   onGenerateActionPlan,
@@ -253,8 +255,16 @@ export default function ChatInterface({
   isLoading,
 }) {
   const [input, setInput] = useState("");
-  const [generateActionPlan, setGenerateActionPlan] = useState(false);
-  const [isAgentMode, setIsAgentMode] = useState(false);
+  // Derive mode from props (with fallback for legacy toggle props)
+  const currentMode =
+    mode ||
+    (agentToggle
+      ? "agentic"
+      : generateActionPlanToggle
+        ? "one_shot"
+        : "informational");
+  const isAgentic = currentMode === "agentic" || currentMode === "action_mode";
+
   const [mcpTools, setMcpTools] = useState([]);
   const [mcpStatuses, setMcpStatuses] = useState({});
   const [showToolsList, setShowToolsList] = useState(false);
@@ -270,21 +280,15 @@ export default function ChatInterface({
     return Array.from(serverSet);
   }, [mcpTools, mcpStatuses]);
 
+  const activeServer =
+    selectedServer && servers.includes(selectedServer)
+      ? selectedServer
+      : servers[0] || null;
+
   const unavailableServersCount = useMemo(() => {
     return Object.values(mcpStatuses).filter((status) => status !== "connected")
       .length;
   }, [mcpStatuses]);
-
-  // Set default selected server on load/mcpTools/mcpStatuses change
-  useEffect(() => {
-    if (servers.length > 0) {
-      if (!selectedServer || !servers.includes(selectedServer)) {
-        setSelectedServer(servers[0]);
-      }
-    } else {
-      setSelectedServer(null);
-    }
-  }, [servers, selectedServer]);
 
   useEffect(() => {
     const fetchTools = async () => {
@@ -307,16 +311,16 @@ export default function ChatInterface({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Sync toggle states with props
-  useEffect(() => {
-    setGenerateActionPlan(generateActionPlanToggle);
-  }, [generateActionPlanToggle]);
-
-  useEffect(() => {
-    if (agentToggle !== undefined) {
-      setIsAgentMode(agentToggle);
+  const handleSelectMode = (newMode) => {
+    if (isLoading || actionLoading || agentLoading) return;
+    if (onModeChange) {
+      onModeChange(newMode);
     }
-  }, [agentToggle]);
+    if (onToggleAgent)
+      onToggleAgent(newMode === "agentic" || newMode === "action_mode");
+    if (onToggleGenerateActionPlan)
+      onToggleGenerateActionPlan(newMode === "one_shot");
+  };
 
   useEffect(() => {
     scrollToBottom();
@@ -326,11 +330,11 @@ export default function ChatInterface({
     e.preventDefault();
     if (!input.trim() || isLoading || actionLoading || agentLoading) return;
 
-    if (isAgentMode) {
+    if (isAgentic) {
       if (onRunAgent) {
         onRunAgent(input);
       }
-    } else if (generateActionPlan) {
+    } else if (currentMode === "one_shot") {
       onGenerateActionPlan(input);
     } else {
       onSendMessage(input);
@@ -664,6 +668,19 @@ export default function ChatInterface({
               </div>
             )}
 
+            {agentError && (
+              <div
+                className="action-error"
+                style={{
+                  borderColor: "#fca5a5",
+                  background: "#fef2f2",
+                  color: "#991b1b",
+                }}
+              >
+                <strong>Agent Error:</strong> {agentError}
+              </div>
+            )}
+
             {actionStageLoading.stage1 && (
               <div className="stage-loading">
                 <div className="spinner"></div>
@@ -952,7 +969,7 @@ export default function ChatInterface({
                       <button
                         key={server}
                         type="button"
-                        className={`mcp-sidebar-item ${selectedServer === server ? "active" : ""} ${isOffline ? "offline" : ""}`}
+                        className={`mcp-sidebar-item ${activeServer === server ? "active" : ""} ${isOffline ? "offline" : ""}`}
                         onClick={() => setSelectedServer(server)}
                       >
                         <div
@@ -977,21 +994,21 @@ export default function ChatInterface({
                 </div>
               </div>
               <div className="mcp-modal-panel">
-                {selectedServer ? (
+                {activeServer ? (
                   <>
                     <h5 className="mcp-panel-title">
-                      Tools on <span>{selectedServer}</span>
+                      Tools on <span>{activeServer}</span>
                     </h5>
-                    {mcpStatuses[selectedServer] &&
-                    mcpStatuses[selectedServer] !== "connected" ? (
+                    {mcpStatuses[activeServer] &&
+                    mcpStatuses[activeServer] !== "connected" ? (
                       <div className="mcp-server-error-container">
                         <p className="mcp-server-error-title">
                           ⚠️ Connection Failed
                         </p>
                         <p className="mcp-server-error-detail">
-                          The MCP server <strong>{selectedServer}</strong> is
+                          The MCP server <strong>{activeServer}</strong> is
                           currently unavailable (Status:{" "}
-                          {mcpStatuses[selectedServer]}).
+                          {mcpStatuses[activeServer]}).
                         </p>
                         <p className="mcp-server-error-hint">
                           Please check the server logs or verify that the server
@@ -1002,7 +1019,7 @@ export default function ChatInterface({
                       <div className="mcp-tools-list">
                         <McpToolsList
                           mcpTools={mcpTools.filter(
-                            (t) => t.server === selectedServer,
+                            (t) => t.server === activeServer,
                           )}
                         />
                       </div>
@@ -1021,13 +1038,99 @@ export default function ChatInterface({
       )}
 
       <form className="input-form" onSubmit={handleSubmit}>
+        <div className="mode-slider-container">
+          <div className="mode-slider-header">
+            <span className="mode-slider-label">Execution Mode</span>
+            <span className="mode-slider-hint">
+              {currentMode === "informational" &&
+                "Standard council deliberation & synthesis (Stage 1-3)"}
+              {currentMode === "one_shot" &&
+                "Generate & execute MCP tool action plan in one shot (Stage 1-4)"}
+              {isAgentic &&
+                "Autonomous Chairperson ReAct loop with multi-step tool execution"}
+            </span>
+          </div>
+
+          <div
+            className="mode-slider-track"
+            role="radiogroup"
+            aria-label="Execution mode selection"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                e.preventDefault();
+                if (currentMode === "informational") handleSelectMode("one_shot");
+                else if (currentMode === "one_shot") handleSelectMode("agentic");
+              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                e.preventDefault();
+                if (isAgentic) handleSelectMode("one_shot");
+                else if (currentMode === "one_shot") handleSelectMode("informational");
+              }
+            }}
+          >
+            <div
+              className={`mode-slider-glider pos-${
+                currentMode === "one_shot"
+                  ? "1"
+                  : isAgentic
+                    ? "2"
+                    : "0"
+              }`}
+            />
+            <button
+              type="button"
+              className={`mode-slider-btn ${
+                currentMode === "informational" ? "active" : ""
+              }`}
+              onClick={() => handleSelectMode("informational")}
+              disabled={isLoading || actionLoading || agentLoading}
+              title="Informational: Standard council deliberation (Stages 1-3)"
+              role="radio"
+              aria-checked={currentMode === "informational"}
+            >
+              <span className="mode-slider-icon">💬</span>
+              <span className="mode-slider-text">Informational</span>
+            </button>
+            <button
+              type="button"
+              className={`mode-slider-btn ${
+                currentMode === "one_shot" ? "active" : ""
+              }`}
+              onClick={() => handleSelectMode("one_shot")}
+              disabled={isLoading || actionLoading || agentLoading}
+              title="One Shot: Generate and execute action plan once (Stage 4)"
+              role="radio"
+              aria-checked={currentMode === "one_shot"}
+            >
+              <span className="mode-slider-icon">⚡</span>
+              <span className="mode-slider-text">One Shot</span>
+            </button>
+            <button
+              type="button"
+              className={`mode-slider-btn ${
+                isAgentic ? "active" : ""
+              }`}
+              onClick={() => handleSelectMode("agentic")}
+              disabled={isLoading || actionLoading || agentLoading}
+              title="Agentic: Autonomous multi-step ReAct agent loop"
+              role="radio"
+              aria-checked={isAgentic}
+            >
+              <span className="mode-slider-icon">🤖</span>
+              <span className="mode-slider-text">Agentic</span>
+            </button>
+          </div>
+        </div>
+
         <div className="input-row">
           <textarea
             className="message-input"
             placeholder={
-              isAgentMode
+              isAgentic
                 ? "Describe the goal for the Council Chairperson Agent (e.g. write code, generate documentation, run tests)..."
-                : "Ask your question... (Shift+Enter for new line, Enter to send)"
+                : currentMode === "one_shot"
+                  ? "Describe a task to plan and execute with MCP tools (Shift+Enter for new line, Enter to send)..."
+                  : "Ask your question... (Shift+Enter for new line, Enter to send)"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -1063,46 +1166,6 @@ export default function ChatInterface({
               </span>
             </div>
 
-            <div
-              className="generate-toggle"
-              title="Enable autonomous agent mode where Chairperson writes code, docs, and executes tools"
-            >
-              <button
-                type="button"
-                className={`circular-toggle ${isAgentMode ? "active" : ""}`}
-                onClick={() => {
-                  const next = !isAgentMode;
-                  setIsAgentMode(next);
-                  if (next) setGenerateActionPlan(false);
-                  if (onToggleAgent) onToggleAgent(next);
-                }}
-                disabled={isLoading || actionLoading || agentLoading}
-              />
-              <strong>⚡ Agent Mode</strong>
-            </div>
-
-            <div className="generate-toggle">
-              <button
-                type="button"
-                className={`circular-toggle ${generateActionPlan ? "active" : ""}`}
-                onClick={() => {
-                  const newState = !generateActionPlan;
-                  setGenerateActionPlan(newState);
-                  if (newState) setIsAgentMode(false);
-                  if (onToggleGenerateActionPlan) {
-                    onToggleGenerateActionPlan(newState);
-                  }
-                }}
-                disabled={isLoading || actionLoading || agentLoading}
-                title={
-                  generateActionPlan
-                    ? "Disable action plan generation"
-                    : "Enable action plan generation"
-                }
-              />
-              Action Plan (1-shot)
-            </div>
-
             {agentLoading && onCancelAgent ? (
               <button
                 type="button"
@@ -1120,9 +1183,9 @@ export default function ChatInterface({
                   !input.trim() || isLoading || actionLoading || agentLoading
                 }
               >
-                {isAgentMode
+                {isAgentic
                   ? "Run Agent"
-                  : generateActionPlan
+                  : currentMode === "one_shot"
                     ? "Generate Plan"
                     : "Send"}
               </button>
