@@ -350,7 +350,7 @@ export default function ChatInterface({
         {!hasConversation ? (
           <div className="empty-state">
             <h2>Welcome to LLM Council</h2>
-            <p>Create a new conversation to get started</p>
+            <p>Ask a question below to consult the LLM Council</p>
           </div>
         ) : messages.length === 0 && !actionPanelActive ? (
           <div className="empty-state">

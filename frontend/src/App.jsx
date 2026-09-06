@@ -133,7 +133,12 @@ function App() {
   async function loadConversation(id) {
     try {
       const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
+      setCurrentConversation((prev) => {
+        if (prev?.id === id && prev?.messages?.length > conv.messages.length) {
+          return { ...conv, messages: prev.messages };
+        }
+        return conv;
+      });
       syncActionStateFromConversation(conv);
     } catch (error) {
       console.error("Failed to load conversation:", error);
@@ -147,7 +152,7 @@ function App() {
 
   // Load conversation details when selected
   useEffect(() => {
-    if (currentConversationId) {
+    if (currentConversationId && currentConversation?.id !== currentConversationId) {
       loadConversation(currentConversationId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -208,8 +213,29 @@ function App() {
     setCurrentConversationId(id);
   };
 
+  const ensureActiveConversation = async () => {
+    if (currentConversationId && currentConversation) {
+      return currentConversationId;
+    }
+    resetActionState();
+    const newConv = await api.createConversation();
+    const convObj = {
+      id: newConv.id,
+      created_at: newConv.created_at,
+      title: "New Conversation",
+      messages: [],
+    };
+    setConversations((prev) => [
+      { id: newConv.id, created_at: newConv.created_at, title: "New Conversation", message_count: 0 },
+      ...prev,
+    ]);
+    setCurrentConversationId(newConv.id);
+    setCurrentConversation(convObj);
+    return newConv.id;
+  };
+
   const handleSendMessage = async (content) => {
-    if (!currentConversationId) return;
+    if (!content.trim()) return;
 
     setActionPlanResult(null);
     setActionExecutionResult(null);
@@ -217,14 +243,13 @@ function App() {
     setActionError(null);
     setIsLoading(true);
     try {
+      let activeId = currentConversationId;
+      if (!activeId || !currentConversation) {
+        activeId = await ensureActiveConversation();
+      }
+
       // Optimistically add user message to UI
       const userMessage = { role: "user", content };
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-      }));
-
-      // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: "assistant",
         stage1: null,
@@ -238,72 +263,101 @@ function App() {
         },
       };
 
-      // Add the partial assistant message
       setCurrentConversation((prev) => ({
         ...prev,
-        messages: [...prev.messages, assistantMessage],
+        messages: [...(prev?.messages || []), userMessage, assistantMessage],
       }));
 
       // Send message with streaming
       await api.sendMessageStream(
-        currentConversationId,
+        activeId,
         content,
         (eventType, event) => {
           switch (eventType) {
             case "stage1_start":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.loading.stage1 = true;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  loading: { ...(messages[lastIdx].loading || {}), stage1: true },
+                };
                 return { ...prev, messages };
               });
               break;
 
             case "stage1_complete":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.stage1 = event.data;
-                lastMsg.loading.stage1 = false;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  stage1: event.data,
+                  loading: { ...(messages[lastIdx].loading || {}), stage1: false },
+                };
                 return { ...prev, messages };
               });
               break;
 
             case "stage2_start":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.loading.stage2 = true;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  loading: { ...(messages[lastIdx].loading || {}), stage2: true },
+                };
                 return { ...prev, messages };
               });
               break;
 
             case "stage2_complete":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.stage2 = event.data;
-                lastMsg.metadata = event.metadata;
-                lastMsg.loading.stage2 = false;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  stage2: event.data,
+                  metadata: event.metadata,
+                  loading: { ...(messages[lastIdx].loading || {}), stage2: false },
+                };
                 return { ...prev, messages };
               });
               break;
 
             case "stage3_start":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.loading.stage3 = true;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  loading: { ...(messages[lastIdx].loading || {}), stage3: true },
+                };
                 return { ...prev, messages };
               });
               break;
 
             case "stage3_complete":
               setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
                 const messages = [...prev.messages];
-                const lastMsg = messages[messages.length - 1];
-                lastMsg.stage3 = event.data;
-                lastMsg.loading.stage3 = false;
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  stage3: event.data,
+                  loading: { ...(messages[lastIdx].loading || {}), stage3: false },
+                };
                 return { ...prev, messages };
               });
               break;
@@ -332,16 +386,19 @@ function App() {
     } catch (error) {
       console.error("Failed to send message:", error);
       // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      setCurrentConversation((prev) => {
+        if (!prev?.messages?.length) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        };
+      });
       setIsLoading(false);
     }
   };
 
   const handleGenerateActionPlan = async (requestText) => {
-    if (!requestText.trim() || !currentConversationId) return;
+    if (!requestText.trim()) return;
 
     setActionLoading(true);
     setActionError(null);
@@ -361,6 +418,18 @@ function App() {
       execution: false,
     });
     setActionPlanRequest(requestText);
+
+    let activeId = currentConversationId;
+    if (!activeId || !currentConversation) {
+      try {
+        activeId = await ensureActiveConversation();
+      } catch (error) {
+        console.error("Failed to create conversation:", error);
+        setActionError("Could not create conversation");
+        setActionLoading(false);
+        return;
+      }
+    }
 
     appendActionRequestMessage(requestText);
 
@@ -463,7 +532,7 @@ function App() {
               console.log("Unknown action stream event:", eventType);
           }
         },
-        currentConversationId,
+        activeId,
       );
     } catch (error) {
       console.error("Failed to generate action plan:", error);
