@@ -19,9 +19,6 @@ export default function SettingsModal({
   const [councilModels, setCouncilModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState("");
   const [availableModels, setAvailableModels] = useState([]);
-  const [mcpServers, setMcpServers] = useState([]);
-  const [loadingMcpServers, setLoadingMcpServers] = useState(false);
-  const [togglingServer, setTogglingServer] = useState(null);
   
   const [loading, setLoading] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -47,16 +44,6 @@ export default function SettingsModal({
 
       // Fetch available models using active key
       await fetchModels(settings.openrouter_api_key);
-
-      // Fetch configured MCP servers
-      try {
-        const mcpRes = await api.getMcpServers();
-        if (mcpRes.success) {
-          setMcpServers(mcpRes.servers || []);
-        }
-      } catch (e) {
-        console.warn("Could not load MCP servers:", e);
-      }
     } catch (err) {
       console.error("Error loading settings:", err);
       setStatusMessage({
@@ -67,26 +54,6 @@ export default function SettingsModal({
       setLoading(false);
     }
   }
-
-  const handleToggleMcpServer = async (serverName) => {
-    setTogglingServer(serverName);
-    try {
-      const serverObj = mcpServers.find((s) => s.name === serverName);
-      const currentEnabled = serverObj ? serverObj.enabled : true;
-      const res = await api.toggleMcpServer(serverName, !currentEnabled);
-      if (res.success && res.servers) {
-        setMcpServers(res.servers);
-      }
-    } catch (err) {
-      console.error("Failed to toggle MCP server:", err);
-      setStatusMessage({
-        type: "error",
-        text: `Failed to toggle ${serverName}: ${err.message}`,
-      });
-    } finally {
-      setTogglingServer(null);
-    }
-  };
 
   async function fetchModels(keyToUse) {
     setLoadingModels(true);
@@ -195,13 +162,6 @@ export default function SettingsModal({
             onClick={() => setActiveTab("appearance")}
           >
             🎨 Display & Appearance
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === "mcp" ? "active" : ""}`}
-            onClick={() => setActiveTab("mcp")}
-          >
-            🔌 MCP Servers
           </button>
         </div>
 
@@ -434,91 +394,6 @@ export default function SettingsModal({
                   >
                     Reset Color Defaults
                   </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "mcp" && (
-              <div className="settings-section">
-                <div className="section-header-row">
-                  <label className="section-title">
-                    Configured MCP Servers ({mcpServers.length})
-                  </label>
-                  <button
-                    type="button"
-                    className="refresh-models-btn"
-                    onClick={async () => {
-                      setLoadingMcpServers(true);
-                      try {
-                        const mcpRes = await api.getMcpServers();
-                        if (mcpRes.success) setMcpServers(mcpRes.servers || []);
-                      } finally {
-                        setLoadingMcpServers(false);
-                      }
-                    }}
-                    disabled={loadingMcpServers}
-                  >
-                    {loadingMcpServers ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
-                <p className="section-desc">
-                  Toggle external Model Context Protocol (MCP) servers on or off. Disabled servers are cleanly disconnected and excluded from Council action plans and Agentic tool execution.
-                </p>
-
-                <div className="mcp-servers-list-group">
-                  {mcpServers.length === 0 ? (
-                    <p className="no-tags">No MCP servers configured in mcp_servers.json.</p>
-                  ) : (
-                    mcpServers.map((srv) => (
-                      <div
-                        key={srv.name}
-                        className={`mcp-settings-server-card ${srv.enabled ? "enabled" : "disabled"}`}
-                      >
-                        <div className="mcp-settings-server-left">
-                          <div className="mcp-settings-server-name-row">
-                            <span className="mcp-settings-server-name">{srv.name}</span>
-                            <span
-                              className={`mcp-server-status-tag ${
-                                srv.status === "connected"
-                                  ? "connected"
-                                  : srv.status === "disabled"
-                                    ? "disabled"
-                                    : "error"
-                              }`}
-                            >
-                              {srv.status === "connected"
-                                ? "Active"
-                                : srv.status === "disabled"
-                                  ? "Disabled"
-                                  : srv.status}
-                            </span>
-                          </div>
-                          {srv.command && (
-                            <code className="mcp-settings-server-cmd">
-                              {srv.command} {srv.args?.join(" ")}
-                            </code>
-                          )}
-                          <span className="mcp-settings-server-tools-count">
-                            {srv.tools_count} active tool{srv.tools_count !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-                        <div className="mcp-settings-server-right">
-                          <span className={`mcp-toggle-status-text ${srv.enabled ? "enabled" : "disabled"}`}>
-                            {srv.enabled ? "Enabled" : "Disabled"}
-                          </span>
-                          <button
-                            type="button"
-                            className={`mcp-toggle-switch ${srv.enabled ? "active" : ""}`}
-                            onClick={() => handleToggleMcpServer(srv.name)}
-                            disabled={togglingServer === srv.name}
-                            title={srv.enabled ? "Click to disable server" : "Click to enable server"}
-                          >
-                            <span className="mcp-toggle-slider" />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
               </div>
             )}
