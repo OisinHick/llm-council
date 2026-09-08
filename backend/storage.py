@@ -50,6 +50,24 @@ def create_conversation(
     return conversation
 
 
+def get_conversation_mode_from_messages(
+    messages: List[Dict[str, Any]], fallback: str = "informational"
+) -> str:
+    """
+    Determine the conversation mode based on the last produced assistant response.
+    """
+    for message in reversed(messages):
+        if message.get("role") == "assistant":
+            if message.get("type") == "agent":
+                return "agentic"
+            if message.get("stage4") is not None or (
+                message.get("action_request") and message.get("type") != "agent"
+            ):
+                return "one_shot"
+            return "informational"
+    return fallback
+
+
 def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     Load a conversation from storage.
@@ -66,7 +84,12 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     with open(path, "r") as f:
-        return json.load(f)
+        data = json.load(f)
+
+    data["mode"] = get_conversation_mode_from_messages(
+        data.get("messages", []), fallback=data.get("mode", "informational")
+    )
+    return data
 
 
 def save_conversation(conversation: Dict[str, Any]):
@@ -98,14 +121,17 @@ def list_conversations() -> List[Dict[str, Any]]:
             path = os.path.join(DATA_DIR, filename)
             with open(path, "r") as f:
                 data = json.load(f)
-                # Return metadata only
+                messages = data.get("messages", [])
+                mode = get_conversation_mode_from_messages(
+                    messages, fallback=data.get("mode", "informational")
+                )
                 conversations.append(
                     {
                         "id": data["id"],
                         "created_at": data["created_at"],
                         "title": data.get("title", "New Conversation"),
-                        "message_count": len(data["messages"]),
-                        "mode": data.get("mode", "informational"),
+                        "message_count": len(messages),
+                        "mode": mode,
                     }
                 )
 
@@ -172,6 +198,10 @@ def add_assistant_message(
         message["execution"] = execution
 
     conversation["messages"].append(message)
+    if stage4 is not None or action_request is not None:
+        conversation["mode"] = "one_shot"
+    else:
+        conversation["mode"] = "informational"
 
     save_conversation(conversation)
 
@@ -210,6 +240,7 @@ def add_agent_message(
     }
 
     conversation["messages"].append(message)
+    conversation["mode"] = "agentic"
     save_conversation(conversation)
 
 

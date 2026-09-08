@@ -172,7 +172,7 @@ function App() {
       });
       if (conv?.mode) {
         setCouncilModeState((prev) => {
-          if (prev[id] === conv.mode) return prev;
+          if (prev[id]) return prev;
           return { ...prev, [id]: conv.mode };
         });
       }
@@ -439,7 +439,15 @@ function App() {
               break;
 
             case "complete":
-              // Stream complete, reload conversations list
+              // Stream complete, reload conversations list and update mode
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === activeId ? { ...c, mode: "informational" } : c,
+                ),
+              );
+              setCurrentConversation((prev) =>
+                prev?.id === activeId ? { ...prev, mode: "informational" } : prev,
+              );
               loadConversations();
               setIsLoading(false);
               break;
@@ -592,6 +600,14 @@ function App() {
               setActionStageLoading((prev) => ({ ...prev, execution: false }));
               break;
             case "complete":
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === activeId ? { ...c, mode: "one_shot" } : c,
+                ),
+              );
+              setCurrentConversation((prev) =>
+                prev?.id === activeId ? { ...prev, mode: "one_shot" } : prev,
+              );
               setActionLoading(false);
               loadConversations();
               break;
@@ -612,23 +628,13 @@ function App() {
     }
   };
 
-  const handleModeChange = async (mode) => {
+  const handleModeChange = (mode) => {
     setPendingMode(mode);
     if (currentConversationId) {
       setCouncilModeState((prev) => ({
         ...prev,
         [currentConversationId]: mode,
       }));
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === currentConversationId ? { ...c, mode } : c,
-        ),
-      );
-      try {
-        await api.updateConversationMode(currentConversationId, mode);
-      } catch (err) {
-        console.warn("Failed to persist conversation mode to backend:", err);
-      }
     }
   };
 
@@ -822,6 +828,14 @@ function App() {
               loadConversations();
               break;
             case "complete":
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === activeId ? { ...c, mode: "agentic" } : c,
+                ),
+              );
+              setCurrentConversation((prev) =>
+                prev?.id === activeId ? { ...prev, mode: "agentic" } : prev,
+              );
               setAgentLoading(false);
               loadConversations();
               break;
