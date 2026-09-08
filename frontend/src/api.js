@@ -251,6 +251,41 @@ export const api = {
   },
 
   /**
+   * Get all configured MCP servers and their statuses.
+   */
+  async getMcpServers() {
+    const response = await fetch(`${API_BASE}/api/mcp/servers`);
+    if (!response.ok) {
+      throw new Error("Failed to get MCP servers");
+    }
+    return response.json();
+  },
+
+  /**
+   * Toggle an MCP server's enabled status.
+   * @param {string} serverName
+   * @param {boolean} [enabled]
+   */
+  async toggleMcpServer(serverName, enabled = undefined) {
+    const payload = enabled !== undefined ? { enabled } : {};
+    const response = await fetch(
+      `${API_BASE}/api/mcp/servers/${encodeURIComponent(serverName)}/toggle`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to toggle MCP server");
+    }
+    return response.json();
+  },
+
+  /**
    * Fetch available models from OpenRouter.
    * @param {string} [apiKey] - Optional OpenRouter API key override
    */

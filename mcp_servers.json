@@ -4,13 +4,15 @@
       "command": "uvx",
       "args": [
         "mcp-server-fetch"
-      ]
+      ],
+      "enabled": true
     },
     "kali-tools": {
       "command": "uvx",
       "args": [
         "zebbern-kali-mcp"
-      ]
+      ],
+      "enabled": true
     }
   }
 }

@@ -30,53 +30,77 @@ class MCPClientManager:
 
     def __init__(self):
         self.sessions: Dict[str, ClientSession] = {}
-        self.exit_stack: Optional[AsyncExitStack] = None
+        self.exit_stacks: Dict[str, AsyncExitStack] = {}
         self.config_path = Path(__file__).resolve().parent.parent / "mcp_servers.json"
         self.configured_servers: List[str] = []
         self.server_statuses: Dict[str, str] = {}
         self.cached_tools: List[Dict[str, Any]] = []
         self.polling_task: Optional[asyncio.Task] = None
 
-    async def start_all_servers(self):
-        """Load mcp_servers.json config and start all servers."""
+    def _read_config(self) -> Dict[str, Any]:
+        """Read and parse the mcp_servers.json configuration file."""
         if not self.config_path.exists():
-            logger.warning(f"MCP servers config file not found at {self.config_path}")
-            return
-
+            return {"mcpServers": {}}
         try:
-            with open(self.config_path, "r") as f:
-                config_data = json.load(f)
-            servers = config_data.get("mcpServers", {})
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
         except Exception as e:
             logger.error(f"Failed to read mcp_servers.json: {e}")
-            return
+            return {"mcpServers": {}}
 
-        self.exit_stack = AsyncExitStack()
-        self.configured_servers = list(servers.keys())
-        self.server_statuses = {name: "disconnected" for name in servers.keys()}
+    def _write_config(self, config_data: Dict[str, Any]) -> None:
+        """Write configuration to mcp_servers.json with clean formatting."""
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=2)
+                f.write("\n")
+        except Exception as e:
+            logger.error(f"Failed to write mcp_servers.json: {e}")
+            raise
 
-        for name, server_config in servers.items():
-            command = server_config.get("command")
-            args = server_config.get("args", [])
-            env = server_config.get("env")
+    def is_server_enabled(
+        self, name: str, config_data: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Check if a given MCP server is enabled.
+        Defaults to True unless explicitly disabled.
+        """
+        if config_data is None:
+            config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+        srv = servers.get(name, {})
+        if srv.get("disabled") is True:
+            return False
+        return srv.get("enabled", True)
 
-            if not command:
-                logger.warning(
-                    f"Server '{name}' configuration is missing 'command'. Skipping."
-                )
-                self.server_statuses[name] = "configuration_error"
-                continue
+    async def start_server(self, name: str, server_config: Dict[str, Any]) -> bool:
+        """
+        Start an individual MCP server process and establish a ClientSession.
+        """
+        # Stop any existing instance first
+        await self.stop_server(name)
 
-            logger.info(f"Starting MCP server '{name}' via command: {command} {args}")
-            try:
-                # Wrap the server invocation in a python filter script that swallows non-JSON lines
-                # from stdout (e.g. npm installs, node version warnings, progress bars).
-                full_cmd = [command] + args
+        command = server_config.get("command")
+        args = server_config.get("args", [])
+        env = server_config.get("env")
 
-                filter_script = f"""
+        if not command:
+            logger.warning(
+                f"Server '{name}' configuration is missing 'command'. Skipping."
+            )
+            self.server_statuses[name] = "configuration_error"
+            return False
+
+        logger.info(f"Starting MCP server '{name}' via command: {command} {args}")
+        stack = AsyncExitStack()
+        try:
+            full_cmd = [command] + args
+
+            # Wrap the server invocation in a python filter script that swallows non-JSON lines
+            # from stdout (e.g. npm installs, node version warnings, progress bars).
+            filter_script = f"""
 import subprocess, sys, threading, json, os
 
-# Immediately close any inherited file descriptors (such as parent listening sockets)
 for fd in range(3, 1024):
     try:
         os.close(fd)
@@ -116,54 +140,146 @@ for line in iter(proc.stdout.readline, b''):
     except Exception:
         pass
 """
-                encoded_script = base64.b64encode(filter_script.encode("utf-8")).decode(
-                    "utf-8"
-                )
-                wrapped_command = "python"
-                wrapped_args = [
-                    "-u",
-                    "-c",
-                    f"import base64; exec(base64.b64decode('{encoded_script}').decode('utf-8'))",
-                ]
+            encoded_script = base64.b64encode(filter_script.encode("utf-8")).decode("utf-8")
+            wrapped_command = "python"
+            wrapped_args = [
+                "-u",
+                "-c",
+                f"import base64; exec(base64.b64decode('{encoded_script}').decode('utf-8'))",
+            ]
 
-                params = StdioServerParameters(
-                    command=wrapped_command, args=wrapped_args, env=env
-                )
+            params = StdioServerParameters(
+                command=wrapped_command, args=wrapped_args, env=env
+            )
 
-                # Enter stdio client context
-                read, write = await self.exit_stack.enter_async_context(
-                    stdio_client(params)
-                )
-                session = await self.exit_stack.enter_async_context(
-                    ClientSession(read, write)
-                )
-                await session.initialize()
-                self.sessions[name] = session
-                self.server_statuses[name] = "connected"
-                logger.info(f"Successfully connected to MCP server '{name}'")
+            read, write = await stack.enter_async_context(stdio_client(params))
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+
+            self.exit_stacks[name] = stack
+            self.sessions[name] = session
+            self.server_statuses[name] = "connected"
+            logger.info(f"Successfully connected to MCP server '{name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start MCP server '{name}': {e}")
+            self.server_statuses[name] = f"failed: {str(e)}"
+            try:
+                await stack.aclose()
+            except Exception:
+                pass
+            return False
+
+    async def stop_server(self, name: str) -> None:
+        """
+        Stop an individual running MCP server and release its resources.
+        """
+        stack = self.exit_stacks.pop(name, None)
+        if stack:
+            try:
+                logger.info(f"Stopping MCP server '{name}'...")
+                await stack.aclose()
             except Exception as e:
-                logger.error(f"Failed to start MCP server '{name}': {e}")
-                self.server_statuses[name] = f"failed: {str(e)}"
+                logger.warning(f"Error closing exit stack for '{name}': {e}")
+
+        self.sessions.pop(name, None)
+        # Remove cached tools belonging to this stopped server
+        self.cached_tools = [t for t in self.cached_tools if t.get("server") != name]
+
+    async def start_all_servers(self) -> None:
+        """Load mcp_servers.json config and start all enabled servers."""
+        config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+
+        self.configured_servers = list(servers.keys())
+        self.server_statuses = {}
+
+        for name, server_config in servers.items():
+            if self.is_server_enabled(name, config_data):
+                await self.start_server(name, server_config)
+            else:
+                self.server_statuses[name] = "disabled"
+                logger.info(f"MCP server '{name}' is disabled; skipping startup.")
 
         # Run initial tools check to populate the cache
         await self.get_available_tools(bypass_cache=True)
         # Start background polling task
-        self.polling_task = asyncio.create_task(self._poll_servers_loop())
+        if not self.polling_task:
+            self.polling_task = asyncio.create_task(self._poll_servers_loop())
 
-    async def stop_all_servers(self):
+    async def stop_all_servers(self) -> None:
         """Stop all started MCP servers and clean up resources."""
         if self.polling_task:
             self.polling_task.cancel()
             self.polling_task = None
 
-        if self.exit_stack:
-            logger.info("Stopping all MCP servers...")
-            await self.exit_stack.aclose()
-            self.sessions.clear()
-            self.exit_stack = None
-            logger.info("All MCP servers stopped.")
+        for name in list(self.exit_stacks.keys()):
+            await self.stop_server(name)
 
-    async def _poll_servers_loop(self):
+        self.sessions.clear()
+        self.exit_stacks.clear()
+        self.cached_tools.clear()
+        logger.info("All MCP servers stopped.")
+
+    async def set_server_enabled(self, name: str, enabled: bool) -> Dict[str, Any]:
+        """
+        Enable or disable a specific MCP server, update mcp_servers.json,
+        and start or stop the corresponding process.
+        """
+        config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+        if name not in servers:
+            raise ValueError(f"MCP server '{name}' not found in configuration.")
+
+        server_config = servers[name]
+        server_config["enabled"] = bool(enabled)
+        server_config.pop("disabled", None)  # Clean up legacy key if present
+        self._write_config(config_data)
+
+        if enabled:
+            await self.start_server(name, server_config)
+        else:
+            await self.stop_server(name)
+            self.server_statuses[name] = "disabled"
+
+        # Refresh tools cache
+        await self.get_available_tools(bypass_cache=True)
+
+        return {
+            "name": name,
+            "enabled": enabled,
+            "status": self.server_statuses.get(name, "unknown"),
+            "servers": self.get_servers_metadata(),
+            "tools": self.cached_tools,
+        }
+
+    def get_servers_metadata(self) -> List[Dict[str, Any]]:
+        """
+        Return structured metadata for all configured MCP servers.
+        """
+        config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+        metadata = []
+
+        for name, cfg in servers.items():
+            enabled = self.is_server_enabled(name, config_data)
+            status = self.server_statuses.get(
+                name, "disabled" if not enabled else "disconnected"
+            )
+            tool_count = len([t for t in self.cached_tools if t.get("server") == name])
+            metadata.append(
+                {
+                    "name": name,
+                    "enabled": enabled,
+                    "status": status,
+                    "command": cfg.get("command", ""),
+                    "args": cfg.get("args", []),
+                    "tools_count": tool_count,
+                }
+            )
+        return metadata
+
+    async def _poll_servers_loop(self) -> None:
         """Periodically refresh tools and statuses in the background."""
         while True:
             try:
@@ -181,7 +297,7 @@ for line in iter(proc.stdout.readline, b''):
         self, bypass_cache: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        List all available tools exposed by all running servers.
+        List all available tools exposed by all enabled, running servers.
 
         Returns:
             List of dicts representing tools, each with server, name, description, schema
@@ -189,21 +305,21 @@ for line in iter(proc.stdout.readline, b''):
         if not bypass_cache and self.cached_tools:
             return self.cached_tools
 
-        # Ensure configured servers and statuses are initialized from file if empty
-        if not self.configured_servers and self.config_path.exists():
-            try:
-                with open(self.config_path, "r") as f:
-                    config_data = json.load(f)
-                servers = config_data.get("mcpServers", {})
-                self.configured_servers = list(servers.keys())
-                for name in self.configured_servers:
-                    if name not in self.server_statuses:
-                        self.server_statuses[name] = "disconnected"
-            except Exception:
-                pass
+        config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+        self.configured_servers = list(servers.keys())
+
+        for name in self.configured_servers:
+            if name not in self.server_statuses:
+                enabled = self.is_server_enabled(name, config_data)
+                self.server_statuses[name] = "disconnected" if enabled else "disabled"
 
         all_tools = []
         for server_name, session in list(self.sessions.items()):
+            # Double check that server is enabled
+            if not self.is_server_enabled(server_name, config_data):
+                continue
+
             if server_name == "kali-tools":
                 if not check_kali_tools_health():
                     self.server_statuses[server_name] = (
@@ -245,6 +361,12 @@ for line in iter(proc.stdout.readline, b''):
         Returns:
             Dict representing result status and text payload
         """
+        if not self.is_server_enabled(server_name):
+            return {
+                "success": False,
+                "error": f"MCP server '{server_name}' is disabled.",
+            }
+
         session = self.sessions.get(server_name)
         if not session:
             return {

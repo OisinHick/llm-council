@@ -116,6 +116,12 @@ class UpdateSettingsRequest(BaseModel):
     chairman_model: Optional[str] = None
 
 
+class ToggleMcpServerRequest(BaseModel):
+    """Request to toggle or set enabled status for an MCP server."""
+
+    enabled: Optional[bool] = None
+
+
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
 
@@ -177,7 +183,40 @@ async def get_mcp_tools():
             "success": True,
             "tools": tools,
             "statuses": mcp_manager.server_statuses,
+            "servers": mcp_manager.get_servers_metadata(),
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mcp/servers")
+async def get_mcp_servers():
+    """Get metadata and statuses for all configured MCP servers."""
+    try:
+        return {
+            "success": True,
+            "servers": mcp_manager.get_servers_metadata(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers/{server_name}/toggle")
+async def toggle_mcp_server(
+    server_name: str, request: Optional[ToggleMcpServerRequest] = None
+):
+    """Enable or disable a specific MCP server."""
+    try:
+        if request and request.enabled is not None:
+            target_enabled = request.enabled
+        else:
+            current_enabled = mcp_manager.is_server_enabled(server_name)
+            target_enabled = not current_enabled
+
+        result = await mcp_manager.set_server_enabled(server_name, target_enabled)
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

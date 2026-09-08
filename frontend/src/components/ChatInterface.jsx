@@ -301,26 +301,69 @@ export default function ChatInterface({
     }
   };
 
+  const [mcpServers, setMcpServers] = useState([]);
+  const [togglingServer, setTogglingServer] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Extract unique server names from both mcpTools and mcpStatuses keys
+  // Extract unique server names from mcpServers, mcpTools, and mcpStatuses
   const servers = useMemo(() => {
+    if (mcpServers.length > 0) {
+      return mcpServers.map((s) => s.name);
+    }
     const serverSet = new Set([
       ...mcpTools.map((t) => t.server),
       ...Object.keys(mcpStatuses),
     ]);
     return Array.from(serverSet);
-  }, [mcpTools, mcpStatuses]);
+  }, [mcpServers, mcpTools, mcpStatuses]);
 
   const activeServer =
     selectedServer && servers.includes(selectedServer)
       ? selectedServer
       : servers[0] || null;
 
+  const activeServerObj = useMemo(() => {
+    return mcpServers.find((s) => s.name === activeServer);
+  }, [mcpServers, activeServer]);
+
+  const isActiveServerEnabled = useMemo(() => {
+    if (activeServerObj) return activeServerObj.enabled;
+    return mcpStatuses[activeServer] !== "disabled";
+  }, [activeServerObj, mcpStatuses, activeServer]);
+
   const unavailableServersCount = useMemo(() => {
-    return Object.values(mcpStatuses).filter((status) => status !== "connected")
+    return Object.values(mcpStatuses).filter(
+      (status) => status !== "connected" && status !== "disabled"
+    ).length;
+  }, [mcpStatuses]);
+
+  const disabledServersCount = useMemo(() => {
+    return Object.values(mcpStatuses).filter((status) => status === "disabled")
       .length;
   }, [mcpStatuses]);
+
+  const handleToggleServer = async (serverName, e) => {
+    if (e) e.stopPropagation();
+    setTogglingServer(serverName);
+    try {
+      const serverObj = mcpServers.find((s) => s.name === serverName);
+      const currentEnabled = serverObj
+        ? serverObj.enabled
+        : mcpStatuses[serverName] !== "disabled";
+      const res = await api.toggleMcpServer(serverName, !currentEnabled);
+      if (res.success) {
+        if (res.servers) setMcpServers(res.servers);
+        if (res.tools) setMcpTools(res.tools);
+        if (res.status) {
+          setMcpStatuses((prev) => ({ ...prev, [serverName]: res.status }));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to toggle MCP server:", err);
+    } finally {
+      setTogglingServer(null);
+    }
+  };
 
   useEffect(() => {
     const fetchTools = async () => {
@@ -329,6 +372,9 @@ export default function ChatInterface({
         if (res.success) {
           setMcpTools(res.tools || []);
           setMcpStatuses(res.statuses || {});
+          if (res.servers) {
+            setMcpServers(res.servers);
+          }
         }
       } catch (err) {
         console.error("Error loading MCP tools:", err);
@@ -1013,10 +1059,10 @@ export default function ChatInterface({
           >
             <div className="mcp-tools-header">
               <h4>
-                Active MCP Tools ({mcpTools.length})
+                <span className="mcp-modal-title">Active MCP Tools</span>
+                <span className="mcp-modal-count">({mcpTools.length})</span>
                 {unavailableServersCount > 0 && (
                   <span className="header-warning-text">
-                    {" "}
                     ({unavailableServersCount} offline)
                   </span>
                 )}
@@ -1038,31 +1084,56 @@ export default function ChatInterface({
                       (t) => t.server === server,
                     ).length;
                     const status = mcpStatuses[server];
-                    const isOffline = status && status !== "connected";
+                    const serverObj = mcpServers.find((s) => s.name === server);
+                    const isEnabled = serverObj
+                      ? serverObj.enabled
+                      : status !== "disabled";
+                    const isOffline =
+                      status && status !== "connected" && status !== "disabled";
+                    const isDisabled = status === "disabled" || !isEnabled;
+
                     return (
-                      <button
+                      <div
                         key={server}
-                        type="button"
-                        className={`mcp-sidebar-item ${activeServer === server ? "active" : ""} ${isOffline ? "offline" : ""}`}
+                        className={`mcp-sidebar-item ${activeServer === server ? "active" : ""} ${isOffline ? "offline" : ""} ${isDisabled ? "disabled" : ""}`}
                         onClick={() => setSelectedServer(server)}
+                        role="button"
+                        tabIndex={0}
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "2px",
-                            alignItems: "flex-start",
-                          }}
-                        >
+                        <div className="mcp-sidebar-item-info">
                           <span className="mcp-server-name">{server}</span>
                           {isOffline && (
-                            <span className="mcp-server-status-tag">
+                            <span
+                              className="mcp-server-status-tag error"
+                              title={status}
+                            >
                               {status}
                             </span>
                           )}
+                          {isDisabled && (
+                            <span className="mcp-server-status-tag disabled">
+                              Disabled
+                            </span>
+                          )}
+                          {!isOffline && !isDisabled && (
+                            <span className="mcp-server-status-tag connected">
+                              Connected
+                            </span>
+                          )}
                         </div>
-                        <span className="mcp-server-count">{count}</span>
-                      </button>
+                        <div className="mcp-sidebar-item-right">
+                          <span className="mcp-server-count">{count}</span>
+                          <button
+                            type="button"
+                            className={`mcp-mini-toggle ${isEnabled ? "active" : ""}`}
+                            title={isEnabled ? `Disable ${server}` : `Enable ${server}`}
+                            onClick={(e) => handleToggleServer(server, e)}
+                            disabled={togglingServer === server}
+                          >
+                            <span className="mcp-mini-toggle-thumb" />
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -1070,11 +1141,65 @@ export default function ChatInterface({
               <div className="mcp-modal-panel">
                 {activeServer ? (
                   <>
-                    <h5 className="mcp-panel-title">
-                      Tools on <span>{activeServer}</span>
-                    </h5>
-                    {mcpStatuses[activeServer] &&
-                    mcpStatuses[activeServer] !== "connected" ? (
+                    <div className="mcp-panel-header">
+                      <div className="mcp-panel-header-info">
+                        <h5 className="mcp-panel-title">
+                          Server: <span>{activeServer}</span>
+                        </h5>
+                        {activeServerObj?.command && (
+                          <code className="mcp-panel-cmd">
+                            {activeServerObj.command} {activeServerObj.args?.join(" ")}
+                          </code>
+                        )}
+                      </div>
+                      <div className="mcp-panel-toggle-wrapper">
+                        <span
+                          className={`mcp-toggle-status-text ${isActiveServerEnabled ? "enabled" : "disabled"}`}
+                        >
+                          {isActiveServerEnabled ? "Enabled" : "Disabled"}
+                        </span>
+                        <button
+                          type="button"
+                          className={`mcp-toggle-switch ${isActiveServerEnabled ? "active" : ""}`}
+                          onClick={(e) => handleToggleServer(activeServer, e)}
+                          disabled={togglingServer === activeServer}
+                          title={
+                            isActiveServerEnabled
+                              ? "Click to disable server"
+                              : "Click to enable server"
+                          }
+                        >
+                          <span className="mcp-toggle-slider" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {!isActiveServerEnabled ? (
+                      <div className="mcp-server-disabled-container">
+                        <div className="mcp-disabled-icon">🔒</div>
+                        <div className="mcp-disabled-text-group">
+                          <p className="mcp-server-disabled-title">
+                            Server is Disabled
+                          </p>
+                          <p className="mcp-server-disabled-detail">
+                            Tools from <strong>{activeServer}</strong> are
+                            currently disabled and will not be provided to
+                            Council deliberations or Agentic workflows.
+                          </p>
+                          <button
+                            type="button"
+                            className="mcp-enable-btn"
+                            onClick={() => handleToggleServer(activeServer)}
+                            disabled={togglingServer === activeServer}
+                          >
+                            {togglingServer === activeServer
+                              ? "Enabling..."
+                              : "Enable Server"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : mcpStatuses[activeServer] &&
+                      mcpStatuses[activeServer] !== "connected" ? (
                       <div className="mcp-server-error-container">
                         <p className="mcp-server-error-title">
                           ⚠️ Connection Failed
@@ -1220,15 +1345,17 @@ export default function ChatInterface({
               title={
                 unavailableServersCount > 0
                   ? `Click to view all MCP tools (${unavailableServersCount} server(s) offline)`
-                  : "Click to view all active MCP tools"
+                  : disabledServersCount > 0
+                    ? `Click to view all MCP tools (${disabledServersCount} server(s) disabled)`
+                    : "Click to view all active MCP tools"
               }
             >
               <span
                 className={`status-dot ${
-                  mcpTools.length > 0 && unavailableServersCount === 0
-                    ? "connected"
-                    : unavailableServersCount > 0
-                      ? "warning"
+                  unavailableServersCount > 0
+                    ? "warning"
+                    : mcpTools.length > 0
+                      ? "connected"
                       : ""
                 }`}
               ></span>
@@ -1237,6 +1364,9 @@ export default function ChatInterface({
                 {mcpTools.length === 1 ? "Tool" : "Tools"}
                 {unavailableServersCount > 0 &&
                   ` (${unavailableServersCount} offline)`}
+                {unavailableServersCount === 0 &&
+                  disabledServersCount > 0 &&
+                  ` (${disabledServersCount} off)`}
               </span>
             </div>
 
