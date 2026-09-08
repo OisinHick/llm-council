@@ -102,6 +102,55 @@ body {
   color: #666;
 }
 
+/* Markdown tables (GFM) */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  display: block;
+}
+
+.markdown-content thead {
+  background-color: #f1f5f9;
+}
+
+.markdown-content th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+  white-space: nowrap;
+}
+
+.markdown-content td {
+  padding: 9px 14px;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  vertical-align: top;
+}
+
+.markdown-content tr:nth-child(even) td {
+  background-color: #f8fafc;
+}
+
+.markdown-content tr:hover td {
+  background-color: #f1f5f9;
+}
+
+.markdown-content del {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.markdown-content input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: #2563eb;
+}
+
 /* Formatted Params */
 .formatted-params {
   display: flex;

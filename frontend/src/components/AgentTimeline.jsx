@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
@@ -158,7 +159,9 @@ export default function AgentTimeline({
                       Chairperson Reasoning
                     </div>
                     <div className="markdown-content">
-                      <ReactMarkdown>{step.thought}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {step.thought}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -224,7 +227,7 @@ export default function AgentTimeline({
                         <div className="sub-council-recommendation">
                           <strong>Council Consensus:</strong>
                           <div className="markdown-content">
-                            <ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
                               {councilConsultation.consensus_recommendation}
                             </ReactMarkdown>
                           </div>
@@ -367,7 +370,9 @@ export default function AgentTimeline({
                 Chairperson Summary:
               </div>
               <div className="deliverables-summary markdown-content">
-                <ReactMarkdown>{summary}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {summary}
+                </ReactMarkdown>
               </div>
             </div>
           )}

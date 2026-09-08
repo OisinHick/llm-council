@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
@@ -478,7 +479,9 @@ export default function ChatInterface({
                     <div className="message-content">
                       <div className="message-label">You</div>
                       <div className="markdown-content">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   </div>
@@ -547,7 +550,9 @@ export default function ChatInterface({
                               )}
                             {msg.stage3?.response && (
                               <div className="markdown-content">
-                                <ReactMarkdown>{msg.stage3.response}</ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {msg.stage3.response}
+                                </ReactMarkdown>
                               </div>
                             )}
                           </>
@@ -558,7 +563,9 @@ export default function ChatInterface({
                       <div className="action-request-block">
                         <h4>Action Request</h4>
                         <div className="markdown-content">
-                          <ReactMarkdown>{actionRequestText}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {actionRequestText}
+                          </ReactMarkdown>
                         </div>
                       </div>
                     )}
@@ -849,7 +856,7 @@ export default function ChatInterface({
                   )}
                 {actionStageResults.stage3?.response && (
                   <div className="markdown-content">
-                    <ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {actionStageResults.stage3.response}
                     </ReactMarkdown>
                   </div>
@@ -862,7 +869,9 @@ export default function ChatInterface({
               <div className="action-request-block">
                 <h4>Action Request</h4>
                 <div className="markdown-content">
-                  <ReactMarkdown>{actionPlanRequest}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {actionPlanRequest}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
