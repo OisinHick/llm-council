@@ -196,10 +196,15 @@ export const api = {
     maxSteps = 20,
     sensitivityConfig = undefined,
   ) {
+    const effectiveMaxSteps =
+      sensitivityConfig?.max_steps !== undefined
+        ? sensitivityConfig.max_steps
+        : maxSteps;
+
     const payload = {
       request,
       conversation_id: conversationId,
-      max_steps: maxSteps,
+      max_steps: effectiveMaxSteps,
       deliberation_sensitivity: sensitivityConfig?.level || "medium",
       sensitivity_config: sensitivityConfig || undefined,
     };

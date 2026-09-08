@@ -97,7 +97,7 @@ class AgentRunRequest(BaseModel):
 
     request: str
     conversation_id: Optional[str] = None
-    max_steps: int = 20
+    max_steps: Optional[int] = 20
     deliberation_sensitivity: Optional[str] = "medium"
     sensitivity_config: Optional[Dict[str, Any]] = None
 
@@ -644,10 +644,18 @@ async def run_agent_stream(request: AgentRunRequest):
             }
 
             # --- PHASE 2: CHAIRPERSON AUTONOMOUS AGENT LOOP ---
+            max_steps_val = (
+                request.sensitivity_config.get("max_steps")
+                if request.sensitivity_config and "max_steps" in request.sensitivity_config
+                else request.max_steps
+            )
+            if max_steps_val is None:
+                max_steps_val = 20
+
             agent = CouncilAgent(
                 user_request=request.request,
                 initial_council=initial_council,
-                max_steps=request.max_steps,
+                max_steps=max_steps_val,
                 deliberation_sensitivity=request.deliberation_sensitivity or "medium",
                 sensitivity_config=request.sensitivity_config,
             )

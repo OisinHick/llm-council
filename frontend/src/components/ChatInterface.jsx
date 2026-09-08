@@ -278,7 +278,13 @@ export default function ChatInterface({
       const saved = localStorage.getItem(
         "llm_council_deliberation_sensitivity"
       );
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.max_steps === undefined) {
+          parsed.max_steps = 20;
+        }
+        return parsed;
+      }
     } catch (e) {
       console.warn("Failed to parse saved sensitivity config:", e);
     }
@@ -287,6 +293,7 @@ export default function ChatInterface({
       auto_trigger_on_error: false,
       review_before_completion: false,
       max_consultations: 5,
+      max_steps: 20,
     };
   });
 

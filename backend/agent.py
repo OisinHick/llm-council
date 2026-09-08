@@ -26,13 +26,12 @@ class CouncilAgent:
         self,
         user_request: str,
         initial_council: Dict[str, Any],
-        max_steps: int = 20,
+        max_steps: Optional[int] = 20,
         deliberation_sensitivity: str = "medium",
         sensitivity_config: Optional[Dict[str, Any]] = None,
     ):
         self.user_request = user_request
         self.initial_council = initial_council
-        self.max_steps = max_steps
 
         # Sensitivity configuration
         cfg = sensitivity_config or {}
@@ -56,12 +55,29 @@ class CouncilAgent:
         self.consultation_count = 0
         self.completion_reviewed = False
 
+        # Resolve max_steps: sensitivity_config takes priority if provided
+        cfg_steps = cfg.get("max_steps")
+        if cfg_steps is not None:
+            self.max_steps = int(cfg_steps)
+        else:
+            self.max_steps = max_steps if max_steps is not None else 20
+
         self.steps: List[Dict[str, Any]] = []
         self.artifacts: List[str] = []
         self.summary: Optional[str] = None
         self.is_completed: bool = False
         self.is_cancelled: bool = False
         self.error: Optional[str] = None
+
+    @property
+    def is_unlimited_steps(self) -> bool:
+        """Return True if max_steps represents unlimited execution (0 or non-positive)."""
+        return self.max_steps is None or self.max_steps <= 0
+
+    @property
+    def is_unlimited_consultations(self) -> bool:
+        """Return True if max_consultations represents unlimited consultations (0 or non-positive)."""
+        return self.max_consultations is None or self.max_consultations <= 0
 
     def cancel(self):
         """Signal the agent to abort execution."""
@@ -211,14 +227,14 @@ Consensus Synthesis & Strategy:
                 "agent_loop_start",
                 {
                     "user_request": self.user_request,
-                    "max_steps": self.max_steps,
+                    "max_steps": 0 if self.is_unlimited_steps else self.max_steps,
                 },
             )
 
         chairman_model = get_chairman_model()
 
         step_count = 0
-        while step_count < self.max_steps:
+        while self.is_unlimited_steps or step_count < self.max_steps:
             if self.is_cancelled:
                 self.error = "Agent execution was cancelled by user."
                 if on_event:
@@ -285,7 +301,10 @@ Consensus Synthesis & Strategy:
                 if (
                     self.review_before_completion
                     and not self.completion_reviewed
-                    and self.consultation_count < self.max_consultations
+                    and (
+                        self.is_unlimited_consultations
+                        or self.consultation_count < self.max_consultations
+                    )
                 ):
                     self.completion_reviewed = True
                     self.consultation_count += 1
@@ -407,7 +426,10 @@ Consensus Synthesis & Strategy:
                     q = params.get("question", "")
                     ctx = params.get("context", "")
 
-                    if self.consultation_count >= self.max_consultations:
+                    if (
+                        not self.is_unlimited_consultations
+                        and self.consultation_count >= self.max_consultations
+                    ):
                         observation = {
                             "success": False,
                             "error": f"Council consultation limit reached ({self.max_consultations} max). Proceed using your own analysis and available tool outputs.",
@@ -468,7 +490,10 @@ Consensus Synthesis & Strategy:
                     tool_failed
                     and self.auto_trigger_on_error
                     and action != "consult_council"
-                    and self.consultation_count < self.max_consultations
+                    and (
+                        self.is_unlimited_consultations
+                        or self.consultation_count < self.max_consultations
+                    )
                 ):
                     err_detail = (
                         observation.get("error")
@@ -542,9 +567,10 @@ Consensus Synthesis & Strategy:
             )
 
         if not self.is_completed and not self.error and not self.is_cancelled:
-            self.error = f"Reached maximum allowed steps ({self.max_steps}) without completion."
-            if on_event:
-                await on_event("agent_error", {"error": self.error})
+            if not self.is_unlimited_steps and step_count >= self.max_steps:
+                self.error = f"Reached maximum allowed steps ({self.max_steps}) without completion."
+                if on_event:
+                    await on_event("agent_error", {"error": self.error})
 
         return {
             "success": self.is_completed,

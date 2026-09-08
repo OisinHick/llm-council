@@ -873,7 +873,9 @@ function App() {
               console.log("Agent event:", eventType, event);
           }
         },
-        20,
+        sensitivityConfig?.max_steps !== undefined
+          ? sensitivityConfig.max_steps
+          : 20,
         sensitivityConfig,
       );
     } catch (err) {

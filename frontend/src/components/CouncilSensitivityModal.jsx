@@ -93,6 +93,9 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
   const [maxConsultations, setMaxConsultations] = useState(
     () => sensitivityConfig?.max_consultations ?? 5
   );
+  const [maxSteps, setMaxSteps] = useState(
+    () => sensitivityConfig?.max_steps ?? 20
+  );
   const [saveFeedback, setSaveFeedback] = useState(false);
 
   const currentPreset =
@@ -110,6 +113,7 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
   const handleResetDefaults = () => {
     handleSelectLevel("medium");
     setMaxConsultations(5);
+    setMaxSteps(20);
   };
 
   const handleSave = () => {
@@ -118,6 +122,7 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
       auto_trigger_on_error: autoTriggerOnError,
       review_before_completion: reviewBeforeCompletion,
       max_consultations: parseInt(maxConsultations, 10),
+      max_steps: parseInt(maxSteps, 10),
     };
     onSave(newConfig);
     setSaveFeedback(true);
@@ -137,9 +142,9 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
           <div className="sensitivity-header-title">
             <span className="sensitivity-header-icon">🧠</span>
             <div>
-              <h3>In-Loop Council Deliberation</h3>
+              <h3>Agentic Loop & Council Settings</h3>
               <p className="sensitivity-header-subtitle">
-                Configure AI Council guidance during agent runs
+                Configure execution loop steps and AI Council guidance during agent runs
               </p>
             </div>
           </div>
@@ -262,6 +267,32 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
                   <option value="5">5 max (Default)</option>
                   <option value="10">10 max</option>
                   <option value="20">20 max</option>
+                  <option value="50">50 max</option>
+                  <option value="100">100 max</option>
+                  <option value="0">Unlimited</option>
+                </select>
+              </div>
+
+              <div className="inline-limit-row">
+                <div className="toggle-text">
+                  <span className="toggle-title">Agentic Loop steps</span>
+                  <span className="toggle-description">
+                    Cap total tool execution actions before agent stops
+                  </span>
+                </div>
+                <select
+                  value={maxSteps}
+                  onChange={(e) => setMaxSteps(e.target.value)}
+                  className="consultation-select"
+                  aria-label="Agentic Loop steps"
+                >
+                  <option value="5">5 steps</option>
+                  <option value="10">10 steps</option>
+                  <option value="20">20 steps (Default)</option>
+                  <option value="30">30 steps</option>
+                  <option value="50">50 steps</option>
+                  <option value="100">100 steps</option>
+                  <option value="0">Unlimited</option>
                 </select>
               </div>
             </div>
