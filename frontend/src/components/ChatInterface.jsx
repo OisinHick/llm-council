@@ -1060,10 +1060,10 @@ export default function ChatInterface({
             <div className="mcp-tools-header">
               <h4>
                 <span className="mcp-modal-title">Active MCP Tools</span>
-                <span className="mcp-modal-count">({mcpTools.length})</span>
+                <span className="mcp-modal-count">{mcpTools.length}</span>
                 {unavailableServersCount > 0 && (
                   <span className="header-warning-text">
-                    ({unavailableServersCount} offline)
+                    {unavailableServersCount} offline
                   </span>
                 )}
               </h4>
