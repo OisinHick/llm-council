@@ -168,7 +168,12 @@ async def get_settings_endpoint():
 async def save_settings_endpoint(request: UpdateSettingsRequest):
     """Update settings."""
     try:
-        updated = save_settings(request.dict(exclude_unset=True))
+        data = (
+            request.model_dump(exclude_unset=True)
+            if hasattr(request, "model_dump")
+            else request.dict(exclude_unset=True)
+        )
+        updated = save_settings(data)
         return {"success": True, "settings": updated}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

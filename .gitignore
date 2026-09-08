@@ -24,3 +24,8 @@ frontend/.vite/
 tests/
 test/
 .pytest_cache/
+
+# Logs
+*.log
+backend.log
+frontend.log

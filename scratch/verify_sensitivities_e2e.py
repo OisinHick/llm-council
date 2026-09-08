@@ -1,4 +1,3 @@
-import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
@@ -11,7 +10,6 @@ def test_api_agent_stream_sensitivity():
     print("=== Testing /api/agent/stream with Deliberation Sensitivity ===")
     
     # 1. Test with Low Sensitivity
-    mock_sub_council = AsyncMock()
     mock_chairman_resp = AsyncMock(side_effect=[
         {"content": '```json\n{"thought": "test action", "action": "complete_task", "params": {"summary": "done"}}\n```'}
     ])

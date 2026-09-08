@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import BASE_DIR
-from .mcp_client_manager import mcp_manager
 
 
 class AgentToolExecutor:

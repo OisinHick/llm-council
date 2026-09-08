@@ -245,7 +245,6 @@ def add_agent_message(
 
 
 def update_last_assistant_message(conversation_id: str, updater):
-
     """
     Update the most recent assistant message in a conversation.
 

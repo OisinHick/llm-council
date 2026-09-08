@@ -5,7 +5,6 @@ ReAct loop to write code, generate documents, run commands, and verify results,
 advised by cross-referenced Council deliberations.
 """
 
-import asyncio
 import json
 import logging
 import re
