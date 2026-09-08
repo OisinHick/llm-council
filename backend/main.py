@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -49,10 +50,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("llm_council.backend")
 
-# Enable CORS for local development
+# Enable CORS for local development and containerized setups
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,8 +143,8 @@ class Conversation(BaseModel):
     messages: List[Dict[str, Any]]
 
 
-@app.get("/")
-async def root():
+@app.get("/api/health")
+async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
 
@@ -716,6 +717,19 @@ async def run_agent_stream(request: AgentRunRequest):
             "Connection": "keep-alive",
         },
     )
+
+
+# Serve built frontend static files if present (e.g. in Docker)
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if frontend_dist.exists() and (frontend_dist / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+else:
+    @app.get("/")
+    async def root():
+        """Health check endpoint when frontend is served separately."""
+        return {"status": "ok", "service": "LLM Council API"}
 
 
 if __name__ == "__main__":

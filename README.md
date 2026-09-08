@@ -102,6 +102,21 @@ npm run dev
 
 Then open [http://localhost:5173](http://localhost:5173) in your browser.
 
+**Option 3: Run with Docker**
+
+Run the entire application (Frontend + Backend + MCP support) with a single command:
+```bash
+docker compose up --build
+```
+
+Or using standard Docker:
+```bash
+docker build -t llm-council .
+docker run -p 8001:8001 -v $(pwd)/data:/app/data --env-file .env llm-council
+```
+
+Then open [http://localhost:8001](http://localhost:8001) in your browser. All conversations and settings are automatically persisted to `./data`.
+
 ---
 
 ## Tech Stack

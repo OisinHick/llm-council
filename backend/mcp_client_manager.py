@@ -331,12 +331,13 @@ for line in iter(proc.stdout.readline, b''):
                 result = await session.list_tools()
                 tools_list = getattr(result, "tools", [])
                 for tool in tools_list:
+                    schema = getattr(tool, "input_schema", getattr(tool, "inputSchema", {}))
                     all_tools.append(
                         {
                             "server": server_name,
                             "name": tool.name,
                             "description": tool.description,
-                            "input_schema": tool.inputSchema,
+                            "input_schema": schema,
                         }
                     )
                 self.server_statuses[server_name] = "connected"

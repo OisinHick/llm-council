@@ -1,0 +1,17 @@
+services:
+  llm-council:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-council
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./mcp_servers.json:/app/mcp_servers.json
+    restart: unless-stopped
