@@ -58,8 +58,28 @@ function App() {
     }
   });
   const [pendingMode, setPendingMode] = useState("informational");
+  const [showAllDeliberationSteps, setShowAllDeliberationSteps] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilShowAllSteps");
+      if (saved !== null) return JSON.parse(saved);
+      return true;
+    } catch {
+      return true;
+    }
+  });
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilShowAllSteps",
+        JSON.stringify(showAllDeliberationSteps),
+      );
+    } catch (e) {
+      console.error("Failed to save deliberation steps display preference:", e);
+    }
+  }, [showAllDeliberationSteps]);
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -1044,11 +1064,14 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        showAllDeliberationSteps={showAllDeliberationSteps}
+        setShowAllDeliberationSteps={setShowAllDeliberationSteps}
       />
       <ChatInterface
         conversation={currentConversation}
         mode={activeMode}
         onModeChange={handleModeChange}
+        showAllDeliberationSteps={showAllDeliberationSteps}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}

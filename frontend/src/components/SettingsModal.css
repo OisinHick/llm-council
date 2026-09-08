@@ -291,6 +291,73 @@
   padding: 8px 0;
 }
 
+.appearance-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}
+
+.deliberation-display-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.deliberation-display-card {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deliberation-display-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.deliberation-display-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+}
+
+.display-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.display-card-header input[type="radio"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.display-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.deliberation-display-card.selected .display-card-title {
+  color: #1d4ed8;
+}
+
+.display-card-desc {
+  margin: 0 0 0 26px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
 .settings-modal-footer {
   display: flex;
   justify-content: flex-end;

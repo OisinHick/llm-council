@@ -10,6 +10,8 @@ export default function SettingsModal({
   userColor,
   setUserColor,
   onResetColors,
+  showAllDeliberationSteps = true,
+  setShowAllDeliberationSteps,
 }) {
   const [activeTab, setActiveTab] = useState("models");
   const [apiKey, setApiKey] = useState("");
@@ -159,7 +161,7 @@ export default function SettingsModal({
             className={`tab-btn ${activeTab === "appearance" ? "active" : ""}`}
             onClick={() => setActiveTab("appearance")}
           >
-            🎨 Appearance
+            🎨 Display & Appearance
           </button>
         </div>
 
@@ -315,29 +317,84 @@ export default function SettingsModal({
 
             {activeTab === "appearance" && (
               <div className="appearance-section">
-                <div className="settings-field">
-                  <label>LLM Council Response Background</label>
-                  <input
-                    type="color"
-                    value={assistantColor}
-                    onChange={(e) => setAssistantColor(e.target.value)}
-                  />
+                {/* Deliberation Steps Display Setting */}
+                <div className="settings-section">
+                  <label className="section-title">Deliberation Steps Display</label>
+                  <p className="section-desc">
+                    Choose whether council deliberations show all model evaluations or display only the final synthesized answer.
+                  </p>
+
+                  <div className="deliberation-display-cards">
+                    <div
+                      className={`deliberation-display-card ${showAllDeliberationSteps ? "selected" : ""}`}
+                      onClick={() => setShowAllDeliberationSteps && setShowAllDeliberationSteps(true)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="radio"
+                          name="deliberationStepsDisplay"
+                          checked={showAllDeliberationSteps}
+                          onChange={() => setShowAllDeliberationSteps && setShowAllDeliberationSteps(true)}
+                        />
+                        <span className="display-card-title">Show all deliberation steps</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Full view showing Stage 1 (individual responses), Stage 2 (peer rankings), and Stage 3 (final synthesis).
+                      </p>
+                    </div>
+
+                    <div
+                      className={`deliberation-display-card ${!showAllDeliberationSteps ? "selected" : ""}`}
+                      onClick={() => setShowAllDeliberationSteps && setShowAllDeliberationSteps(false)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="radio"
+                          name="deliberationStepsDisplay"
+                          checked={!showAllDeliberationSteps}
+                          onChange={() => setShowAllDeliberationSteps && setShowAllDeliberationSteps(false)}
+                        />
+                        <span className="display-card-title">Just show final answer</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Directly display the Chairman's final synthesized answer with an on-demand expander for earlier steps.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="settings-field">
-                  <label>User Message Background</label>
-                  <input
-                    type="color"
-                    value={userColor}
-                    onChange={(e) => setUserColor(e.target.value)}
-                  />
+
+                <div className="appearance-divider" />
+
+                <div className="settings-section">
+                  <label className="section-title">Message Styling</label>
+                  <div className="settings-field">
+                    <label>LLM Council Response Background</label>
+                    <input
+                      type="color"
+                      value={assistantColor}
+                      onChange={(e) => setAssistantColor(e.target.value)}
+                    />
+                  </div>
+                  <div className="settings-field">
+                    <label>User Message Background</label>
+                    <input
+                      type="color"
+                      value={userColor}
+                      onChange={(e) => setUserColor(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="reset-colors-btn"
+                    onClick={onResetColors}
+                  >
+                    Reset Color Defaults
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="reset-colors-btn"
-                  onClick={onResetColors}
-                >
-                  Reset Color Defaults
-                </button>
               </div>
             )}
           </div>

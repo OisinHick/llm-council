@@ -235,6 +235,7 @@ export default function ChatInterface({
   conversation,
   mode = "informational",
   onModeChange,
+  showAllDeliberationSteps = true,
   generateActionPlanToggle,
   onSendMessage,
   onGenerateActionPlan,
@@ -449,40 +450,62 @@ export default function ChatInterface({
                       />
                     ) : (
                       <>
-                        {/* Stage 1 */}
-                        {msg.loading?.stage1 && (
-                          <div className="stage-loading">
-                            <div className="spinner"></div>
-                            <span>
-                              Running Stage 1: Collecting individual responses...
-                            </span>
-                          </div>
+                        {showAllDeliberationSteps ? (
+                          <>
+                            {/* Stage 1 */}
+                            {msg.loading?.stage1 && (
+                              <div className="stage-loading">
+                                <div className="spinner"></div>
+                                <span>
+                                  Running Stage 1: Collecting individual responses...
+                                </span>
+                              </div>
+                            )}
+                            {msg.stage1 && <Stage1 responses={msg.stage1} />}
+
+                            {/* Stage 2 */}
+                            {msg.loading?.stage2 && (
+                              <div className="stage-loading">
+                                <div className="spinner"></div>
+                                <span>Running Stage 2: Peer rankings...</span>
+                              </div>
+                            )}
+                            {msg.stage2 && (
+                              <Stage2
+                                rankings={msg.stage2}
+                                labelToModel={msg.metadata?.label_to_model}
+                                aggregateRankings={msg.metadata?.aggregate_rankings}
+                              />
+                            )}
+
+                            {/* Stage 3 */}
+                            {msg.loading?.stage3 && (
+                              <div className="stage-loading">
+                                <div className="spinner"></div>
+                                <span>Running Stage 3: Final synthesis...</span>
+                              </div>
+                            )}
+                            {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+                          </>
+                        ) : (
+                          <>
+                            {/* Just show final answer: clean chat response with no intermediate stages, sub-divs, headings or dropdown */}
+                            {(msg.loading?.stage1 ||
+                              msg.loading?.stage2 ||
+                              msg.loading?.stage3) &&
+                              !msg.stage3 && (
+                                <div className="stage-loading">
+                                  <div className="spinner"></div>
+                                  <span>Council is deliberating...</span>
+                                </div>
+                              )}
+                            {msg.stage3?.response && (
+                              <div className="markdown-content">
+                                <ReactMarkdown>{msg.stage3.response}</ReactMarkdown>
+                              </div>
+                            )}
+                          </>
                         )}
-                        {msg.stage1 && <Stage1 responses={msg.stage1} />}
-
-                    {/* Stage 2 */}
-                    {msg.loading?.stage2 && (
-                      <div className="stage-loading">
-                        <div className="spinner"></div>
-                        <span>Running Stage 2: Peer rankings...</span>
-                      </div>
-                    )}
-                    {msg.stage2 && (
-                      <Stage2
-                        rankings={msg.stage2}
-                        labelToModel={msg.metadata?.label_to_model}
-                        aggregateRankings={msg.metadata?.aggregate_rankings}
-                      />
-                    )}
-
-                    {/* Stage 3 */}
-                    {msg.loading?.stage3 && (
-                      <div className="stage-loading">
-                        <div className="spinner"></div>
-                        <span>Running Stage 3: Final synthesis...</span>
-                      </div>
-                    )}
-                    {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
 
                     {/* Action Request */}
                     {actionRequestText && (
@@ -711,58 +734,81 @@ export default function ChatInterface({
               </div>
             )}
 
-            {actionStageLoading.stage1 && (
-              <div className="stage-loading">
-                <div className="spinner"></div>
-                <span>Running Stage 1: Collecting individual responses...</span>
-              </div>
-            )}
+            {showAllDeliberationSteps ? (
+              <>
+                {actionStageLoading.stage1 && (
+                  <div className="stage-loading">
+                    <div className="spinner"></div>
+                    <span>Running Stage 1: Collecting individual responses...</span>
+                  </div>
+                )}
 
-            {actionStageResults.stage1 && (
-              <div className="action-stages">
-                <div className="stage-block">
-                  <h4>Stage 1: Individual Responses</h4>
-                  <Stage1 responses={actionStageResults.stage1} />
-                </div>
-              </div>
-            )}
+                {actionStageResults.stage1 && (
+                  <div className="action-stages">
+                    <div className="stage-block">
+                      <h4>Stage 1: Individual Responses</h4>
+                      <Stage1 responses={actionStageResults.stage1} />
+                    </div>
+                  </div>
+                )}
 
-            {actionStageLoading.stage2 && (
-              <div className="stage-loading">
-                <div className="spinner"></div>
-                <span>Running Stage 2: Peer rankings...</span>
-              </div>
-            )}
+                {actionStageLoading.stage2 && (
+                  <div className="stage-loading">
+                    <div className="spinner"></div>
+                    <span>Running Stage 2: Peer rankings...</span>
+                  </div>
+                )}
 
-            {actionStageResults.stage2 && (
-              <div className="action-stages">
-                <div className="stage-block">
-                  <h4>Stage 2: Peer Rankings</h4>
-                  <Stage2
-                    rankings={actionStageResults.stage2}
-                    labelToModel={actionStageResults.metadata?.label_to_model}
-                    aggregateRankings={
-                      actionStageResults.metadata?.aggregate_rankings
-                    }
-                  />
-                </div>
-              </div>
-            )}
+                {actionStageResults.stage2 && (
+                  <div className="action-stages">
+                    <div className="stage-block">
+                      <h4>Stage 2: Peer Rankings</h4>
+                      <Stage2
+                        rankings={actionStageResults.stage2}
+                        labelToModel={actionStageResults.metadata?.label_to_model}
+                        aggregateRankings={
+                          actionStageResults.metadata?.aggregate_rankings
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
 
-            {actionStageLoading.stage3 && (
-              <div className="stage-loading">
-                <div className="spinner"></div>
-                <span>Running Stage 3: Final synthesis...</span>
-              </div>
-            )}
+                {actionStageLoading.stage3 && (
+                  <div className="stage-loading">
+                    <div className="spinner"></div>
+                    <span>Running Stage 3: Final synthesis...</span>
+                  </div>
+                )}
 
-            {actionStageResults.stage3 && (
-              <div className="action-stages">
-                <div className="stage-block">
-                  <h4>Stage 3: Final Synthesis</h4>
-                  <Stage3 finalResponse={actionStageResults.stage3} />
-                </div>
-              </div>
+                {actionStageResults.stage3 && (
+                  <div className="action-stages">
+                    <div className="stage-block">
+                      <h4>Stage 3: Final Synthesis</h4>
+                      <Stage3 finalResponse={actionStageResults.stage3} />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {(actionStageLoading.stage1 ||
+                  actionStageLoading.stage2 ||
+                  actionStageLoading.stage3) &&
+                  !actionStageResults.stage3 && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>Council is deliberating...</span>
+                    </div>
+                  )}
+                {actionStageResults.stage3?.response && (
+                  <div className="markdown-content">
+                    <ReactMarkdown>
+                      {actionStageResults.stage3.response}
+                    </ReactMarkdown>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Action Request */}

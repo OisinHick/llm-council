@@ -7,6 +7,8 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  showAllDeliberationSteps,
+  setShowAllDeliberationSteps,
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [assistantColor, setAssistantColor] = useState(() => {
@@ -57,6 +59,8 @@ export default function Sidebar({
         userColor={userColor}
         setUserColor={setUserColor}
         onResetColors={handleResetColors}
+        showAllDeliberationSteps={showAllDeliberationSteps}
+        setShowAllDeliberationSteps={setShowAllDeliberationSteps}
       />
 
       <div className="conversation-list">
