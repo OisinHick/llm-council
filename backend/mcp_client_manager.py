@@ -74,13 +74,21 @@ class MCPClientManager:
                 full_cmd = [command] + args
 
                 filter_script = f"""
-import subprocess, sys, threading, json
+import subprocess, sys, threading, json, os
+
+# Immediately close any inherited file descriptors (such as parent listening sockets)
+for fd in range(3, 1024):
+    try:
+        os.close(fd)
+    except OSError:
+        pass
 
 proc = subprocess.Popen(
     {repr(full_cmd)},
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
-    stderr=sys.stderr
+    stderr=sys.stderr,
+    close_fds=True,
 )
 
 def pipe_stdin():
@@ -90,6 +98,12 @@ def pipe_stdin():
             proc.stdin.flush()
     except Exception:
         pass
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        os._exit(0)
 
 t = threading.Thread(target=pipe_stdin, daemon=True)
 t.start()

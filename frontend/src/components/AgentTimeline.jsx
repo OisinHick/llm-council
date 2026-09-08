@@ -140,6 +140,14 @@ export default function AgentTimeline({
                 <span className={`action-type-badge ${action}`}>
                   {action}
                 </span>
+                {councilConsultation && action !== "consult_council" && (
+                  <span
+                    className="action-type-badge consult_council"
+                    style={{ marginLeft: "6px" }}
+                  >
+                    ⚖️ council consulted
+                  </span>
+                )}
               </div>
 
               <div className="agent-step-body">
@@ -199,12 +207,16 @@ export default function AgentTimeline({
                     </div>
                   )}
 
-                  {action === "consult_council" && (
+                  {(action === "consult_council" || councilConsultation) && (
                     <div className="sub-council-box">
                       <div className="sub-council-title">
                         <span>⚖️</span>
                         <span>
-                          Council Consultation: &ldquo;{params.question}&rdquo;
+                          {councilConsultation?.question
+                            ? `Council Consultation: "${councilConsultation.question}"`
+                            : params?.question
+                              ? `Council Consultation: "${params.question}"`
+                              : "Council Deliberation & Diagnostic"}
                         </span>
                       </div>
 

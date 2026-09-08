@@ -209,6 +209,59 @@
   min-width: 200px;
 }
 
+.action-buttons-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+}
+
+.agent-sensitivity-btn {
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.agent-sensitivity-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.agent-sensitivity-btn:active {
+  transform: translateY(0);
+}
+
+.agent-sensitivity-btn.level-low {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.agent-sensitivity-btn.level-medium {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.agent-sensitivity-btn.level-high {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.agent-sensitivity-btn.level-extreme {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
 /* Mode Slider Control above text box */
 .mode-slider-container {
   display: flex;

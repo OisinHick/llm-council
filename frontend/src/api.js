@@ -186,6 +186,7 @@ export const api = {
    * @param {string} [conversationId] - Optional conversation ID
    * @param {function} onEvent - Callback for SSE events: (eventType, data) => void
    * @param {number} [maxSteps=20] - Maximum agent loop steps
+   * @param {Object} [sensitivityConfig] - Deliberation sensitivity configuration
    * @returns {Promise<void>}
    */
   async runAgentStream(
@@ -193,11 +194,14 @@ export const api = {
     conversationId = undefined,
     onEvent,
     maxSteps = 20,
+    sensitivityConfig = undefined,
   ) {
     const payload = {
       request,
       conversation_id: conversationId,
       max_steps: maxSteps,
+      deliberation_sensitivity: sensitivityConfig?.level || "medium",
+      sensitivity_config: sensitivityConfig || undefined,
     };
 
     const response = await fetch(`${API_BASE}/api/agent/stream`, {

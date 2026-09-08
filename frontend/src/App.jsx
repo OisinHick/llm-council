@@ -632,7 +632,7 @@ function App() {
     }
   };
 
-  const handleRunAgent = async (requestText) => {
+  const handleRunAgent = async (requestText, sensitivityConfig = undefined) => {
     if (!requestText.trim()) return;
 
     setAgentLoading(true);
@@ -839,6 +839,8 @@ function App() {
               console.log("Agent event:", eventType, event);
           }
         },
+        20,
+        sensitivityConfig,
       );
     } catch (err) {
       console.error("Agent run error:", err);

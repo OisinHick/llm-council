@@ -4,6 +4,7 @@ import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
 import AgentTimeline from "./AgentTimeline";
+import CouncilSensitivityModal from "./CouncilSensitivityModal";
 import { api } from "../api";
 import "./ChatInterface.css";
 
@@ -269,6 +270,36 @@ export default function ChatInterface({
   const [mcpStatuses, setMcpStatuses] = useState({});
   const [showToolsList, setShowToolsList] = useState(false);
   const [selectedServer, setSelectedServer] = useState(null);
+  const [showSensitivityModal, setShowSensitivityModal] = useState(false);
+  const [sensitivityConfig, setSensitivityConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem(
+        "llm_council_deliberation_sensitivity"
+      );
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn("Failed to parse saved sensitivity config:", e);
+    }
+    return {
+      level: "medium",
+      auto_trigger_on_error: false,
+      review_before_completion: false,
+      max_consultations: 5,
+    };
+  });
+
+  const handleSaveSensitivity = (newConfig) => {
+    setSensitivityConfig(newConfig);
+    try {
+      localStorage.setItem(
+        "llm_council_deliberation_sensitivity",
+        JSON.stringify(newConfig)
+      );
+    } catch (e) {
+      console.warn("Failed to persist sensitivity config:", e);
+    }
+  };
+
   const messagesEndRef = useRef(null);
 
   // Extract unique server names from both mcpTools and mcpStatuses keys
@@ -332,7 +363,7 @@ export default function ChatInterface({
 
     if (isAgentic) {
       if (onRunAgent) {
-        onRunAgent(input);
+        onRunAgent(input, sensitivityConfig);
       }
     } else if (currentMode === "one_shot") {
       onGenerateActionPlan(input);
@@ -1173,23 +1204,43 @@ export default function ChatInterface({
                 Stop Agent
               </button>
             ) : (
-              <button
-                type="submit"
-                className="send-button"
-                disabled={
-                  !input.trim() || isLoading || actionLoading || agentLoading
-                }
-              >
-                {isAgentic
-                  ? "Run Agent"
-                  : currentMode === "one_shot"
-                    ? "Generate Plan"
-                    : "Send"}
-              </button>
+              <div className="action-buttons-group">
+                {isAgentic && (
+                  <button
+                    type="button"
+                    className={`agent-sensitivity-btn level-${sensitivityConfig?.level || "medium"}`}
+                    onClick={() => setShowSensitivityModal(true)}
+                    title={`Council Deliberation Sensitivity: ${(sensitivityConfig?.level || "medium").toUpperCase()}`}
+                    aria-label="Open Council Deliberation Sensitivity settings"
+                  >
+                    <span className="sensitivity-icon">🧠</span>
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="send-button"
+                  disabled={
+                    !input.trim() || isLoading || actionLoading || agentLoading
+                  }
+                >
+                  {isAgentic
+                    ? "Run Agent"
+                    : currentMode === "one_shot"
+                      ? "Generate Plan"
+                      : "Send"}
+                </button>
+              </div>
             )}
           </div>
         </div>
       </form>
+
+      <CouncilSensitivityModal
+        isOpen={showSensitivityModal}
+        onClose={() => setShowSensitivityModal(false)}
+        sensitivityConfig={sensitivityConfig}
+        onSave={handleSaveSensitivity}
+      />
     </div>
   );
 }

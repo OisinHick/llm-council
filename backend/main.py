@@ -98,6 +98,8 @@ class AgentRunRequest(BaseModel):
     request: str
     conversation_id: Optional[str] = None
     max_steps: int = 20
+    deliberation_sensitivity: Optional[str] = "medium"
+    sensitivity_config: Optional[Dict[str, Any]] = None
 
 
 class CancelAgentRequest(BaseModel):
@@ -602,6 +604,8 @@ async def run_agent_stream(request: AgentRunRequest):
                 user_request=request.request,
                 initial_council=initial_council,
                 max_steps=request.max_steps,
+                deliberation_sensitivity=request.deliberation_sensitivity or "medium",
+                sensitivity_config=request.sensitivity_config,
             )
 
             if conv_id:

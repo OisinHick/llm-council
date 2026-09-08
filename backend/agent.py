@@ -28,10 +28,35 @@ class CouncilAgent:
         user_request: str,
         initial_council: Dict[str, Any],
         max_steps: int = 20,
+        deliberation_sensitivity: str = "medium",
+        sensitivity_config: Optional[Dict[str, Any]] = None,
     ):
         self.user_request = user_request
         self.initial_council = initial_council
         self.max_steps = max_steps
+
+        # Sensitivity configuration
+        cfg = sensitivity_config or {}
+        self.sensitivity_level = str(
+            cfg.get("level") or deliberation_sensitivity or "medium"
+        ).lower()
+        self.auto_trigger_on_error = bool(
+            cfg.get(
+                "auto_trigger_on_error",
+                self.sensitivity_level in ("high", "extreme"),
+            )
+        )
+        self.review_before_completion = bool(
+            cfg.get(
+                "review_before_completion",
+                self.sensitivity_level == "extreme",
+            )
+        )
+        max_c = cfg.get("max_consultations")
+        self.max_consultations = int(max_c) if max_c is not None else 5
+        self.consultation_count = 0
+        self.completion_reviewed = False
+
         self.steps: List[Dict[str, Any]] = []
         self.artifacts: List[str] = []
         self.summary: Optional[str] = None
@@ -72,6 +97,30 @@ class CouncilAgent:
                 tools_doc += f"- {t['name']} (server: {t['server']}): {t['description']}\n"
                 tools_doc += f"  Parameters Schema: {json.dumps(t.get('input_schema', {}))}\n"
 
+        if self.sensitivity_level == "low":
+            deliberation_rule = (
+                "4. COUNCIL DELIBERATION SENSITIVITY: LOW (MINIMAL). "
+                "Operate independently with your local tools. "
+                "Only invoke `consult_council` if you hit a catastrophic blocker or unrecoverable dilemma after exhausting self-debugging."
+            )
+        elif self.sensitivity_level == "high":
+            deliberation_rule = (
+                "4. COUNCIL DELIBERATION SENSITIVITY: HIGH (PROACTIVE). "
+                "Proactively seek Council peer consensus. "
+                "Invoke `consult_council` whenever a command or test fails, when weighing architectural alternatives, or when uncertain about implementation details."
+            )
+        elif self.sensitivity_level == "extreme":
+            deliberation_rule = (
+                "4. COUNCIL DELIBERATION SENSITIVITY: EXTREME (MAXIMUM OVERSIGHT). "
+                "Continuously validate decisions with the Council. "
+                "Seek council consensus on every error, before making structural modifications, and before completing the task."
+            )
+        else:
+            deliberation_rule = (
+                "4. COUNCIL DELIBERATION SENSITIVITY: MEDIUM (BALANCED). "
+                "If you face a complex bug, architectural fork, or need multi-perspective validation, use `consult_council` to obtain consensus from your AI council."
+            )
+
         return f"""You are the Chairperson of the LLM Council, acting as an autonomous software engineer, architect, and technical writer.
 
 Your goal is to accomplish the user's task with the highest precision, accuracy, and thoroughness.
@@ -81,7 +130,7 @@ CRITICAL OPERATIONAL RULES:
 1. Always plan carefully before taking action.
 2. Write complete, working, production-quality code and thorough, well-structured documents. Never leave placeholder comments like '// TODO' or '...rest of code...'.
 3. Always verify your work! Use execute_command to run test scripts, compile code, execute tests, or check file outputs before calling complete_task.
-4. If you face a complex bug, architectural fork, or need multi-perspective validation, use `consult_council` to obtain consensus from your AI council.
+{deliberation_rule}
 5. In every step, you MUST respond with a JSON object in this EXACT format (wrapped in ```json ... ``` or raw JSON):
 
 ```json
@@ -234,6 +283,65 @@ Consensus Synthesis & Strategy:
 
             # Check for task completion
             if action == "complete_task":
+                if (
+                    self.review_before_completion
+                    and not self.completion_reviewed
+                    and self.consultation_count < self.max_consultations
+                ):
+                    self.completion_reviewed = True
+                    self.consultation_count += 1
+                    summary_cand = params.get("summary", thought or "Task deliverables completed.")
+                    artifacts_cand = params.get("artifacts", self.artifacts)
+                    if on_event:
+                        await on_event(
+                            "consult_council_start",
+                            {
+                                "question": "Pre-completion verification: Council review of task deliverables",
+                                "context": f"Summary: {summary_cand}\nArtifacts: {artifacts_cand}",
+                                "step": step_count,
+                            },
+                        )
+
+                    async def sub_event_forwarder(sub_type, sub_data):
+                        if on_event:
+                            await on_event(
+                                "sub_council_event",
+                                {"event": sub_type, "data": sub_data, "step": step_count},
+                            )
+
+                    review_data = await run_sub_council(
+                        f"Review task completion for '{self.user_request}'. Proposed summary: {summary_cand}. Created artifacts: {artifacts_cand}. Are all requirements satisfied or are there missing files, bugs, or unverified outputs?",
+                        context=f"Created artifacts: {artifacts_cand}\nDeliverable summary: {summary_cand}",
+                        on_event=sub_event_forwarder,
+                    )
+                    if on_event:
+                        await on_event(
+                            "consult_council_complete",
+                            {"step": step_count, "council_data": review_data},
+                        )
+
+                    step_record["council_consultation"] = review_data
+                    step_record["observation"] = {
+                        "success": True,
+                        "message": "Council pre-completion review complete.",
+                        "consensus_recommendation": review_data.get("consensus_recommendation", ""),
+                        "aggregate_rankings": review_data.get("aggregate_rankings", []),
+                    }
+                    self.steps.append(step_record)
+                    messages.append({"role": "assistant", "content": response_text})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"COUNCIL PRE-COMPLETION REVIEW RECOMMENDATION:\n"
+                                f"{review_data.get('consensus_recommendation', '')}\n\n"
+                                "If the Council confirms all deliverables are satisfied, call complete_task again with final summary. "
+                                "If any gaps were flagged, address them now before completing."
+                            ),
+                        }
+                    )
+                    continue
+
                 self.is_completed = True
                 self.summary = params.get("summary", thought or "Task completed.")
                 task_artifacts = params.get("artifacts", [])
@@ -300,37 +408,44 @@ Consensus Synthesis & Strategy:
                     q = params.get("question", "")
                     ctx = params.get("context", "")
 
-                    if on_event:
-                        await on_event(
-                            "consult_council_start",
-                            {"question": q, "context": ctx, "step": step_count},
-                        )
-
-                    async def sub_event_forwarder(sub_type, sub_data):
+                    if self.consultation_count >= self.max_consultations:
+                        observation = {
+                            "success": False,
+                            "error": f"Council consultation limit reached ({self.max_consultations} max). Proceed using your own analysis and available tool outputs.",
+                        }
+                    else:
+                        self.consultation_count += 1
                         if on_event:
                             await on_event(
-                                "sub_council_event",
-                                {"event": sub_type, "data": sub_data, "step": step_count},
+                                "consult_council_start",
+                                {"question": q, "context": ctx, "step": step_count},
                             )
 
-                    council_data = await run_sub_council(
-                        q, context=ctx, on_event=sub_event_forwarder
-                    )
-                    observation = {
-                        "success": True,
-                        "consensus_recommendation": council_data.get("consensus_recommendation", ""),
-                        "aggregate_rankings": council_data.get("aggregate_rankings", []),
-                        "message": "Council cross-referencing completed.",
-                    }
+                        async def sub_event_forwarder(sub_type, sub_data):
+                            if on_event:
+                                await on_event(
+                                    "sub_council_event",
+                                    {"event": sub_type, "data": sub_data, "step": step_count},
+                                )
 
-                    if on_event:
-                        await on_event(
-                            "consult_council_complete",
-                            {
-                                "step": step_count,
-                                "council_data": council_data,
-                            },
+                        council_data = await run_sub_council(
+                            q, context=ctx, on_event=sub_event_forwarder
                         )
+                        observation = {
+                            "success": True,
+                            "consensus_recommendation": council_data.get("consensus_recommendation", ""),
+                            "aggregate_rankings": council_data.get("aggregate_rankings", []),
+                            "message": "Council cross-referencing completed.",
+                        }
+
+                        if on_event:
+                            await on_event(
+                                "consult_council_complete",
+                                {
+                                    "step": step_count,
+                                    "council_data": council_data,
+                                },
+                            )
                 else:
                     # Check if it is an external MCP tool
                     is_external = any(t["name"] == action for t in external_tools)
@@ -344,6 +459,57 @@ Consensus Synthesis & Strategy:
                             "success": False,
                             "error": f"Unknown tool: '{action}'. Consult tool documentation.",
                         }
+
+                # Auto-deliberation on tool failure if enabled
+                tool_failed = (
+                    observation.get("success") is False
+                    or observation.get("exit_code", 0) != 0
+                )
+                if (
+                    tool_failed
+                    and self.auto_trigger_on_error
+                    and action != "consult_council"
+                    and self.consultation_count < self.max_consultations
+                ):
+                    err_detail = (
+                        observation.get("error")
+                        or observation.get("stderr")
+                        or observation.get("message")
+                        or "Unknown error"
+                    )
+                    self.consultation_count += 1
+                    if on_event:
+                        await on_event(
+                            "consult_council_start",
+                            {
+                                "question": f"Automatic Council Diagnostic: Tool '{action}' failed",
+                                "context": f"Action: {action}\nParameters: {json.dumps(params)}\nError: {err_detail}",
+                                "step": step_count,
+                            },
+                        )
+
+                    async def sub_event_forwarder(sub_type, sub_data):
+                        if on_event:
+                            await on_event(
+                                "sub_council_event",
+                                {"event": sub_type, "data": sub_data, "step": step_count},
+                            )
+
+                    diag_data = await run_sub_council(
+                        f"The Chairperson executed '{action}' which failed with error:\n{err_detail}\nWhat is the root cause and recommended solution?",
+                        context=f"Tool: {action}\nInput Params: {json.dumps(params)}\nObservation: {json.dumps(observation)}",
+                        on_event=sub_event_forwarder,
+                    )
+                    council_data = diag_data
+                    observation["council_diagnostic"] = diag_data.get("consensus_recommendation", "")
+                    if on_event:
+                        await on_event(
+                            "consult_council_complete",
+                            {
+                                "step": step_count,
+                                "council_data": diag_data,
+                            },
+                        )
 
             except Exception as ex:
                 logger.exception("Error executing action %s", action)
