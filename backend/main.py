@@ -16,7 +16,11 @@ from contextlib import asynccontextmanager
 
 from . import storage
 from .config import get_settings, save_settings
-from .openrouter import fetch_openrouter_models
+from .openrouter import (
+    fetch_openrouter_models,
+    fetch_dynamic_pricing,
+    get_cached_pricing_info,
+)
 from .council import (
     calculate_aggregate_rankings,
     execute_action_plan,
@@ -36,7 +40,24 @@ from .mcp_client_manager import mcp_manager
 async def lifespan(app: FastAPI):
     # Start all configured MCP servers on startup
     await mcp_manager.start_all_servers()
+    # Prefetch dynamic OpenRouter pricing in the background
+    asyncio.create_task(fetch_dynamic_pricing())
+
+    # Periodically auto-refresh OpenRouter pricing in the background
+    async def periodic_pricing_refresh():
+        while True:
+            try:
+                await asyncio.sleep(900)  # 15 minutes
+                await fetch_dynamic_pricing(force_refresh=True)
+                logger.info("Auto-refreshed dynamic OpenRouter pricing rates.")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("Error in background pricing refresh: %s", e)
+
+    refresh_task = asyncio.create_task(periodic_pricing_refresh())
     yield
+    refresh_task.cancel()
     # Stop all active MCP servers on shutdown
     await mcp_manager.stop_all_servers()
 
@@ -115,6 +136,9 @@ class UpdateSettingsRequest(BaseModel):
     openrouter_api_key: Optional[str] = None
     council_models: Optional[List[str]] = None
     chairman_model: Optional[str] = None
+    show_token_count: Optional[bool] = None
+    show_tokens_per_model: Optional[bool] = None
+    show_spend_value: Optional[bool] = None
 
 
 class ToggleMcpServerRequest(BaseModel):
@@ -131,6 +155,7 @@ class ConversationMetadata(BaseModel):
     title: str
     message_count: int
     mode: Optional[str] = "informational"
+    token_usage: Optional[Dict[str, Any]] = None
 
 
 class Conversation(BaseModel):
@@ -141,6 +166,7 @@ class Conversation(BaseModel):
     title: str
     mode: Optional[str] = "informational"
     messages: List[Dict[str, Any]]
+    token_usage: Optional[Dict[str, Any]] = None
 
 
 @app.get("/api/health")
@@ -157,6 +183,26 @@ async def get_openrouter_models_endpoint(api_key: Optional[str] = None):
         return {"success": True, "models": models}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/pricing")
+async def get_pricing_endpoint():
+    """Get dynamic model pricing rates fetched from OpenRouter."""
+    try:
+        pricing_data = await fetch_dynamic_pricing()
+        return {"success": True, **pricing_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/pricing/refresh")
+async def refresh_pricing_endpoint():
+    """Force refresh dynamic model pricing rates from OpenRouter."""
+    try:
+        pricing_data = await fetch_dynamic_pricing(force_refresh=True)
+        return {"success": True, **pricing_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/settings")
@@ -281,7 +327,9 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     # If this is the first message, generate a title
     if is_first_message:
-        title = await generate_conversation_title(request.content)
+        title = await generate_conversation_title(
+            request.content, conversation_id=conversation_id
+        )
         storage.update_conversation_title(conversation_id, title)
 
     # Run the 3-stage council process
@@ -294,12 +342,16 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         conversation_id, stage1_results, stage2_results, stage3_result
     )
 
-    # Return the complete response with metadata
+    conv_updated = storage.get_conversation(conversation_id)
+    token_usage = conv_updated.get("token_usage") if conv_updated else None
+
+    # Return the complete response with metadata and token_usage
     return {
         "stage1": stage1_results,
         "stage2": stage2_results,
         "stage3": stage3_result,
         "metadata": metadata,
+        "token_usage": token_usage,
     }
 
 
@@ -326,7 +378,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(
-                    generate_conversation_title(request.content)
+                    generate_conversation_title(
+                        request.content, conversation_id=conversation_id
+                    )
                 )
 
             # Stage 1: Collect responses
@@ -362,8 +416,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 conversation_id, stage1_results, stage2_results, stage3_result
             )
 
-            # Send completion event
-            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            conv_updated = storage.get_conversation(conversation_id)
+            conv_tokens = conv_updated.get("token_usage") if conv_updated else None
+
+            # Send completion event with updated token usage
+            yield f"data: {json.dumps({'type': 'complete', 'token_usage': conv_tokens, 'data': {'token_usage': conv_tokens}})}\n\n"
 
         except Exception as e:
             # Send error event
@@ -398,7 +455,9 @@ async def perform_action(request: ActionRequest):
         is_first_message = len(conversation["messages"]) == 0
         storage.add_user_message(request.conversation_id, request.request)
         if is_first_message:
-            title = await generate_conversation_title(request.request)
+            title = await generate_conversation_title(
+                request.request, conversation_id=request.conversation_id
+            )
             storage.update_conversation_title(request.conversation_id, title)
 
     try:
@@ -416,6 +475,9 @@ async def perform_action(request: ActionRequest):
                 execution=result.get("execution"),
                 action_request=request.request,
             )
+            conv_updated = storage.get_conversation(request.conversation_id)
+            if conv_updated:
+                result["token_usage"] = conv_updated.get("token_usage")
 
         return result
     except Exception as e:
@@ -441,7 +503,9 @@ async def perform_action_stream(request: ActionRequest):
                 storage.add_user_message(request.conversation_id, request.request)
                 if is_first_message:
                     title_task = asyncio.create_task(
-                        generate_conversation_title(request.request)
+                        generate_conversation_title(
+                            request.request, conversation_id=request.conversation_id
+                        )
                     )
                 else:
                     title_task = None
@@ -504,7 +568,12 @@ async def perform_action_stream(request: ActionRequest):
                 storage.update_conversation_title(request.conversation_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            conv_tokens = None
+            if request.conversation_id is not None:
+                conv_updated = storage.get_conversation(request.conversation_id)
+                conv_tokens = conv_updated.get("token_usage") if conv_updated else None
+
+            yield f"data: {json.dumps({'type': 'complete', 'token_usage': conv_tokens, 'data': {'token_usage': conv_tokens}})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -602,7 +671,9 @@ async def run_agent_stream(request: AgentRunRequest):
                 storage.add_user_message(conv_id, request.request)
                 if is_first_message:
                     title_task = asyncio.create_task(
-                        generate_conversation_title(request.request)
+                        generate_conversation_title(
+                            request.request, conversation_id=conv_id
+                        )
                     )
 
             # --- PHASE 1: INITIAL COUNCIL CROSS-REFERENCED DELIBERATION ---
@@ -693,6 +764,7 @@ async def run_agent_stream(request: AgentRunRequest):
                     summary=agent.summary,
                     error=agent.error,
                     status="cancelled" if agent.is_cancelled else ("completed" if agent.is_completed else "failed"),
+                    token_usage=agent_result.get("token_usage"),
                 )
 
             if title_task:
@@ -700,7 +772,12 @@ async def run_agent_stream(request: AgentRunRequest):
                 storage.update_conversation_title(conv_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'complete', 'data': agent_result})}\n\n"
+            conv_tokens = None
+            if conv_id is not None:
+                conv_updated = storage.get_conversation(conv_id)
+                conv_tokens = conv_updated.get("token_usage") if conv_updated else None
+
+            yield f"data: {json.dumps({'type': 'complete', 'data': agent_result, 'token_usage': conv_tokens})}\n\n"
 
         except Exception as e:
             logger.exception("Error in agent stream: %s", str(e))

@@ -31,7 +31,14 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     for model, response in responses.items():
         if response is not None:  # Only include successful responses
             stage1_results.append(
-                {"model": model, "response": response.get("content", "")}
+                {
+                    "model": model,
+                    "response": response.get("content", ""),
+                    "usage": response.get(
+                        "usage",
+                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    ),
+                }
             )
 
     return stage1_results
@@ -110,7 +117,15 @@ Now provide your evaluation and ranking:"""
             full_text = response.get("content", "")
             parsed = parse_ranking_from_text(full_text)
             stage2_results.append(
-                {"model": model, "ranking": full_text, "parsed_ranking": parsed}
+                {
+                    "model": model,
+                    "ranking": full_text,
+                    "parsed_ranking": parsed,
+                    "usage": response.get(
+                        "usage",
+                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    ),
+                }
             )
 
     return stage2_results, label_to_model
@@ -177,9 +192,17 @@ Provide a clear, well-reasoned final answer that represents the council's collec
         return {
             "model": chairman,
             "response": "Error: Unable to generate final synthesis.",
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
 
-    return {"model": chairman, "response": response.get("content", "")}
+    return {
+        "model": chairman,
+        "response": response.get("content", ""),
+        "usage": response.get(
+            "usage",
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        ),
+    }
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
@@ -262,12 +285,15 @@ def calculate_aggregate_rankings(
     return aggregate
 
 
-async def generate_conversation_title(user_query: str) -> str:
+async def generate_conversation_title(
+    user_query: str, conversation_id: Optional[str] = None
+) -> str:
     """
     Generate a short title for a conversation based on the first user message.
 
     Args:
         user_query: The first user message
+        conversation_id: Optional conversation ID to record title generation tokens
 
     Returns:
         A short title (3-5 words)
@@ -288,6 +314,15 @@ Title:"""
     if response is None:
         # Fallback to a generic title
         return "New Conversation"
+
+    if conversation_id and response.get("usage"):
+        try:
+            from . import storage
+            storage.record_standalone_tokens(
+                conversation_id, chairman, response.get("usage")
+            )
+        except Exception:
+            pass
 
     title = response.get("content", "New Conversation").strip()
 
@@ -463,12 +498,16 @@ Now generate the action plan JSON:"""
             "success": False,
             "error": f"Invalid JSON in action plan: {str(e)}",
             "raw_response": response_text,
+            "model": chairman,
+            "usage": response.get("usage") if response else None,
         }
 
     return {
         "success": True,
         "action_plan": action_plan,
         "best_response_model": best_model_name,
+        "model": chairman,
+        "usage": response.get("usage") if response else None,
     }
 
 

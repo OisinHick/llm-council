@@ -68,6 +68,49 @@ class CouncilAgent:
         self.is_completed: bool = False
         self.is_cancelled: bool = False
         self.error: Optional[str] = None
+        self.token_usage: Dict[str, Any] = {
+            "total_tokens": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "by_model": {},
+        }
+
+    def _record_tokens(self, model: str, usage: Optional[Dict[str, Any]]):
+        """Record token usage for a given model."""
+        if not usage or not model:
+            return
+        p = int(usage.get("prompt_tokens") or 0)
+        c = int(usage.get("completion_tokens") or 0)
+        t = int(
+            usage.get("total_tokens")
+            if usage.get("total_tokens") is not None
+            else (p + c)
+        )
+        self.token_usage["prompt_tokens"] += p
+        self.token_usage["completion_tokens"] += c
+        self.token_usage["total_tokens"] += t
+        by_m = self.token_usage.setdefault("by_model", {})
+        if model not in by_m:
+            by_m[model] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
+        by_m[model]["prompt_tokens"] += p
+        by_m[model]["completion_tokens"] += c
+        by_m[model]["total_tokens"] += t
+
+    def _record_sub_council_tokens(self, council_data: Dict[str, Any]):
+        """Record tokens from a sub-council deliberation."""
+        if not council_data:
+            return
+        for r in council_data.get("stage1", []) or []:
+            self._record_tokens(r.get("model", ""), r.get("usage"))
+        for r in council_data.get("stage2", []) or []:
+            self._record_tokens(r.get("model", ""), r.get("usage"))
+        s3 = council_data.get("stage3") or {}
+        if s3.get("model"):
+            self._record_tokens(s3.get("model", ""), s3.get("usage"))
 
     @property
     def is_unlimited_steps(self) -> bool:
@@ -248,6 +291,9 @@ Consensus Synthesis & Strategy:
 
             # Query the chairperson model
             response = await query_model(chairman_model, messages, timeout=120.0)
+            if response and response.get("usage"):
+                self._record_tokens(chairman_model, response.get("usage"))
+
             if not response or not response.get("content"):
                 self.error = f"Chairperson model ({chairman_model}) failed to respond at step {step_count}."
                 if on_event:
@@ -452,6 +498,7 @@ Consensus Synthesis & Strategy:
                         council_data = await run_sub_council(
                             q, context=ctx, on_event=sub_event_forwarder
                         )
+                        self._record_sub_council_tokens(council_data)
                         observation = {
                             "success": True,
                             "consensus_recommendation": council_data.get("consensus_recommendation", ""),
@@ -524,6 +571,7 @@ Consensus Synthesis & Strategy:
                         context=f"Tool: {action}\nInput Params: {json.dumps(params)}\nObservation: {json.dumps(observation)}",
                         on_event=sub_event_forwarder,
                     )
+                    self._record_sub_council_tokens(diag_data)
                     council_data = diag_data
                     observation["council_diagnostic"] = diag_data.get("consensus_recommendation", "")
                     if on_event:
@@ -578,4 +626,5 @@ Consensus Synthesis & Strategy:
             "artifacts": self.artifacts,
             "summary": self.summary,
             "error": self.error,
+            "token_usage": self.token_usage,
         }

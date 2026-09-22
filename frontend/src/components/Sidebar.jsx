@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import SettingsModal from "./SettingsModal";
+import { formatShortNumber, formatSpend, formatExactSpend } from "../formatters";
 import "./Sidebar.css";
 
 export default function Sidebar({
@@ -9,6 +10,12 @@ export default function Sidebar({
   onNewConversation,
   showAllDeliberationSteps,
   setShowAllDeliberationSteps,
+  showTokenCount,
+  setShowTokenCount,
+  showTokensPerModel,
+  setShowTokensPerModel,
+  showSpendValue,
+  setShowSpendValue,
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [assistantColor, setAssistantColor] = useState(() => {
@@ -61,6 +68,12 @@ export default function Sidebar({
         onResetColors={handleResetColors}
         showAllDeliberationSteps={showAllDeliberationSteps}
         setShowAllDeliberationSteps={setShowAllDeliberationSteps}
+        showTokenCount={showTokenCount}
+        setShowTokenCount={setShowTokenCount}
+        showTokensPerModel={showTokensPerModel}
+        setShowTokensPerModel={setShowTokensPerModel}
+        showSpendValue={showSpendValue}
+        setShowSpendValue={setShowSpendValue}
       />
 
       <div className="conversation-list">
@@ -102,6 +115,19 @@ export default function Sidebar({
                       : "💬 Info"}
                 </span>
                 <span>{conv.message_count} msgs</span>
+                {showTokenCount && conv.token_usage?.total_tokens > 0 && (
+                  <span
+                    className="conv-token-tag"
+                    title={`Total tokens: ${conv.token_usage.total_tokens.toLocaleString()} (Input: ${(conv.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(conv.token_usage.completion_tokens || 0).toLocaleString()})${
+                      conv.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conv.token_usage.total_cost)}` : ""
+                    }`}
+                  >
+                    🪙 {formatShortNumber(conv.token_usage.total_tokens)}
+                    {showSpendValue && conv.token_usage?.total_cost > 0 && (
+                      <span className="conv-token-spend"> · {formatSpend(conv.token_usage.total_cost)}</span>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
           ))

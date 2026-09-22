@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import DATA_DIR
+from .openrouter import calculate_token_cost
 
 
 def ensure_data_dir():
@@ -17,6 +18,245 @@ def ensure_data_dir():
 def get_conversation_path(conversation_id: str) -> str:
     """Get the file path for a conversation."""
     return os.path.join(DATA_DIR, f"{conversation_id}.json")
+
+
+def empty_token_usage() -> Dict[str, Any]:
+    """Return an empty token usage structure."""
+    return {
+        "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_cost": 0.0,
+        "by_model": {},
+    }
+
+
+def _accumulate_model_tokens(
+    target: Dict[str, Any],
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: Optional[int] = None,
+):
+    """Accumulate token counts into target dictionary."""
+    if not model:
+        return
+    p = int(prompt_tokens or 0)
+    c = int(completion_tokens or 0)
+    t = int(total_tokens if total_tokens is not None else (p + c))
+
+    target["prompt_tokens"] = target.get("prompt_tokens", 0) + p
+    target["completion_tokens"] = target.get("completion_tokens", 0) + c
+    target["total_tokens"] = target.get("total_tokens", 0) + t
+
+    by_model = target.setdefault("by_model", {})
+    if model not in by_model:
+        by_model[model] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+    by_model[model]["prompt_tokens"] += p
+    by_model[model]["completion_tokens"] += c
+    by_model[model]["total_tokens"] += t
+
+
+def merge_token_usages(
+    usage_a: Optional[Dict[str, Any]], usage_b: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Merge two token usage dictionaries together."""
+    result = empty_token_usage()
+    for usage in (usage_a, usage_b):
+        if not usage or not isinstance(usage, dict):
+            continue
+        by_m = usage.get("by_model")
+        if by_m and isinstance(by_m, dict):
+            for model, m_data in by_m.items():
+                if isinstance(m_data, dict):
+                    _accumulate_model_tokens(
+                        result,
+                        model,
+                        m_data.get("prompt_tokens", 0),
+                        m_data.get("completion_tokens", 0),
+                        m_data.get("total_tokens"),
+                    )
+        else:
+            p = int(usage.get("prompt_tokens") or 0)
+            c = int(usage.get("completion_tokens") or 0)
+            t = int(
+                usage.get("total_tokens")
+                if usage.get("total_tokens") is not None
+                else (p + c)
+            )
+            result["prompt_tokens"] += p
+            result["completion_tokens"] += c
+            result["total_tokens"] += t
+    calculate_token_cost(result)
+    return result
+
+
+def compute_turn_token_usage(
+    stage1: Optional[List[Dict[str, Any]]] = None,
+    stage2: Optional[List[Dict[str, Any]]] = None,
+    stage3: Optional[Dict[str, Any]] = None,
+    stage4: Optional[Dict[str, Any]] = None,
+    steps: Optional[List[Dict[str, Any]]] = None,
+    extra_usages: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Calculate token usage for a single assistant turn."""
+    usage_result = empty_token_usage()
+
+    if stage1:
+        for r in stage1:
+            m = r.get("model")
+            u = r.get("usage")
+            if u:
+                _accumulate_model_tokens(
+                    usage_result,
+                    m,
+                    u.get("prompt_tokens", 0),
+                    u.get("completion_tokens", 0),
+                    u.get("total_tokens"),
+                )
+            elif m and r.get("response"):
+                _accumulate_model_tokens(
+                    usage_result, m, 50, len(r["response"]) // 4
+                )
+
+    if stage2:
+        for r in stage2:
+            m = r.get("model")
+            u = r.get("usage")
+            if u:
+                _accumulate_model_tokens(
+                    usage_result,
+                    m,
+                    u.get("prompt_tokens", 0),
+                    u.get("completion_tokens", 0),
+                    u.get("total_tokens"),
+                )
+            elif m and r.get("ranking"):
+                _accumulate_model_tokens(
+                    usage_result, m, 200, len(r["ranking"]) // 4
+                )
+
+    if stage3:
+        m = stage3.get("model")
+        u = stage3.get("usage")
+        if u:
+            _accumulate_model_tokens(
+                usage_result,
+                m,
+                u.get("prompt_tokens", 0),
+                u.get("completion_tokens", 0),
+                u.get("total_tokens"),
+            )
+        elif m and stage3.get("response"):
+            _accumulate_model_tokens(
+                usage_result, m, 400, len(stage3["response"]) // 4
+            )
+
+    if stage4:
+        m = stage4.get("model") or "chairman"
+        u = stage4.get("usage")
+        if u:
+            _accumulate_model_tokens(
+                usage_result,
+                m,
+                u.get("prompt_tokens", 0),
+                u.get("completion_tokens", 0),
+                u.get("total_tokens"),
+            )
+
+    if steps:
+        for step in steps:
+            u = step.get("usage")
+            m = step.get("model") or "chairperson"
+            if u:
+                _accumulate_model_tokens(
+                    usage_result,
+                    m,
+                    u.get("prompt_tokens", 0),
+                    u.get("completion_tokens", 0),
+                    u.get("total_tokens"),
+                )
+            elif step.get("action"):
+                act_str = json.dumps(step["action"])
+                _accumulate_model_tokens(
+                    usage_result, m, 400, len(act_str) // 4
+                )
+
+    if extra_usages:
+        for item in extra_usages:
+            m = item.get("model")
+            u = item.get("usage") or {}
+            _accumulate_model_tokens(
+                usage_result,
+                m,
+                u.get("prompt_tokens", 0),
+                u.get("completion_tokens", 0),
+                u.get("total_tokens"),
+            )
+
+    calculate_token_cost(usage_result)
+    return usage_result
+
+
+def compute_conversation_token_usage(conversation: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compute total token usage across all messages in a conversation,
+    including standalone tokens (such as title generation).
+    """
+    total_usage = empty_token_usage()
+
+    # Accumulate standalone tokens (e.g. title generation)
+    standalone = conversation.get("standalone_token_usage")
+    if standalone and isinstance(standalone, dict):
+        total_usage = merge_token_usages(total_usage, standalone)
+
+    for msg in conversation.get("messages", []):
+        if msg.get("role") != "assistant":
+            continue
+
+        if msg.get("token_usage") and isinstance(msg["token_usage"], dict):
+            total_usage = merge_token_usages(total_usage, msg["token_usage"])
+        else:
+            # Fallback estimation for legacy assistant messages
+            turn_usage = compute_turn_token_usage(
+                stage1=msg.get("stage1"),
+                stage2=msg.get("stage2"),
+                stage3=msg.get("stage3"),
+                stage4=msg.get("stage4"),
+                steps=msg.get("steps"),
+            )
+            total_usage = merge_token_usages(total_usage, turn_usage)
+
+    calculate_token_cost(total_usage)
+    return total_usage
+
+
+def record_standalone_tokens(
+    conversation_id: str, model: str, usage: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Record standalone tokens for a conversation (e.g. from title generation)."""
+    if not usage:
+        return None
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        return None
+
+    standalone = conversation.get("standalone_token_usage") or empty_token_usage()
+    _accumulate_model_tokens(
+        standalone,
+        model,
+        usage.get("prompt_tokens", 0),
+        usage.get("completion_tokens", 0),
+        usage.get("total_tokens"),
+    )
+    conversation["standalone_token_usage"] = standalone
+    conversation["token_usage"] = compute_conversation_token_usage(conversation)
+    save_conversation(conversation)
+    return conversation["token_usage"]
 
 
 def create_conversation(
@@ -40,6 +280,8 @@ def create_conversation(
         "title": "New Conversation",
         "mode": mode,
         "messages": [],
+        "token_usage": empty_token_usage(),
+        "standalone_token_usage": empty_token_usage(),
     }
 
     # Save to file
@@ -89,6 +331,10 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     data["mode"] = get_conversation_mode_from_messages(
         data.get("messages", []), fallback=data.get("mode", "informational")
     )
+    for msg in data.get("messages", []):
+        if msg.get("role") == "assistant" and msg.get("token_usage"):
+            calculate_token_cost(msg["token_usage"])
+    data["token_usage"] = compute_conversation_token_usage(data)
     return data
 
 
@@ -132,6 +378,7 @@ def list_conversations() -> List[Dict[str, Any]]:
                         "title": data.get("title", "New Conversation"),
                         "message_count": len(messages),
                         "mode": mode,
+                        "token_usage": compute_conversation_token_usage(data),
                     }
                 )
 
@@ -166,6 +413,7 @@ def add_assistant_message(
     stage4: Optional[Dict[str, Any]] = None,
     execution: Optional[Dict[str, Any]] = None,
     action_request: Optional[str] = None,
+    token_usage: Optional[Dict[str, Any]] = None,
 ):
     """
     Add an assistant message with optional action plan information to a conversation.
@@ -178,16 +426,25 @@ def add_assistant_message(
         stage4: Optional action plan result
         execution: Optional execution results
         action_request: Optional original action request text
+        token_usage: Optional explicit token usage for this turn
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
+
+    turn_tokens = token_usage or compute_turn_token_usage(
+        stage1=stage1,
+        stage2=stage2,
+        stage3=stage3,
+        stage4=stage4,
+    )
 
     message = {
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
         "stage3": stage3,
+        "token_usage": turn_tokens,
     }
 
     if action_request is not None:
@@ -203,6 +460,7 @@ def add_assistant_message(
     else:
         conversation["mode"] = "informational"
 
+    conversation["token_usage"] = compute_conversation_token_usage(conversation)
     save_conversation(conversation)
 
 
@@ -215,6 +473,7 @@ def add_agent_message(
     summary: Optional[str] = None,
     error: Optional[str] = None,
     status: str = "completed",
+    token_usage: Optional[Dict[str, Any]] = None,
 ):
     """
     Add an agent run message to a conversation.
@@ -222,6 +481,16 @@ def add_agent_message(
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
+
+    council_tokens = compute_turn_token_usage(
+        stage1=initial_council.get("stage1"),
+        stage2=initial_council.get("stage2"),
+        stage3=initial_council.get("stage3"),
+    )
+    step_tokens = compute_turn_token_usage(steps=steps)
+    turn_tokens = merge_token_usages(council_tokens, step_tokens)
+    if token_usage:
+        turn_tokens = merge_token_usages(turn_tokens, token_usage)
 
     message = {
         "role": "assistant",
@@ -237,10 +506,12 @@ def add_agent_message(
         "stage2": initial_council.get("stage2", []),
         "stage3": initial_council.get("stage3", {}),
         "metadata": initial_council.get("metadata", {}),
+        "token_usage": turn_tokens,
     }
 
     conversation["messages"].append(message)
     conversation["mode"] = "agentic"
+    conversation["token_usage"] = compute_conversation_token_usage(conversation)
     save_conversation(conversation)
 
 

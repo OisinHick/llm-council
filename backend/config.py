@@ -41,6 +41,9 @@ def get_settings() -> Dict[str, Any]:
         "openrouter_api_key": env_key,
         "council_models": DEFAULT_COUNCIL_MODELS,
         "chairman_model": DEFAULT_CHAIRMAN_MODEL,
+        "show_token_count": True,
+        "show_tokens_per_model": False,
+        "show_spend_value": True,
     }
 
     if not SETTINGS_FILE.exists():
@@ -54,6 +57,9 @@ def get_settings() -> Dict[str, Any]:
             "openrouter_api_key": data.get("openrouter_api_key") or env_key,
             "council_models": data.get("council_models") or DEFAULT_COUNCIL_MODELS,
             "chairman_model": data.get("chairman_model") or DEFAULT_CHAIRMAN_MODEL,
+            "show_token_count": data.get("show_token_count", True) if "show_token_count" in data else True,
+            "show_tokens_per_model": data.get("show_tokens_per_model", False) if "show_tokens_per_model" in data else False,
+            "show_spend_value": data.get("show_spend_value", True) if "show_spend_value" in data else True,
         }
     except Exception:
         return default_settings
@@ -76,6 +82,15 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         cm = new_settings["chairman_model"].strip()
         if cm:
             current["chairman_model"] = cm
+
+    if "show_token_count" in new_settings and new_settings["show_token_count"] is not None:
+        current["show_token_count"] = bool(new_settings["show_token_count"])
+
+    if "show_tokens_per_model" in new_settings and new_settings["show_tokens_per_model"] is not None:
+        current["show_tokens_per_model"] = bool(new_settings["show_tokens_per_model"])
+
+    if "show_spend_value" in new_settings and new_settings["show_spend_value"] is not None:
+        current["show_spend_value"] = bool(new_settings["show_spend_value"])
 
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -100,4 +115,22 @@ def get_chairman_model() -> str:
     """Get the active chairman model."""
     settings = get_settings()
     return settings.get("chairman_model") or DEFAULT_CHAIRMAN_MODEL
+
+
+def get_show_token_count() -> bool:
+    """Get setting for showing token count."""
+    settings = get_settings()
+    return bool(settings.get("show_token_count", True))
+
+
+def get_show_tokens_per_model() -> bool:
+    """Get setting for showing tokens per model."""
+    settings = get_settings()
+    return bool(settings.get("show_tokens_per_model", False))
+
+
+def get_show_spend_value() -> bool:
+    """Get setting for showing spend value."""
+    settings = get_settings()
+    return bool(settings.get("show_spend_value", True))
 

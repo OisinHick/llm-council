@@ -67,6 +67,33 @@ function App() {
       return true;
     }
   });
+  const [showTokenCount, setShowTokenCount] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilShowTokenCount");
+      if (saved !== null) return JSON.parse(saved);
+      return true;
+    } catch {
+      return true;
+    }
+  });
+  const [showTokensPerModel, setShowTokensPerModel] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilShowTokensPerModel");
+      if (saved !== null) return JSON.parse(saved);
+      return false;
+    } catch {
+      return false;
+    }
+  });
+  const [showSpendValue, setShowSpendValue] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilShowSpendValue");
+      if (saved !== null) return JSON.parse(saved);
+      return true;
+    } catch {
+      return true;
+    }
+  });
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState(null);
 
@@ -80,6 +107,39 @@ function App() {
       console.error("Failed to save deliberation steps display preference:", e);
     }
   }, [showAllDeliberationSteps]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilShowTokenCount",
+        JSON.stringify(showTokenCount),
+      );
+    } catch (e) {
+      console.error("Failed to save token count preference:", e);
+    }
+  }, [showTokenCount]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilShowTokensPerModel",
+        JSON.stringify(showTokensPerModel),
+      );
+    } catch (e) {
+      console.error("Failed to save tokens per model preference:", e);
+    }
+  }, [showTokensPerModel]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilShowSpendValue",
+        JSON.stringify(showSpendValue),
+      );
+    } catch (e) {
+      console.error("Failed to save spend value preference:", e);
+    }
+  }, [showSpendValue]);
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -202,9 +262,31 @@ function App() {
     }
   }
 
-  // Load conversations on mount
+  // Load conversations and settings on mount
   useEffect(() => {
     loadConversations();
+    api
+      .getSettings()
+      .then((settings) => {
+        if (settings?.show_token_count !== undefined) {
+          setShowTokenCount(Boolean(settings.show_token_count));
+        }
+        if (settings?.show_tokens_per_model !== undefined) {
+          setShowTokensPerModel(Boolean(settings.show_tokens_per_model));
+        }
+        if (settings?.show_spend_value !== undefined) {
+          setShowSpendValue(Boolean(settings.show_spend_value));
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load initial settings from server:", err);
+      });
+
+    // Periodically refresh conversation list and spend calculations in background (every 10 minutes)
+    const interval = setInterval(() => {
+      loadConversations();
+    }, 600000);
+    return () => clearInterval(interval);
   }, []);
 
   // Load conversation details when selected
@@ -462,11 +544,23 @@ function App() {
               // Stream complete, reload conversations list and update mode
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeId ? { ...c, mode: "informational" } : c,
+                  c.id === activeId
+                    ? {
+                        ...c,
+                        mode: "informational",
+                        token_usage: event.token_usage || c.token_usage,
+                      }
+                    : c,
                 ),
               );
               setCurrentConversation((prev) =>
-                prev?.id === activeId ? { ...prev, mode: "informational" } : prev,
+                prev?.id === activeId
+                  ? {
+                      ...prev,
+                      mode: "informational",
+                      token_usage: event.token_usage || prev.token_usage,
+                    }
+                  : prev,
               );
               loadConversations();
               setIsLoading(false);
@@ -622,11 +716,23 @@ function App() {
             case "complete":
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeId ? { ...c, mode: "one_shot" } : c,
+                  c.id === activeId
+                    ? {
+                        ...c,
+                        mode: "one_shot",
+                        token_usage: event.token_usage || c.token_usage,
+                      }
+                    : c,
                 ),
               );
               setCurrentConversation((prev) =>
-                prev?.id === activeId ? { ...prev, mode: "one_shot" } : prev,
+                prev?.id === activeId
+                  ? {
+                      ...prev,
+                      mode: "one_shot",
+                      token_usage: event.token_usage || prev.token_usage,
+                    }
+                  : prev,
               );
               setActionLoading(false);
               loadConversations();
@@ -850,11 +956,23 @@ function App() {
             case "complete":
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeId ? { ...c, mode: "agentic" } : c,
+                  c.id === activeId
+                    ? {
+                        ...c,
+                        mode: "agentic",
+                        token_usage: event.token_usage || c.token_usage,
+                      }
+                    : c,
                 ),
               );
               setCurrentConversation((prev) =>
-                prev?.id === activeId ? { ...prev, mode: "agentic" } : prev,
+                prev?.id === activeId
+                  ? {
+                      ...prev,
+                      mode: "agentic",
+                      token_usage: event.token_usage || prev.token_usage,
+                    }
+                  : prev,
               );
               setAgentLoading(false);
               loadConversations();
@@ -1036,6 +1154,26 @@ function App() {
                 }));
                 break;
               case "complete":
+                if (event.token_usage) {
+                  setConversations((prev) =>
+                    prev.map((c) =>
+                      c.id === currentConversationId
+                        ? {
+                            ...c,
+                            token_usage: event.token_usage || c.token_usage,
+                          }
+                        : c,
+                    ),
+                  );
+                  setCurrentConversation((prev) =>
+                    prev?.id === currentConversationId
+                      ? {
+                          ...prev,
+                          token_usage: event.token_usage || prev.token_usage,
+                        }
+                      : prev,
+                  );
+                }
                 setActionLoading(false);
                 loadConversations();
                 break;
@@ -1068,12 +1206,21 @@ function App() {
         onNewConversation={handleNewConversation}
         showAllDeliberationSteps={showAllDeliberationSteps}
         setShowAllDeliberationSteps={setShowAllDeliberationSteps}
+        showTokenCount={showTokenCount}
+        setShowTokenCount={setShowTokenCount}
+        showTokensPerModel={showTokensPerModel}
+        setShowTokensPerModel={setShowTokensPerModel}
+        showSpendValue={showSpendValue}
+        setShowSpendValue={setShowSpendValue}
       />
       <ChatInterface
         conversation={currentConversation}
         mode={activeMode}
         onModeChange={handleModeChange}
         showAllDeliberationSteps={showAllDeliberationSteps}
+        showTokenCount={showTokenCount}
+        showTokensPerModel={showTokensPerModel}
+        showSpendValue={showSpendValue}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}

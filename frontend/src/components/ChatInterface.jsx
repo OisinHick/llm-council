@@ -7,6 +7,7 @@ import Stage3 from "./Stage3";
 import AgentTimeline from "./AgentTimeline";
 import CouncilSensitivityModal from "./CouncilSensitivityModal";
 import { api } from "../api";
+import { formatSpend, formatExactSpend } from "../formatters";
 import "./ChatInterface.css";
 
 const tryParseJSON = (str) => {
@@ -256,6 +257,9 @@ export default function ChatInterface({
   actionError,
   actionPlanRequest,
   isLoading,
+  showTokenCount = true,
+  showTokensPerModel = false,
+  showSpendValue = true,
 }) {
   const [input, setInput] = useState("");
   // Derive mode from props (with fallback for legacy toggle props)
@@ -452,8 +456,93 @@ export default function ChatInterface({
     Object.values(actionStageLoading).some(Boolean);
   const showActionPanel = actionPanelActive && !hasActionMessage;
 
+  const conversationTokens = conversation?.token_usage || {
+    total_tokens: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    by_model: {},
+  };
+  const hasModelBreakdown =
+    conversationTokens.by_model &&
+    Object.keys(conversationTokens.by_model).length > 0;
+
   return (
     <div className="chat-interface">
+      {/* Top Header Bar for Conversation & Token Tracker */}
+      <div className="chat-header">
+        <div className="chat-header-info">
+          <h2 className="chat-header-title">
+            {conversation?.title || "New Conversation"}
+          </h2>
+          <span className={`conv-mode-tag mode-${currentMode}`}>
+            {currentMode === "agentic"
+              ? "🤖 Agentic"
+              : currentMode === "one_shot"
+                ? "⚡ One Shot"
+                : "💬 Informational"}
+          </span>
+        </div>
+
+        {showTokenCount && (
+          <div className="chat-header-tokens">
+            <div
+              className="token-counter-widget"
+              title={`Total tokens spent: ${conversationTokens.total_tokens.toLocaleString()} (Input: ${conversationTokens.prompt_tokens.toLocaleString()}, Output: ${conversationTokens.completion_tokens.toLocaleString()})${
+                conversationTokens.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conversationTokens.total_cost)}` : ""
+              }`}
+            >
+              <div className="token-badge-main">
+                <span className="token-icon">🪙</span>
+                <span className="token-label">Tokens:</span>
+                <span className="token-value">
+                  {conversationTokens.total_tokens.toLocaleString()}
+                </span>
+                {showSpendValue && conversationTokens.total_cost !== undefined && (
+                  <span
+                    className="token-spend-pill"
+                    title={`Est. Spend: ${formatExactSpend(conversationTokens.total_cost)}`}
+                  >
+                    💵 {formatSpend(conversationTokens.total_cost)}
+                  </span>
+                )}
+              </div>
+
+              {showTokensPerModel && hasModelBreakdown && (
+                <div className="token-models-breakdown">
+                  {Object.entries(conversationTokens.by_model).map(
+                    ([modelName, mData]) => {
+                      const shortModel =
+                        modelName.split("/")[1] || modelName;
+                      const mTotal = mData.total_tokens || 0;
+                      const mPrompt = mData.prompt_tokens || 0;
+                      const mComp = mData.completion_tokens || 0;
+                      const mCost = mData.cost;
+                      return (
+                        <span
+                          key={modelName}
+                          className="token-model-chip"
+                          title={`${modelName}: ${mTotal.toLocaleString()} tokens (Input: ${mPrompt.toLocaleString()} | Output: ${mComp.toLocaleString()})${
+                            mCost !== undefined ? ` · Est. Spend: ${formatExactSpend(mCost)}` : ""
+                          }`}
+                        >
+                          <span className="model-chip-name">{shortModel}</span>
+                          <span className="model-chip-count">
+                            {mTotal.toLocaleString()}
+                            {showSpendValue && mCost !== undefined && (
+                              <span className="model-chip-spend"> ({formatSpend(mCost)})</span>
+                            )}
+                          </span>
+                        </span>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="messages-container">
         {!hasConversation ? (
           <div className="empty-state">
@@ -495,8 +584,51 @@ export default function ChatInterface({
                 ) : (
                   <div className="assistant-message">
                     <div className="message-label">
-                      {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
+                      <span>
+                        {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
+                      </span>
+                      {showTokenCount && msg.token_usage && msg.token_usage.total_tokens > 0 && (
+                        <span
+                          className="msg-token-badge"
+                          title={`Turn Tokens: ${msg.token_usage.total_tokens.toLocaleString()} (Input: ${(msg.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(msg.token_usage.completion_tokens || 0).toLocaleString()})${
+                            msg.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(msg.token_usage.total_cost)}` : ""
+                          }`}
+                        >
+                          🪙 {msg.token_usage.total_tokens.toLocaleString()} tokens
+                          {showSpendValue && msg.token_usage?.total_cost > 0 && (
+                            <span className="msg-token-spend"> · {formatSpend(msg.token_usage.total_cost)}</span>
+                          )}
+                        </span>
+                      )}
                     </div>
+
+                    {showTokensPerModel &&
+                      msg.token_usage?.by_model &&
+                      Object.keys(msg.token_usage.by_model).length > 0 && (
+                        <div className="msg-model-tokens-breakdown">
+                          {Object.entries(msg.token_usage.by_model).map(
+                            ([modelName, mData]) => {
+                              const shortM = modelName.split("/")[1] || modelName;
+                              const mTotal = mData.total_tokens || 0;
+                              const mCost = mData.cost;
+                              return (
+                                <span
+                                  key={modelName}
+                                  className="msg-model-token-tag"
+                                  title={`${modelName}: ${mTotal.toLocaleString()} tokens (Input: ${(mData.prompt_tokens || 0).toLocaleString()} | Output: ${(mData.completion_tokens || 0).toLocaleString()})${
+                                    mCost !== undefined ? ` · Est. Spend: ${formatExactSpend(mCost)}` : ""
+                                  }`}
+                                >
+                                  {shortM}: {mTotal.toLocaleString()}
+                                  {showSpendValue && mCost !== undefined && (
+                                    <span className="msg-model-spend"> ({formatSpend(mCost)})</span>
+                                  )}
+                                </span>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
 
                     {msg.type === "agent" || msg.steps ? (
                       <AgentTimeline

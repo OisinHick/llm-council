@@ -358,6 +358,117 @@
   line-height: 1.4;
 }
 
+.token-settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.token-setting-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.token-setting-card:hover:not(.disabled) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.token-setting-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+}
+
+.token-setting-card.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.token-setting-card input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.token-setting-card.selected .display-card-title {
+  color: #1d4ed8;
+}
+
+.dynamic-pricing-card {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.dynamic-pricing-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dynamic-pricing-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.pricing-icon {
+  font-size: 14px;
+}
+
+.dynamic-pricing-status {
+  margin: 0;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.pricing-timestamp {
+  color: #059669;
+  font-weight: 500;
+}
+
+.refresh-pricing-btn {
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.refresh-pricing-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.refresh-pricing-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .settings-modal-footer {
   display: flex;
   justify-content: flex-end;

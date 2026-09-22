@@ -282,6 +282,25 @@
   border: 1px solid #ddd6fe;
 }
 
+.conv-token-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.conv-token-spend {
+  color: #059669;
+  font-weight: 600;
+}
+
 .action-mode-info {
   padding: 20px;
   font-size: 13px;

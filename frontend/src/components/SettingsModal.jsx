@@ -12,6 +12,12 @@ export default function SettingsModal({
   onResetColors,
   showAllDeliberationSteps = true,
   setShowAllDeliberationSteps,
+  showTokenCount = true,
+  setShowTokenCount,
+  showTokensPerModel = false,
+  setShowTokensPerModel,
+  showSpendValue = true,
+  setShowSpendValue,
 }) {
   const [activeTab, setActiveTab] = useState("models");
   const [apiKey, setApiKey] = useState("");
@@ -19,6 +25,11 @@ export default function SettingsModal({
   const [councilModels, setCouncilModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState("");
   const [availableModels, setAvailableModels] = useState([]);
+  const [localShowTokenCount, setLocalShowTokenCount] = useState(showTokenCount);
+  const [localShowTokensPerModel, setLocalShowTokensPerModel] = useState(showTokensPerModel);
+  const [localShowSpendValue, setLocalShowSpendValue] = useState(showSpendValue);
+  const [pricingInfo, setPricingInfo] = useState(null);
+  const [refreshingPricing, setRefreshingPricing] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -28,6 +39,9 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (isOpen) {
+      setLocalShowTokenCount(showTokenCount);
+      setLocalShowTokensPerModel(showTokensPerModel);
+      setLocalShowSpendValue(showSpendValue);
       loadInitialData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -41,6 +55,23 @@ export default function SettingsModal({
       setApiKey(settings.openrouter_api_key || "");
       setCouncilModels(settings.council_models || []);
       setChairmanModel(settings.chairman_model || "");
+      if (settings.show_token_count !== undefined) {
+        setLocalShowTokenCount(Boolean(settings.show_token_count));
+        if (setShowTokenCount) setShowTokenCount(Boolean(settings.show_token_count));
+      }
+      if (settings.show_tokens_per_model !== undefined) {
+        setLocalShowTokensPerModel(Boolean(settings.show_tokens_per_model));
+        if (setShowTokensPerModel) setShowTokensPerModel(Boolean(settings.show_tokens_per_model));
+      }
+      if (settings.show_spend_value !== undefined) {
+        setLocalShowSpendValue(Boolean(settings.show_spend_value));
+        if (setShowSpendValue) setShowSpendValue(Boolean(settings.show_spend_value));
+      }
+
+      // Fetch dynamic pricing status
+      api.getPricing().then(setPricingInfo).catch((err) => {
+        console.warn("Could not fetch pricing info:", err);
+      });
 
       // Fetch available models using active key
       await fetchModels(settings.openrouter_api_key);
@@ -52,6 +83,26 @@ export default function SettingsModal({
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRefreshPricing() {
+    setRefreshingPricing(true);
+    try {
+      const res = await api.refreshPricing();
+      setPricingInfo(res);
+      setStatusMessage({
+        type: "success",
+        text: `Successfully refreshed OpenRouter pricing for ${res.count || Object.keys(res.rates || {}).length} models!`,
+      });
+    } catch (e) {
+      console.error("Failed to refresh pricing:", e);
+      setStatusMessage({
+        type: "error",
+        text: "Failed to refresh dynamic pricing: " + e.message,
+      });
+    } finally {
+      setRefreshingPricing(false);
     }
   }
 
@@ -103,7 +154,32 @@ export default function SettingsModal({
         openrouter_api_key: apiKey,
         council_models: councilModels,
         chairman_model: chairmanModel || councilModels[0],
+        show_token_count: localShowTokenCount,
+        show_tokens_per_model: localShowTokensPerModel,
+        show_spend_value: localShowSpendValue,
       });
+
+      if (setShowTokenCount) setShowTokenCount(localShowTokenCount);
+      if (setShowTokensPerModel) setShowTokensPerModel(localShowTokensPerModel);
+      if (setShowSpendValue) setShowSpendValue(localShowSpendValue);
+
+      try {
+        localStorage.setItem(
+          "llmCouncilShowTokenCount",
+          JSON.stringify(localShowTokenCount)
+        );
+        localStorage.setItem(
+          "llmCouncilShowTokensPerModel",
+          JSON.stringify(localShowTokensPerModel)
+        );
+        localStorage.setItem(
+          "llmCouncilShowSpendValue",
+          JSON.stringify(localShowSpendValue)
+        );
+      } catch (e) {
+        console.error("Failed to save token preferences to localStorage:", e);
+      }
+
       setStatusMessage({
         type: "success",
         text: "Settings saved successfully!",
@@ -364,6 +440,123 @@ export default function SettingsModal({
                         Directly display the Chairman's final synthesized answer with an on-demand expander for earlier steps.
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                <div className="appearance-divider" />
+
+                {/* Token Tracking & Display Settings */}
+                <div className="settings-section">
+                  <label className="section-title">Conversation Token Counter</label>
+                  <p className="section-desc">
+                    Count tokens spent in each conversation. Unique to each conversation.
+                  </p>
+
+                  <div className="token-settings-cards">
+                    <div
+                      className={`token-setting-card ${localShowTokenCount ? "selected" : ""}`}
+                      onClick={() => setLocalShowTokenCount(!localShowTokenCount)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="checkbox"
+                          checked={localShowTokenCount}
+                          onChange={(e) => setLocalShowTokenCount(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="display-card-title">Show conversation token count</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Display a token counter badge unique to each conversation in the chat header and conversation list.
+                      </p>
+                    </div>
+
+                    <div
+                      className={`token-setting-card ${localShowTokensPerModel ? "selected" : ""} ${!localShowTokenCount ? "disabled" : ""}`}
+                      onClick={() => {
+                        if (localShowTokenCount) {
+                          setLocalShowTokensPerModel(!localShowTokensPerModel);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={!localShowTokenCount ? "Enable token count to view tokens per model" : ""}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="checkbox"
+                          checked={localShowTokensPerModel}
+                          disabled={!localShowTokenCount}
+                          onChange={(e) => setLocalShowTokensPerModel(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="display-card-title">Show tokens per model</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Display a detailed breakdown of tokens spent by each model in the conversation.
+                        {!localShowTokenCount && " (Requires token count toggle to be on)"}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`token-setting-card ${localShowSpendValue ? "selected" : ""} ${!localShowTokenCount ? "disabled" : ""}`}
+                      onClick={() => {
+                        if (localShowTokenCount) {
+                          setLocalShowSpendValue(!localShowSpendValue);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={!localShowTokenCount ? "Enable token count to view spend value" : ""}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="checkbox"
+                          checked={localShowSpendValue}
+                          disabled={!localShowTokenCount}
+                          onChange={(e) => setLocalShowSpendValue(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="display-card-title">Show estimated spend value ($)</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Translate token counts into live USD spend using dynamically fetched OpenRouter rates.
+                        {!localShowTokenCount && " (Requires token count toggle to be on)"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="dynamic-pricing-card">
+                    <div className="dynamic-pricing-info">
+                      <div className="dynamic-pricing-title">
+                        <span className="pricing-icon">⚡</span>
+                        <strong>Dynamic OpenRouter Rates</strong>
+                      </div>
+                      <p className="dynamic-pricing-status">
+                        {pricingInfo?.count ? (
+                          <>
+                            <span>{pricingInfo.count} model rates loaded dynamically.</span>
+                            {pricingInfo.updated_at && (
+                              <span className="pricing-timestamp">
+                                {" "}Updated {new Date(pricingInfo.updated_at).toLocaleTimeString()}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          "Dynamic pricing active. Rates fetched live from OpenRouter."
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="refresh-pricing-btn"
+                      onClick={handleRefreshPricing}
+                      disabled={refreshingPricing}
+                    >
+                      {refreshingPricing ? "↻ Refreshing..." : "↻ Refresh Rates"}
+                    </button>
                   </div>
                 </div>
 

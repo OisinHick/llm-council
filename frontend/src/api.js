@@ -324,7 +324,7 @@ export const api = {
 
   /**
    * Update configuration settings.
-   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model }
+   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model, show_token_count, show_tokens_per_model, show_spend_value }
    */
   async updateSettings(settings) {
     const response = await fetch(`${API_BASE}/api/settings`, {
@@ -337,6 +337,30 @@ export const api = {
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw new Error(err.detail || "Failed to save settings");
+    }
+    return response.json();
+  },
+
+  /**
+   * Get dynamic model pricing rates fetched from OpenRouter.
+   */
+  async getPricing() {
+    const response = await fetch(`${API_BASE}/api/pricing`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch model pricing");
+    }
+    return response.json();
+  },
+
+  /**
+   * Force refresh dynamic model pricing rates from OpenRouter.
+   */
+  async refreshPricing() {
+    const response = await fetch(`${API_BASE}/api/pricing/refresh`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error("Failed to refresh model pricing");
     }
     return response.json();
   },
