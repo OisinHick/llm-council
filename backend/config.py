@@ -44,6 +44,9 @@ def get_settings() -> Dict[str, Any]:
         "show_token_count": True,
         "show_tokens_per_model": False,
         "show_spend_value": True,
+        "show_saved_tokens": True,
+        "enable_token_compression": False,
+        "compression_algorithm": "headroom",
     }
 
     if not SETTINGS_FILE.exists():
@@ -60,6 +63,9 @@ def get_settings() -> Dict[str, Any]:
             "show_token_count": data.get("show_token_count", True) if "show_token_count" in data else True,
             "show_tokens_per_model": data.get("show_tokens_per_model", False) if "show_tokens_per_model" in data else False,
             "show_spend_value": data.get("show_spend_value", True) if "show_spend_value" in data else True,
+            "show_saved_tokens": data.get("show_saved_tokens", True) if "show_saved_tokens" in data else True,
+            "enable_token_compression": data.get("enable_token_compression", False) if "enable_token_compression" in data else False,
+            "compression_algorithm": data.get("compression_algorithm", "headroom") if "compression_algorithm" in data else "headroom",
         }
     except Exception:
         return default_settings
@@ -91,6 +97,17 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
 
     if "show_spend_value" in new_settings and new_settings["show_spend_value"] is not None:
         current["show_spend_value"] = bool(new_settings["show_spend_value"])
+
+    if "show_saved_tokens" in new_settings and new_settings["show_saved_tokens"] is not None:
+        current["show_saved_tokens"] = bool(new_settings["show_saved_tokens"])
+
+    if "enable_token_compression" in new_settings and new_settings["enable_token_compression"] is not None:
+        current["enable_token_compression"] = bool(new_settings["enable_token_compression"])
+
+    if "compression_algorithm" in new_settings and isinstance(new_settings["compression_algorithm"], str):
+        ca = new_settings["compression_algorithm"].strip()
+        if ca:
+            current["compression_algorithm"] = ca
 
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -133,4 +150,22 @@ def get_show_spend_value() -> bool:
     """Get setting for showing spend value."""
     settings = get_settings()
     return bool(settings.get("show_spend_value", True))
+
+
+def get_show_saved_tokens() -> bool:
+    """Get setting for showing saved tokens."""
+    settings = get_settings()
+    return bool(settings.get("show_saved_tokens", True))
+
+
+def get_enable_token_compression() -> bool:
+    """Get setting for token compression enabled/disabled."""
+    settings = get_settings()
+    return bool(settings.get("enable_token_compression", False))
+
+
+def get_compression_algorithm() -> str:
+    """Get active compression algorithm ('headroom', 'heuristic', 'adaptive')."""
+    settings = get_settings()
+    return str(settings.get("compression_algorithm", "headroom"))
 

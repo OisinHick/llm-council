@@ -16,6 +16,10 @@ export default function Sidebar({
   setShowTokensPerModel,
   showSpendValue,
   setShowSpendValue,
+  showSavedTokens,
+  setShowSavedTokens,
+  enableTokenCompression,
+  setEnableTokenCompression,
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [assistantColor, setAssistantColor] = useState(() => {
@@ -74,6 +78,10 @@ export default function Sidebar({
         setShowTokensPerModel={setShowTokensPerModel}
         showSpendValue={showSpendValue}
         setShowSpendValue={setShowSpendValue}
+        showSavedTokens={showSavedTokens}
+        setShowSavedTokens={setShowSavedTokens}
+        enableTokenCompression={enableTokenCompression}
+        setEnableTokenCompression={setEnableTokenCompression}
       />
 
       <div className="conversation-list">
@@ -114,17 +122,26 @@ export default function Sidebar({
                       ? "⚡ One Shot"
                       : "💬 Info"}
                 </span>
-                <span>{conv.message_count} msgs</span>
+                <span className="conv-message-count">{conv.message_count} msgs</span>
                 {showTokenCount && conv.token_usage?.total_tokens > 0 && (
                   <span
                     className="conv-token-tag"
                     title={`Total tokens: ${conv.token_usage.total_tokens.toLocaleString()} (Input: ${(conv.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(conv.token_usage.completion_tokens || 0).toLocaleString()})${
                       conv.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conv.token_usage.total_cost)}` : ""
+                    }${
+                      showSavedTokens && conv.token_usage?.tokens_saved ? ` · Saved: ${conv.token_usage.tokens_saved.toLocaleString()} tokens` : ""
+                    }${
+                      showSavedTokens && conv.token_usage?.total_cost_saved ? ` (${formatExactSpend(conv.token_usage.total_cost_saved)})` : ""
                     }`}
                   >
                     🪙 {formatShortNumber(conv.token_usage.total_tokens)}
                     {showSpendValue && conv.token_usage?.total_cost > 0 && (
                       <span className="conv-token-spend"> · {formatSpend(conv.token_usage.total_cost)}</span>
+                    )}
+                    {showSavedTokens && conv.token_usage?.tokens_saved > 0 && (
+                      <span className="conv-token-saved" style={{ color: "#16a34a", fontWeight: 600 }}>
+                        {" "}· 🌱 {formatShortNumber(conv.token_usage.tokens_saved)}
+                      </span>
                     )}
                   </span>
                 )}

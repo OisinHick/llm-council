@@ -8,7 +8,14 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .config import OPENROUTER_API_URL, OPENROUTER_MODELS_URL, get_openrouter_api_key
+from .config import (
+    OPENROUTER_API_URL,
+    OPENROUTER_MODELS_URL,
+    get_openrouter_api_key,
+    get_enable_token_compression,
+    get_compression_algorithm,
+)
+from .compression import compress_messages
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +193,11 @@ def calculate_token_cost(
     using dynamically fetched OpenRouter rates.
     """
     if not token_usage or not isinstance(token_usage, dict):
-        return {"total_cost": 0.0}
+        return {"total_cost": 0.0, "total_cost_saved": 0.0}
 
     active_rates = rates if rates is not None else get_cached_rates()
     total_cost = 0.0
+    total_cost_saved = 0.0
     by_model = token_usage.get("by_model") or {}
 
     for model_id, m_data in by_model.items():
@@ -198,25 +206,34 @@ def calculate_token_cost(
         m_rates = find_model_rates(model_id, active_rates)
         p_tokens = int(m_data.get("prompt_tokens") or 0)
         c_tokens = int(m_data.get("completion_tokens") or 0)
+        s_tokens = int(m_data.get("tokens_saved") or 0)
 
         prompt_cost = p_tokens * m_rates.get("prompt", 0.0)
         comp_cost = c_tokens * m_rates.get("completion", 0.0)
+        cost_saved = s_tokens * m_rates.get("prompt", 0.0)
+
         m_cost = round(prompt_cost + comp_cost, 8)
+        m_cost_saved = round(cost_saved, 8)
 
         m_data["cost"] = m_cost
+        m_data["cost_saved"] = m_cost_saved
         m_data["rates"] = {
             "prompt": m_rates.get("prompt", 0.0),
             "completion": m_rates.get("completion", 0.0),
         }
         total_cost += m_cost
+        total_cost_saved += m_cost_saved
 
     # If by_model was empty but total tokens exist, calculate fallback estimate
     if not by_model and token_usage.get("total_tokens", 0) > 0:
         p = int(token_usage.get("prompt_tokens") or 0)
         c = int(token_usage.get("completion_tokens") or 0)
+        s = int(token_usage.get("tokens_saved") or 0)
         total_cost = round(p * 0.00000015 + c * 0.0000006, 8)
+        total_cost_saved = round(s * 0.00000015, 8)
 
     token_usage["total_cost"] = round(total_cost, 8)
+    token_usage["total_cost_saved"] = round(total_cost_saved, 8)
     return token_usage
 
 
@@ -299,9 +316,24 @@ async def query_model(
         "Content-Type": "application/json",
     }
 
+    compression_enabled = get_enable_token_compression()
+    tokens_saved = 0
+    effective_messages = messages
+
+    if compression_enabled:
+        algo = get_compression_algorithm()
+        comp_res = compress_messages(
+            messages=messages,
+            model=model,
+            algorithm=algo,
+            enabled=True,
+        )
+        effective_messages = comp_res.messages
+        tokens_saved = comp_res.tokens_saved
+
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": effective_messages,
     }
 
     try:
@@ -322,7 +354,7 @@ async def query_model(
 
             # Fallback estimation if usage is not provided or 0
             if prompt_tokens is None or prompt_tokens <= 0:
-                p_len = sum(len(str(m.get("content", ""))) for m in messages)
+                p_len = sum(len(str(m.get("content", ""))) for m in effective_messages)
                 prompt_tokens = max(1, p_len // 4)
             if completion_tokens is None or completion_tokens <= 0:
                 c_len = len(content)
@@ -337,6 +369,7 @@ async def query_model(
                     "prompt_tokens": int(prompt_tokens),
                     "completion_tokens": int(completion_tokens),
                     "total_tokens": int(total_tokens),
+                    "tokens_saved": int(tokens_saved),
                 },
             }
 

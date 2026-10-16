@@ -26,7 +26,9 @@ def empty_token_usage() -> Dict[str, Any]:
         "total_tokens": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "tokens_saved": 0,
         "total_cost": 0.0,
+        "total_cost_saved": 0.0,
         "by_model": {},
     }
 
@@ -37,6 +39,7 @@ def _accumulate_model_tokens(
     prompt_tokens: int,
     completion_tokens: int,
     total_tokens: Optional[int] = None,
+    tokens_saved: int = 0,
 ):
     """Accumulate token counts into target dictionary."""
     if not model:
@@ -44,10 +47,12 @@ def _accumulate_model_tokens(
     p = int(prompt_tokens or 0)
     c = int(completion_tokens or 0)
     t = int(total_tokens if total_tokens is not None else (p + c))
+    s = int(tokens_saved or 0)
 
     target["prompt_tokens"] = target.get("prompt_tokens", 0) + p
     target["completion_tokens"] = target.get("completion_tokens", 0) + c
     target["total_tokens"] = target.get("total_tokens", 0) + t
+    target["tokens_saved"] = target.get("tokens_saved", 0) + s
 
     by_model = target.setdefault("by_model", {})
     if model not in by_model:
@@ -55,10 +60,12 @@ def _accumulate_model_tokens(
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
+            "tokens_saved": 0,
         }
     by_model[model]["prompt_tokens"] += p
     by_model[model]["completion_tokens"] += c
     by_model[model]["total_tokens"] += t
+    by_model[model]["tokens_saved"] = by_model[model].get("tokens_saved", 0) + s
 
 
 def merge_token_usages(
@@ -79,6 +86,7 @@ def merge_token_usages(
                         m_data.get("prompt_tokens", 0),
                         m_data.get("completion_tokens", 0),
                         m_data.get("total_tokens"),
+                        tokens_saved=m_data.get("tokens_saved", 0),
                     )
         else:
             p = int(usage.get("prompt_tokens") or 0)
@@ -88,9 +96,11 @@ def merge_token_usages(
                 if usage.get("total_tokens") is not None
                 else (p + c)
             )
+            s = int(usage.get("tokens_saved") or 0)
             result["prompt_tokens"] += p
             result["completion_tokens"] += c
             result["total_tokens"] += t
+            result["tokens_saved"] += s
     calculate_token_cost(result)
     return result
 
@@ -117,6 +127,7 @@ def compute_turn_token_usage(
                     u.get("prompt_tokens", 0),
                     u.get("completion_tokens", 0),
                     u.get("total_tokens"),
+                    tokens_saved=u.get("tokens_saved", 0),
                 )
             elif m and r.get("response"):
                 _accumulate_model_tokens(
@@ -134,6 +145,7 @@ def compute_turn_token_usage(
                     u.get("prompt_tokens", 0),
                     u.get("completion_tokens", 0),
                     u.get("total_tokens"),
+                    tokens_saved=u.get("tokens_saved", 0),
                 )
             elif m and r.get("ranking"):
                 _accumulate_model_tokens(
@@ -150,6 +162,7 @@ def compute_turn_token_usage(
                 u.get("prompt_tokens", 0),
                 u.get("completion_tokens", 0),
                 u.get("total_tokens"),
+                tokens_saved=u.get("tokens_saved", 0),
             )
         elif m and stage3.get("response"):
             _accumulate_model_tokens(
@@ -166,6 +179,7 @@ def compute_turn_token_usage(
                 u.get("prompt_tokens", 0),
                 u.get("completion_tokens", 0),
                 u.get("total_tokens"),
+                tokens_saved=u.get("tokens_saved", 0),
             )
 
     if steps:
@@ -179,6 +193,7 @@ def compute_turn_token_usage(
                     u.get("prompt_tokens", 0),
                     u.get("completion_tokens", 0),
                     u.get("total_tokens"),
+                    tokens_saved=u.get("tokens_saved", 0),
                 )
             elif step.get("action"):
                 act_str = json.dumps(step["action"])
@@ -196,6 +211,7 @@ def compute_turn_token_usage(
                 u.get("prompt_tokens", 0),
                 u.get("completion_tokens", 0),
                 u.get("total_tokens"),
+                tokens_saved=u.get("tokens_saved", 0),
             )
 
     calculate_token_cost(usage_result)

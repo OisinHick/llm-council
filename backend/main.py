@@ -34,6 +34,11 @@ from .council import (
 )
 from .agent import CouncilAgent
 from .mcp_client_manager import mcp_manager
+from .compression import (
+    compress_messages,
+    get_compression_stats,
+    reset_compression_stats,
+)
 
 
 @asynccontextmanager
@@ -139,6 +144,17 @@ class UpdateSettingsRequest(BaseModel):
     show_token_count: Optional[bool] = None
     show_tokens_per_model: Optional[bool] = None
     show_spend_value: Optional[bool] = None
+    show_saved_tokens: Optional[bool] = None
+    enable_token_compression: Optional[bool] = None
+    compression_algorithm: Optional[str] = None
+
+
+class CompressionPreviewRequest(BaseModel):
+    """Request to preview token compression on sample messages."""
+
+    messages: List[Dict[str, Any]]
+    model: Optional[str] = "openai/gpt-4o-mini"
+    algorithm: Optional[str] = "headroom"
 
 
 class ToggleMcpServerRequest(BaseModel):
@@ -224,6 +240,52 @@ async def save_settings_endpoint(request: UpdateSettingsRequest):
         return {"success": True, "settings": updated}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/compression/stats")
+async def get_compression_stats_endpoint():
+    """Get cumulative token compression metrics."""
+    try:
+        stats = get_compression_stats()
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compression/preview")
+async def preview_compression_endpoint(request: CompressionPreviewRequest):
+    """Dry-run preview of compression on sample messages."""
+    try:
+        result = compress_messages(
+            messages=request.messages,
+            model=request.model or "openai/gpt-4o-mini",
+            algorithm=request.algorithm or "headroom",
+            enabled=True,
+        )
+        return {
+            "success": True,
+            "result": {
+                "tokens_before": result.tokens_before,
+                "tokens_after": result.tokens_after,
+                "tokens_saved": result.tokens_saved,
+                "compression_ratio": result.compression_ratio,
+                "algorithm": result.algorithm,
+                "transforms_applied": result.transforms_applied,
+                "messages": result.messages,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compression/reset-stats")
+async def reset_compression_stats_endpoint():
+    """Reset cumulative compression metrics."""
+    try:
+        reset_compression_stats()
+        return {"success": True, "message": "Compression stats reset successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/mcp/tools")

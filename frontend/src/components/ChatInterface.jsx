@@ -7,7 +7,7 @@ import Stage3 from "./Stage3";
 import AgentTimeline from "./AgentTimeline";
 import CouncilSensitivityModal from "./CouncilSensitivityModal";
 import { api } from "../api";
-import { formatSpend, formatExactSpend } from "../formatters";
+import { formatSpend, formatExactSpend, formatShortNumber } from "../formatters";
 import "./ChatInterface.css";
 
 const tryParseJSON = (str) => {
@@ -260,6 +260,7 @@ export default function ChatInterface({
   showTokenCount = true,
   showTokensPerModel = false,
   showSpendValue = true,
+  showSavedTokens = true,
 }) {
   const [input, setInput] = useState("");
   // Derive mode from props (with fallback for legacy toggle props)
@@ -489,6 +490,10 @@ export default function ChatInterface({
               className="token-counter-widget"
               title={`Total tokens spent: ${conversationTokens.total_tokens.toLocaleString()} (Input: ${conversationTokens.prompt_tokens.toLocaleString()}, Output: ${conversationTokens.completion_tokens.toLocaleString()})${
                 conversationTokens.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conversationTokens.total_cost)}` : ""
+              }${
+                showSavedTokens && conversationTokens.tokens_saved ? ` · Saved: ${conversationTokens.tokens_saved.toLocaleString()} tokens` : ""
+              }${
+                showSavedTokens && conversationTokens.total_cost_saved ? ` (${formatExactSpend(conversationTokens.total_cost_saved)})` : ""
               }`}
             >
               <div className="token-badge-main">
@@ -503,6 +508,19 @@ export default function ChatInterface({
                     title={`Est. Spend: ${formatExactSpend(conversationTokens.total_cost)}`}
                   >
                     💵 {formatSpend(conversationTokens.total_cost)}
+                  </span>
+                )}
+                {showSavedTokens && conversationTokens.tokens_saved > 0 && (
+                  <span
+                    className="token-saved-pill"
+                    title={`Tokens saved by compression: ${conversationTokens.tokens_saved.toLocaleString()}${
+                      conversationTokens.total_cost_saved ? ` · Est. Saved: ${formatExactSpend(conversationTokens.total_cost_saved)}` : ""
+                    }`}
+                  >
+                    🌱 Saved: {formatShortNumber(conversationTokens.tokens_saved)}
+                    {showSpendValue && conversationTokens.total_cost_saved > 0 && (
+                      <span className="token-saved-spend"> ({formatSpend(conversationTokens.total_cost_saved)})</span>
+                    )}
                   </span>
                 )}
               </div>
@@ -592,11 +610,23 @@ export default function ChatInterface({
                           className="msg-token-badge"
                           title={`Turn Tokens: ${msg.token_usage.total_tokens.toLocaleString()} (Input: ${(msg.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(msg.token_usage.completion_tokens || 0).toLocaleString()})${
                             msg.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(msg.token_usage.total_cost)}` : ""
+                          }${
+                            showSavedTokens && msg.token_usage?.tokens_saved ? ` · Saved: ${msg.token_usage.tokens_saved.toLocaleString()} tokens` : ""
+                          }${
+                            showSavedTokens && msg.token_usage?.total_cost_saved ? ` (${formatExactSpend(msg.token_usage.total_cost_saved)})` : ""
                           }`}
                         >
                           🪙 {msg.token_usage.total_tokens.toLocaleString()} tokens
                           {showSpendValue && msg.token_usage?.total_cost > 0 && (
                             <span className="msg-token-spend"> · {formatSpend(msg.token_usage.total_cost)}</span>
+                          )}
+                          {showSavedTokens && msg.token_usage?.tokens_saved > 0 && (
+                            <span className="msg-token-saved">
+                              {" "}· 🌱 Saved {formatShortNumber(msg.token_usage.tokens_saved)}
+                              {showSpendValue && msg.token_usage?.total_cost_saved > 0 && (
+                                <> ({formatSpend(msg.token_usage.total_cost_saved)})</>
+                              )}
+                            </span>
                           )}
                         </span>
                       )}

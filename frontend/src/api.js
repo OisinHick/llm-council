@@ -324,7 +324,7 @@ export const api = {
 
   /**
    * Update configuration settings.
-   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model, show_token_count, show_tokens_per_model, show_spend_value }
+   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model, show_token_count, show_tokens_per_model, show_spend_value, enable_token_compression, compression_algorithm }
    */
   async updateSettings(settings) {
     const response = await fetch(`${API_BASE}/api/settings`, {
@@ -361,6 +361,30 @@ export const api = {
     });
     if (!response.ok) {
       throw new Error("Failed to refresh model pricing");
+    }
+    return response.json();
+  },
+
+  /**
+   * Get cumulative token compression statistics.
+   */
+  async getCompressionStats() {
+    const response = await fetch(`${API_BASE}/api/compression/stats`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch compression stats");
+    }
+    return response.json();
+  },
+
+  /**
+   * Reset cumulative token compression statistics.
+   */
+  async resetCompressionStats() {
+    const response = await fetch(`${API_BASE}/api/compression/reset-stats`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error("Failed to reset compression stats");
     }
     return response.json();
   },

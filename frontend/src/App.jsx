@@ -94,6 +94,24 @@ function App() {
       return true;
     }
   });
+  const [showSavedTokens, setShowSavedTokens] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilShowSavedTokens");
+      if (saved !== null) return JSON.parse(saved);
+      return true;
+    } catch {
+      return true;
+    }
+  });
+  const [enableTokenCompression, setEnableTokenCompression] = useState(() => {
+    try {
+      const saved = localStorage.getItem("llmCouncilEnableTokenCompression");
+      if (saved !== null) return JSON.parse(saved);
+      return false;
+    } catch {
+      return false;
+    }
+  });
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState(null);
 
@@ -140,6 +158,28 @@ function App() {
       console.error("Failed to save spend value preference:", e);
     }
   }, [showSpendValue]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilShowSavedTokens",
+        JSON.stringify(showSavedTokens),
+      );
+    } catch (e) {
+      console.error("Failed to save show saved tokens preference:", e);
+    }
+  }, [showSavedTokens]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "llmCouncilEnableTokenCompression",
+        JSON.stringify(enableTokenCompression),
+      );
+    } catch (e) {
+      console.error("Failed to save token compression preference:", e);
+    }
+  }, [enableTokenCompression]);
 
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
@@ -276,6 +316,12 @@ function App() {
         }
         if (settings?.show_spend_value !== undefined) {
           setShowSpendValue(Boolean(settings.show_spend_value));
+        }
+        if (settings?.show_saved_tokens !== undefined) {
+          setShowSavedTokens(Boolean(settings.show_saved_tokens));
+        }
+        if (settings?.enable_token_compression !== undefined) {
+          setEnableTokenCompression(Boolean(settings.enable_token_compression));
         }
       })
       .catch((err) => {
@@ -1212,6 +1258,10 @@ function App() {
         setShowTokensPerModel={setShowTokensPerModel}
         showSpendValue={showSpendValue}
         setShowSpendValue={setShowSpendValue}
+        showSavedTokens={showSavedTokens}
+        setShowSavedTokens={setShowSavedTokens}
+        enableTokenCompression={enableTokenCompression}
+        setEnableTokenCompression={setEnableTokenCompression}
       />
       <ChatInterface
         conversation={currentConversation}
@@ -1221,6 +1271,7 @@ function App() {
         showTokenCount={showTokenCount}
         showTokensPerModel={showTokensPerModel}
         showSpendValue={showSpendValue}
+        showSavedTokens={showSavedTokens}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}

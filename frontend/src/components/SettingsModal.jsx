@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
+import { formatSpend } from "../formatters";
 import "./SettingsModal.css";
 
 export default function SettingsModal({
@@ -18,6 +19,10 @@ export default function SettingsModal({
   setShowTokensPerModel,
   showSpendValue = true,
   setShowSpendValue,
+  showSavedTokens = true,
+  setShowSavedTokens,
+  enableTokenCompression = false,
+  setEnableTokenCompression,
 }) {
   const [activeTab, setActiveTab] = useState("models");
   const [apiKey, setApiKey] = useState("");
@@ -28,8 +33,12 @@ export default function SettingsModal({
   const [localShowTokenCount, setLocalShowTokenCount] = useState(showTokenCount);
   const [localShowTokensPerModel, setLocalShowTokensPerModel] = useState(showTokensPerModel);
   const [localShowSpendValue, setLocalShowSpendValue] = useState(showSpendValue);
+  const [localShowSavedTokens, setLocalShowSavedTokens] = useState(showSavedTokens);
+  const [localEnableTokenCompression, setLocalEnableTokenCompression] = useState(enableTokenCompression);
   const [pricingInfo, setPricingInfo] = useState(null);
   const [refreshingPricing, setRefreshingPricing] = useState(false);
+  const [compressionStats, setCompressionStats] = useState(null);
+  const [resettingCompressionStats, setResettingCompressionStats] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -42,6 +51,8 @@ export default function SettingsModal({
       setLocalShowTokenCount(showTokenCount);
       setLocalShowTokensPerModel(showTokensPerModel);
       setLocalShowSpendValue(showSpendValue);
+      setLocalShowSavedTokens(showSavedTokens);
+      setLocalEnableTokenCompression(enableTokenCompression);
       loadInitialData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,10 +78,25 @@ export default function SettingsModal({
         setLocalShowSpendValue(Boolean(settings.show_spend_value));
         if (setShowSpendValue) setShowSpendValue(Boolean(settings.show_spend_value));
       }
+      if (settings.show_saved_tokens !== undefined) {
+        setLocalShowSavedTokens(Boolean(settings.show_saved_tokens));
+        if (setShowSavedTokens) setShowSavedTokens(Boolean(settings.show_saved_tokens));
+      }
+      if (settings.enable_token_compression !== undefined) {
+        setLocalEnableTokenCompression(Boolean(settings.enable_token_compression));
+        if (setEnableTokenCompression) setEnableTokenCompression(Boolean(settings.enable_token_compression));
+      }
 
       // Fetch dynamic pricing status
       api.getPricing().then(setPricingInfo).catch((err) => {
         console.warn("Could not fetch pricing info:", err);
+      });
+
+      // Fetch compression savings stats
+      api.getCompressionStats().then((res) => {
+        if (res?.stats) setCompressionStats(res.stats);
+      }).catch((err) => {
+        console.warn("Could not fetch compression stats:", err);
       });
 
       // Fetch available models using active key
@@ -103,6 +129,28 @@ export default function SettingsModal({
       });
     } finally {
       setRefreshingPricing(false);
+    }
+  }
+
+  async function handleResetCompressionStats() {
+    setResettingCompressionStats(true);
+    try {
+      const res = await api.resetCompressionStats();
+      if (res?.stats) {
+        setCompressionStats(res.stats);
+        setStatusMessage({
+          type: "success",
+          text: "Compression statistics reset successfully.",
+        });
+      }
+    } catch (e) {
+      console.error("Failed to reset compression stats:", e);
+      setStatusMessage({
+        type: "error",
+        text: "Failed to reset compression stats: " + e.message,
+      });
+    } finally {
+      setResettingCompressionStats(false);
     }
   }
 
@@ -157,11 +205,16 @@ export default function SettingsModal({
         show_token_count: localShowTokenCount,
         show_tokens_per_model: localShowTokensPerModel,
         show_spend_value: localShowSpendValue,
+        show_saved_tokens: localShowSavedTokens,
+        enable_token_compression: localEnableTokenCompression,
+        compression_algorithm: "headroom",
       });
 
       if (setShowTokenCount) setShowTokenCount(localShowTokenCount);
       if (setShowTokensPerModel) setShowTokensPerModel(localShowTokensPerModel);
       if (setShowSpendValue) setShowSpendValue(localShowSpendValue);
+      if (setShowSavedTokens) setShowSavedTokens(localShowSavedTokens);
+      if (setEnableTokenCompression) setEnableTokenCompression(localEnableTokenCompression);
 
       try {
         localStorage.setItem(
@@ -175,6 +228,14 @@ export default function SettingsModal({
         localStorage.setItem(
           "llmCouncilShowSpendValue",
           JSON.stringify(localShowSpendValue)
+        );
+        localStorage.setItem(
+          "llmCouncilShowSavedTokens",
+          JSON.stringify(localShowSavedTokens)
+        );
+        localStorage.setItem(
+          "llmCouncilEnableTokenCompression",
+          JSON.stringify(localEnableTokenCompression)
         );
       } catch (e) {
         console.error("Failed to save token preferences to localStorage:", e);
@@ -526,6 +587,53 @@ export default function SettingsModal({
                         {!localShowTokenCount && " (Requires token count toggle to be on)"}
                       </p>
                     </div>
+
+                    <div
+                      className={`token-setting-card ${localShowSavedTokens ? "selected" : ""} ${!localShowTokenCount ? "disabled" : ""}`}
+                      onClick={() => {
+                        if (localShowTokenCount) {
+                          setLocalShowSavedTokens(!localShowSavedTokens);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={!localShowTokenCount ? "Enable token count to view saved tokens" : ""}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="checkbox"
+                          checked={localShowSavedTokens}
+                          disabled={!localShowTokenCount}
+                          onChange={(e) => setLocalShowSavedTokens(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="display-card-title">Show saved tokens</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Display badges and indicators highlighting tokens and cost saved by Headroom Labs compression.
+                        {!localShowTokenCount && " (Requires token count toggle to be on)"}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`token-setting-card ${localEnableTokenCompression ? "selected" : ""}`}
+                      onClick={() => setLocalEnableTokenCompression(!localEnableTokenCompression)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="display-card-header">
+                        <input
+                          type="checkbox"
+                          checked={localEnableTokenCompression}
+                          onChange={(e) => setLocalEnableTokenCompression(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="display-card-title">Enable Headroom Labs compression</span>
+                      </div>
+                      <p className="display-card-desc">
+                        Optimize prompts and message payloads using Headroom Labs AI to reduce input token usage, latency, and costs.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="dynamic-pricing-card">
@@ -556,6 +664,43 @@ export default function SettingsModal({
                       disabled={refreshingPricing}
                     >
                       {refreshingPricing ? "↻ Refreshing..." : "↻ Refresh Rates"}
+                    </button>
+                  </div>
+
+                  <div className="compression-savings-card">
+                    <div className="compression-savings-info">
+                      <div className="compression-savings-title">
+                        <span className="pricing-icon">📉</span>
+                        <strong>Headroom Compression Savings</strong>
+                        {compressionStats?.headroom_available ? (
+                          <span className="savings-badge active">Headroom Active</span>
+                        ) : (
+                          <span className="savings-badge fallback">Fallback Active</span>
+                        )}
+                      </div>
+                      <div className="compression-stats-row">
+                        <span className="savings-stat-pill highlight">
+                          <strong>{(compressionStats?.tokens_saved || 0).toLocaleString()}</strong> tokens saved
+                        </span>
+                        <span className="savings-stat-pill spend">
+                          <strong>{formatSpend(compressionStats?.estimated_dollars_saved || 0)}</strong> saved
+                        </span>
+                        <span className="savings-stat-pill">
+                          <strong>{((compressionStats?.compression_ratio || 0) * 100).toFixed(1)}%</strong> avg ratio
+                        </span>
+                        <span className="savings-stat-pill muted">
+                          {compressionStats?.total_queries || 0} queries processed
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="reset-stats-btn"
+                      onClick={handleResetCompressionStats}
+                      disabled={resettingCompressionStats}
+                      title="Reset compression savings counters"
+                    >
+                      {resettingCompressionStats ? "Resetting..." : "Reset Stats"}
                     </button>
                   </div>
                 </div>
