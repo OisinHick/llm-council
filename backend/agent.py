@@ -18,6 +18,9 @@ from .openrouter import query_model
 
 logger = logging.getLogger("llm_council.agent")
 
+_RE_AGENT_CODE_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_RE_AGENT_OUTER_JSON = re.compile(r"\{.*\}", re.DOTALL)
+
 
 class CouncilAgent:
     """Autonomous agent driven by the Council Chairperson model."""
@@ -218,13 +221,30 @@ Consensus Synthesis & Strategy:
 {s3}
 """
 
+    @staticmethod
+    def _make_sub_event_forwarder(
+        on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]],
+        step_count: int,
+    ) -> Optional[Callable[[str, Any], Awaitable[None]]]:
+        """Create a forwarding callback for streaming nested sub-council events."""
+        if not on_event:
+            return None
+
+        async def sub_event_forwarder(sub_type: str, sub_data: Any) -> None:
+            await on_event(
+                "sub_council_event",
+                {"event": sub_type, "data": sub_data, "step": step_count},
+            )
+
+        return sub_event_forwarder
+
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
         """Extract and parse JSON from model output."""
         if not text:
             return None
 
         # Look for ```json ... ```
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        match = _RE_AGENT_CODE_BLOCK.search(text)
         if match:
             try:
                 return json.loads(match.group(1))
@@ -232,7 +252,7 @@ Consensus Synthesis & Strategy:
                 pass
 
         # Look for outermost { ... }
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        match = _RE_AGENT_OUTER_JSON.search(text)
         if match:
             try:
                 return json.loads(match.group(0))
@@ -366,17 +386,11 @@ Consensus Synthesis & Strategy:
                             },
                         )
 
-                    async def sub_event_forwarder(sub_type, sub_data):
-                        if on_event:
-                            await on_event(
-                                "sub_council_event",
-                                {"event": sub_type, "data": sub_data, "step": step_count},
-                            )
-
+                    sub_forwarder = self._make_sub_event_forwarder(on_event, step_count)
                     review_data = await run_sub_council(
                         f"Review task completion for '{self.user_request}'. Proposed summary: {summary_cand}. Created artifacts: {artifacts_cand}. Are all requirements satisfied or are there missing files, bugs, or unverified outputs?",
                         context=f"Created artifacts: {artifacts_cand}\nDeliverable summary: {summary_cand}",
-                        on_event=sub_event_forwarder,
+                        on_event=sub_forwarder,
                     )
                     if on_event:
                         await on_event(
@@ -488,15 +502,9 @@ Consensus Synthesis & Strategy:
                                 {"question": q, "context": ctx, "step": step_count},
                             )
 
-                        async def sub_event_forwarder(sub_type, sub_data):
-                            if on_event:
-                                await on_event(
-                                    "sub_council_event",
-                                    {"event": sub_type, "data": sub_data, "step": step_count},
-                                )
-
+                        sub_forwarder = self._make_sub_event_forwarder(on_event, step_count)
                         council_data = await run_sub_council(
-                            q, context=ctx, on_event=sub_event_forwarder
+                            q, context=ctx, on_event=sub_forwarder
                         )
                         self._record_sub_council_tokens(council_data)
                         observation = {
@@ -559,17 +567,11 @@ Consensus Synthesis & Strategy:
                             },
                         )
 
-                    async def sub_event_forwarder(sub_type, sub_data):
-                        if on_event:
-                            await on_event(
-                                "sub_council_event",
-                                {"event": sub_type, "data": sub_data, "step": step_count},
-                            )
-
+                    sub_forwarder = self._make_sub_event_forwarder(on_event, step_count)
                     diag_data = await run_sub_council(
                         f"The Chairperson executed '{action}' which failed with error:\n{err_detail}\nWhat is the root cause and recommended solution?",
                         context=f"Tool: {action}\nInput Params: {json.dumps(params)}\nObservation: {json.dumps(observation)}",
-                        on_event=sub_event_forwarder,
+                        on_event=sub_forwarder,
                     )
                     self._record_sub_council_tokens(diag_data)
                     council_data = diag_data

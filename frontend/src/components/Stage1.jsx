@@ -10,6 +10,8 @@ export default function Stage1({ responses }) {
     return null;
   }
 
+  const activeResponse = responses[activeTab] || responses[0] || {};
+
   return (
     <div className="stage stage1">
       <h3 className="stage-title">Stage 1: Individual Responses</h3>
@@ -21,16 +23,16 @@ export default function Stage1({ responses }) {
             className={`tab ${activeTab === index ? "active" : ""}`}
             onClick={() => setActiveTab(index)}
           >
-            {resp.model.split("/")[1] || resp.model}
+            {resp.model?.split("/")[1] || resp.model || `Model ${index + 1}`}
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{responses[activeTab].model}</div>
+        <div className="model-name">{activeResponse.model || "Unknown Model"}</div>
         <div className="response-text markdown-content">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {responses[activeTab].response}
+            {activeResponse.response || ""}
           </ReactMarkdown>
         </div>
       </div>

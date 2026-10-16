@@ -10,10 +10,43 @@ Supports:
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Precompiled regex patterns for heuristic text compression
+_RE_DELIMITERS = re.compile(r"([=\-_*#~]{4,})")
+_RE_NEWLINES = re.compile(r"\n{3,}")
+_RE_SPACES = re.compile(r"[^\S\r\n]{3,}")
+_RE_PREAMBLES = [
+    re.compile(
+        r"^(Sure|Certainly|Of course)!\s*(I would be happy to|Here is|I can help with).*?:\s*\n*",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^As an AI language model,\s*", re.IGNORECASE),
+]
+_RE_JSON_BLOCK = re.compile(r"\{[^{}]*:[^{}]*\}", re.DOTALL)
+
+
+def _compact_json_match(match: re.Match) -> str:
+    """Helper to minify single-level JSON objects matched by regex."""
+    raw_json = match.group(0)
+    try:
+        parsed = json.loads(raw_json)
+        return json.dumps(parsed, separators=(",", ":"))
+    except Exception:
+        return raw_json
+
+
+def _fallback_heuristic_with_estimates(
+    messages: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], int, int, List[str]]:
+    """Helper to apply heuristic compression and calculate token estimates."""
+    comp_msgs, transforms = compress_with_heuristic(messages)
+    t_before = estimate_messages_tokens(messages)
+    t_after = estimate_messages_tokens(comp_msgs)
+    return comp_msgs, t_before, t_after, transforms
 
 try:
     import tiktoken
@@ -101,46 +134,29 @@ def compress_heuristic_text(text: str) -> Tuple[str, List[str]]:
     compressed = text
 
     # Compact long horizontal lines / delimiters
-    delim_pattern = re.compile(r"([=\-_*#~]{4,})")
-    if delim_pattern.search(compressed):
-        compressed = delim_pattern.sub("---", compressed)
+    if _RE_DELIMITERS.search(compressed):
+        compressed = _RE_DELIMITERS.sub("---", compressed)
         transforms.append("compact_delimiters")
 
     # Collapse 3+ newlines to 2
     if "\n\n\n" in compressed:
-        compressed = re.sub(r"\n{3,}", "\n\n", compressed)
+        compressed = _RE_NEWLINES.sub("\n\n", compressed)
         transforms.append("collapse_newlines")
 
     # Collapse 3+ spaces to 1
     if "   " in compressed:
-        compressed = re.sub(r"[^\S\r\n]{3,}", " ", compressed)
+        compressed = _RE_SPACES.sub(" ", compressed)
         transforms.append("collapse_spaces")
 
     # Strip conversational preambles
-    preambles = [
-        re.compile(
-            r"^(Sure|Certainly|Of course)!\s*(I would be happy to|Here is|I can help with).*?:\s*\n*",
-            re.IGNORECASE,
-        ),
-        re.compile(r"^As an AI language model,\s*", re.IGNORECASE),
-    ]
-    for p in preambles:
+    for p in _RE_PREAMBLES:
         if p.search(compressed):
             compressed = p.sub("", compressed)
             transforms.append("strip_preamble")
 
     # Compact multi-line JSON blocks
-    def compact_json_match(match):
-        raw_json = match.group(0)
-        try:
-            parsed = json.loads(raw_json)
-            return json.dumps(parsed, separators=(",", ":"))
-        except Exception:
-            return raw_json
-
     if "{\n" in compressed and "}" in compressed:
-        json_pattern = re.compile(r"\{[^{}]*:[^{}]*\}", re.DOTALL)
-        new_text = json_pattern.sub(compact_json_match, compressed)
+        new_text = _RE_JSON_BLOCK.sub(_compact_json_match, compressed)
         if len(new_text) < len(compressed):
             compressed = new_text
             transforms.append("compact_json")
@@ -171,10 +187,7 @@ def compress_with_headroom(
     """Compress messages using Headroom AI SDK."""
     if not _HAS_HEADROOM:
         logger.warning("headroom package not installed, falling back to heuristic.")
-        comp_msgs, transforms = compress_with_heuristic(messages)
-        t_before = estimate_messages_tokens(messages)
-        t_after = estimate_messages_tokens(comp_msgs)
-        return comp_msgs, t_before, t_after, transforms
+        return _fallback_heuristic_with_estimates(messages)
 
     target_model = map_model_for_headroom(model)
     try:
@@ -196,10 +209,7 @@ def compress_with_headroom(
         return result.messages, t_before, t_after, transforms
     except Exception as e:
         logger.warning("Headroom compression error: %s; falling back to heuristic.", e)
-        comp_msgs, transforms = compress_with_heuristic(messages)
-        t_before = estimate_messages_tokens(messages)
-        t_after = estimate_messages_tokens(comp_msgs)
-        return comp_msgs, t_before, t_after, transforms
+        return _fallback_heuristic_with_estimates(messages)
 
 
 def compress_messages(

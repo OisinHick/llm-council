@@ -12,6 +12,22 @@ from typing import Any, Dict, List, Optional
 from .config import BASE_DIR
 
 
+# Directory names ignored during directory scans
+IGNORED_DIR_NAMES = frozenset({".git", "__pycache__", "node_modules", ".venv"})
+
+
+def _truncate_stream_output(text: str, max_chars: int = 4000) -> tuple[str, bool]:
+    """
+    Truncate command output strings exceeding max_chars to keep payload manageable.
+
+    Returns:
+        tuple[str, bool]: (possibly-truncated text, whether truncation occurred)
+    """
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n... [Output truncated to {max_chars} chars]", True
+    return text, False
+
+
 class AgentToolExecutor:
     """Executes tools on behalf of the Chairperson agent."""
 
@@ -164,12 +180,11 @@ class AgentToolExecutor:
                     if depth > max_depth:
                         continue
 
-                    # Filter hidden dirs like .git, __pycache__, .venv
+                    # Filter hidden dirs and ignored build/cache directories
                     dirs[:] = [
                         d
                         for d in dirs
-                        if not d.startswith(".")
-                        and d not in ("__pycache__", "node_modules", ".venv")
+                        if not d.startswith(".") and d not in IGNORED_DIR_NAMES
                     ]
 
                     for d in dirs:
@@ -183,11 +198,7 @@ class AgentToolExecutor:
                         items.append({"path": rel_f, "type": "file"})
             else:
                 for entry in sorted(dir_path.iterdir()):
-                    if entry.name.startswith(".") or entry.name in (
-                        "__pycache__",
-                        "node_modules",
-                        ".venv",
-                    ):
+                    if entry.name.startswith(".") or entry.name in IGNORED_DIR_NAMES:
                         continue
                     items.append({
                         "name": entry.name,
@@ -236,25 +247,19 @@ class AgentToolExecutor:
                     "returncode": -1,
                 }
 
-            stdout_str = stdout.decode("utf-8", errors="replace")
-            stderr_str = stderr.decode("utf-8", errors="replace")
-
-            # Truncate if gigantic
-            max_chars = 4000
-            truncated = False
-            if len(stdout_str) > max_chars:
-                stdout_str = stdout_str[:max_chars] + f"\n... [Output truncated to {max_chars} chars]"
-                truncated = True
-            if len(stderr_str) > max_chars:
-                stderr_str = stderr_str[:max_chars] + f"\n... [Output truncated to {max_chars} chars]"
-                truncated = True
+            stdout_str, out_trunc = _truncate_stream_output(
+                stdout.decode("utf-8", errors="replace")
+            )
+            stderr_str, err_trunc = _truncate_stream_output(
+                stderr.decode("utf-8", errors="replace")
+            )
 
             return {
                 "success": process.returncode == 0,
                 "returncode": process.returncode,
                 "stdout": stdout_str,
                 "stderr": stderr_str,
-                "truncated": truncated,
+                "truncated": out_trunc or err_trunc,
             }
         except Exception as e:
             return {

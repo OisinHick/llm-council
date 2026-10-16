@@ -10,29 +10,58 @@ const API_BASE =
       : "";
 
 /**
+ * Helper to perform fetch and safely parse JSON responses, extracting API error details.
+ */
+async function requestJson(path, options = {}, defaultError = "Request failed") {
+  const url = `${API_BASE}${path}`;
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || defaultError);
+  }
+  return response.json();
+}
+
+/**
  * Helper to read SSE streams and call onEvent for parsed events.
+ * Uses line-buffering to ensure chunks split across network packets are reconstructed.
  */
 async function consumeSSEStream(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    // Preserve the last potentially incomplete line in the buffer
+    buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6);
+      const trimmed = line.trim();
+      if (trimmed.startsWith("data: ")) {
+        const data = trimmed.slice(6);
         try {
           const event = JSON.parse(data);
           onEvent(event.type, event);
         } catch (e) {
-          console.error("Failed to parse SSE event:", e);
+          console.error("Failed to parse SSE event:", e, "Raw data:", data);
         }
       }
+    }
+  }
+
+  // Flush remaining buffer if complete
+  const finalTrimmed = buffer.trim();
+  if (finalTrimmed.startsWith("data: ")) {
+    try {
+      const event = JSON.parse(finalTrimmed.slice(6));
+      onEvent(event.type, event);
+    } catch (e) {
+      console.error("Failed to parse remaining SSE event:", e);
     }
   }
 }
@@ -42,11 +71,7 @@ export const api = {
    * List all conversations.
    */
   async listConversations() {
-    const response = await fetch(`${API_BASE}/api/conversations`);
-    if (!response.ok) {
-      throw new Error("Failed to list conversations");
-    }
-    return response.json();
+    return requestJson("/api/conversations", {}, "Failed to list conversations");
   },
 
   /**
@@ -54,17 +79,15 @@ export const api = {
    * @param {string} mode - Conversation mode ('informational', 'one_shot', 'agentic')
    */
   async createConversation(mode = "informational") {
-    const response = await fetch(`${API_BASE}/api/conversations`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    return requestJson(
+      "/api/conversations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
       },
-      body: JSON.stringify({ mode }),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to create conversation");
-    }
-    return response.json();
+      "Failed to create conversation",
+    );
   },
 
   /**
@@ -73,33 +96,26 @@ export const api = {
    * @param {string} mode
    */
   async updateConversationMode(conversationId, mode) {
-    const response = await fetch(
-      `${API_BASE}/api/conversations/${conversationId}/mode`,
+    return requestJson(
+      `/api/conversations/${conversationId}/mode`,
       {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode }),
       },
+      "Failed to update conversation mode",
     );
-    if (!response.ok) {
-      throw new Error("Failed to update conversation mode");
-    }
-    return response.json();
   },
 
   /**
    * Get a specific conversation.
    */
   async getConversation(conversationId) {
-    const response = await fetch(
-      `${API_BASE}/api/conversations/${conversationId}`,
+    return requestJson(
+      `/api/conversations/${conversationId}`,
+      {},
+      "Failed to get conversation",
     );
-    if (!response.ok) {
-      throw new Error("Failed to get conversation");
-    }
-    return response.json();
   },
 
   /**
@@ -114,15 +130,14 @@ export const api = {
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       },
     );
 
     if (!response.ok) {
-      throw new Error("Failed to send message");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to send message");
     }
 
     await consumeSSEStream(response, onEvent);
@@ -135,18 +150,15 @@ export const api = {
    * @returns {Promise<void>}
    */
   async executeStoredActionPlanStream(conversationId, onEvent) {
-    const payload = { conversation_id: conversationId };
-
     const response = await fetch(`${API_BASE}/api/action/execute/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId }),
     });
 
     if (!response.ok) {
-      throw new Error("Failed to execute stored action plan");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to execute stored action plan");
     }
 
     await consumeSSEStream(response, onEvent);
@@ -157,6 +169,7 @@ export const api = {
    * @param {string} request - The action request
    * @param {boolean} execute - Whether to execute the action plan
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
+   * @param {string} [conversationId] - Optional conversation ID
    * @returns {Promise<void>}
    */
   async executeActionStream(
@@ -172,14 +185,13 @@ export const api = {
 
     const response = await fetch(`${API_BASE}/api/action/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-      throw new Error("Failed to execute action");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to execute action");
     }
 
     await consumeSSEStream(response, onEvent);
@@ -216,14 +228,13 @@ export const api = {
 
     const response = await fetch(`${API_BASE}/api/agent/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-      throw new Error("Failed to start agent stream");
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to start agent stream");
     }
 
     await consumeSSEStream(response, onEvent);
@@ -234,41 +245,29 @@ export const api = {
    * @param {string} conversationId - The conversation ID
    */
   async cancelAgent(conversationId) {
-    const response = await fetch(`${API_BASE}/api/agent/cancel`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    return requestJson(
+      "/api/agent/cancel",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: conversationId }),
       },
-      body: JSON.stringify({ conversation_id: conversationId }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to cancel agent run");
-    }
-
-    return response.json();
+      "Failed to cancel agent run",
+    );
   },
 
   /**
    * Get all active tools from connected MCP servers.
    */
   async getMcpTools() {
-    const response = await fetch(`${API_BASE}/api/mcp/tools`);
-    if (!response.ok) {
-      throw new Error("Failed to get MCP tools");
-    }
-    return response.json();
+    return requestJson("/api/mcp/tools", {}, "Failed to get MCP tools");
   },
 
   /**
    * Get all configured MCP servers and their statuses.
    */
   async getMcpServers() {
-    const response = await fetch(`${API_BASE}/api/mcp/servers`);
-    if (!response.ok) {
-      throw new Error("Failed to get MCP servers");
-    }
-    return response.json();
+    return requestJson("/api/mcp/servers", {}, "Failed to get MCP servers");
   },
 
   /**
@@ -278,21 +277,15 @@ export const api = {
    */
   async toggleMcpServer(serverName, enabled = undefined) {
     const payload = enabled !== undefined ? { enabled } : {};
-    const response = await fetch(
-      `${API_BASE}/api/mcp/servers/${encodeURIComponent(serverName)}/toggle`,
+    return requestJson(
+      `/api/mcp/servers/${encodeURIComponent(serverName)}/toggle`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       },
+      "Failed to toggle MCP server",
     );
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || "Failed to toggle MCP server");
-    }
-    return response.json();
   },
 
   /**
@@ -300,92 +293,72 @@ export const api = {
    * @param {string} [apiKey] - Optional OpenRouter API key override
    */
   async getModels(apiKey = undefined) {
-    const url = apiKey
-      ? `${API_BASE}/api/models?api_key=${encodeURIComponent(apiKey)}`
-      : `${API_BASE}/api/models`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || "Failed to fetch OpenRouter models");
-    }
-    return response.json();
+    const path = apiKey
+      ? `/api/models?api_key=${encodeURIComponent(apiKey)}`
+      : "/api/models";
+    return requestJson(path, {}, "Failed to fetch OpenRouter models");
   },
 
   /**
    * Get current configuration settings.
    */
   async getSettings() {
-    const response = await fetch(`${API_BASE}/api/settings`);
-    if (!response.ok) {
-      throw new Error("Failed to load settings");
-    }
-    return response.json();
+    return requestJson("/api/settings", {}, "Failed to load settings");
   },
 
   /**
    * Update configuration settings.
-   * @param {Object} settings - { openrouter_api_key, council_models, chairman_model, show_token_count, show_tokens_per_model, show_spend_value, enable_token_compression, compression_algorithm }
+   * @param {Object} settings
    */
   async updateSettings(settings) {
-    const response = await fetch(`${API_BASE}/api/settings`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    return requestJson(
+      "/api/settings",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
       },
-      body: JSON.stringify(settings),
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || "Failed to save settings");
-    }
-    return response.json();
+      "Failed to save settings",
+    );
   },
 
   /**
    * Get dynamic model pricing rates fetched from OpenRouter.
    */
   async getPricing() {
-    const response = await fetch(`${API_BASE}/api/pricing`);
-    if (!response.ok) {
-      throw new Error("Failed to fetch model pricing");
-    }
-    return response.json();
+    return requestJson("/api/pricing", {}, "Failed to fetch model pricing");
   },
 
   /**
    * Force refresh dynamic model pricing rates from OpenRouter.
    */
   async refreshPricing() {
-    const response = await fetch(`${API_BASE}/api/pricing/refresh`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to refresh model pricing");
-    }
-    return response.json();
+    return requestJson(
+      "/api/pricing/refresh",
+      { method: "POST" },
+      "Failed to refresh model pricing",
+    );
   },
 
   /**
    * Get cumulative token compression statistics.
    */
   async getCompressionStats() {
-    const response = await fetch(`${API_BASE}/api/compression/stats`);
-    if (!response.ok) {
-      throw new Error("Failed to fetch compression stats");
-    }
-    return response.json();
+    return requestJson(
+      "/api/compression/stats",
+      {},
+      "Failed to fetch compression stats",
+    );
   },
 
   /**
    * Reset cumulative token compression statistics.
    */
   async resetCompressionStats() {
-    const response = await fetch(`${API_BASE}/api/compression/reset-stats`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to reset compression stats");
-    }
-    return response.json();
+    return requestJson(
+      "/api/compression/reset-stats",
+      { method: "POST" },
+      "Failed to reset compression stats",
+    );
   },
 };

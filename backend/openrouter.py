@@ -82,6 +82,37 @@ def find_model_rates(
     return default_rate
 
 
+def _extract_pricing_rates(raw_models: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Helper to extract model rates mapping from raw OpenRouter model dictionaries."""
+    rates: Dict[str, Dict[str, float]] = {}
+    for model in raw_models:
+        m_id = model.get("id")
+        if not m_id:
+            continue
+        pricing = model.get("pricing") or {}
+        rates[m_id] = {
+            "prompt": parse_rate_value(pricing.get("prompt")),
+            "completion": parse_rate_value(pricing.get("completion")),
+            "request": parse_rate_value(pricing.get("request")),
+        }
+    return rates
+
+
+def _update_pricing_cache(rates: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
+    """Helper to update the in-memory pricing cache and return structured metadata."""
+    now = time.time()
+    iso_now = datetime.now(timezone.utc).isoformat()
+    _PRICING_CACHE["rates"] = rates
+    _PRICING_CACHE["updated_at"] = iso_now
+    _PRICING_CACHE["timestamp"] = now
+    _PRICING_CACHE["count"] = len(rates)
+    return {
+        "rates": rates,
+        "updated_at": iso_now,
+        "count": len(rates),
+    }
+
+
 async def fetch_dynamic_pricing(
     api_key: Optional[str] = None, force_refresh: bool = False
 ) -> Dict[str, Any]:
@@ -113,31 +144,10 @@ async def fetch_dynamic_pricing(
 
             data = response.json()
             raw_models = data.get("data", [])
-
-            rates: Dict[str, Dict[str, float]] = {}
-            for model in raw_models:
-                m_id = model.get("id")
-                if not m_id:
-                    continue
-                pricing = model.get("pricing") or {}
-                rates[m_id] = {
-                    "prompt": parse_rate_value(pricing.get("prompt")),
-                    "completion": parse_rate_value(pricing.get("completion")),
-                    "request": parse_rate_value(pricing.get("request")),
-                }
-
-            iso_now = datetime.now(timezone.utc).isoformat()
-            _PRICING_CACHE["rates"] = rates
-            _PRICING_CACHE["updated_at"] = iso_now
-            _PRICING_CACHE["timestamp"] = now
-            _PRICING_CACHE["count"] = len(rates)
+            rates = _extract_pricing_rates(raw_models)
+            result = _update_pricing_cache(rates)
             logger.info("Dynamically fetched %d model pricing rates from OpenRouter.", len(rates))
-
-            return {
-                "rates": rates,
-                "updated_at": iso_now,
-                "count": len(rates),
-            }
+            return result
     except Exception as e:
         logger.warning("Failed to dynamically fetch OpenRouter pricing: %s", e)
         if _PRICING_CACHE["rates"]:
@@ -255,38 +265,32 @@ async def fetch_openrouter_models(
         headers["Authorization"] = f"Bearer {key}"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(OPENROUTER_MODELS_URL, headers=headers)
-        response.raise_for_status()
+        try:
+            response = await client.get(OPENROUTER_MODELS_URL, headers=headers)
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error("Failed to fetch OpenRouter models: %s", e)
+            raise
 
         data = response.json()
         raw_models = data.get("data", [])
 
-        # Also update dynamic pricing cache while fetching models
-        now = time.time()
-        rates: Dict[str, Dict[str, float]] = {}
-        formatted_models = []
-        for model in raw_models:
-            m_id = model.get("id", "")
-            pricing = model.get("pricing") or {}
-            if m_id:
-                rates[m_id] = {
-                    "prompt": parse_rate_value(pricing.get("prompt")),
-                    "completion": parse_rate_value(pricing.get("completion")),
-                    "request": parse_rate_value(pricing.get("request")),
-                }
-            formatted_models.append({
-                "id": m_id,
-                "name": model.get("name") or m_id,
+        # Update dynamic pricing cache from raw models
+        rates = _extract_pricing_rates(raw_models)
+        if rates:
+            _update_pricing_cache(rates)
+
+        formatted_models = [
+            {
+                "id": model.get("id", ""),
+                "name": model.get("name") or model.get("id", ""),
                 "context_length": model.get("context_length"),
                 "description": model.get("description", ""),
-                "pricing": pricing,
-            })
-
-        if rates:
-            _PRICING_CACHE["rates"] = rates
-            _PRICING_CACHE["updated_at"] = datetime.now(timezone.utc).isoformat()
-            _PRICING_CACHE["timestamp"] = now
-            _PRICING_CACHE["count"] = len(rates)
+                "pricing": model.get("pricing") or {},
+            }
+            for model in raw_models
+            if model.get("id")
+        ]
 
         # Sort by name alphabetically
         formatted_models.sort(key=lambda m: m["name"].lower())
@@ -373,8 +377,21 @@ async def query_model(
                 },
             }
 
-    except Exception:
-        logger.exception("Error querying model %s", model)
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code if e.response else "unknown"
+        error_preview = e.response.text[:200] if e.response else str(e)
+        logger.error(
+            "HTTP error %s querying model %s via OpenRouter: %s",
+            status_code,
+            model,
+            error_preview,
+        )
+        return None
+    except httpx.TimeoutException:
+        logger.warning("Timeout (%ss) while querying model %s via OpenRouter", timeout, model)
+        return None
+    except Exception as e:
+        logger.exception("Unexpected error querying model %s: %s", model, e)
         return None
 
 

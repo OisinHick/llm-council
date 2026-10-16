@@ -1,7 +1,9 @@
 """JSON-based storage for conversations."""
 
 import json
+import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -9,10 +11,45 @@ from typing import Any, Dict, List, Optional
 from .config import DATA_DIR
 from .openrouter import calculate_token_cost
 
+logger = logging.getLogger("llm_council.storage")
 
-def ensure_data_dir():
-    """Ensure the data directory exists."""
-    Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+
+def ensure_data_dir() -> Path:
+    """Ensure the data directory exists and return its Path."""
+    p = Path(DATA_DIR)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _safe_write_json(file_path: str, data: Dict[str, Any]) -> None:
+    """
+    Safely write JSON data to file using an atomic write via temporary file.
+    Prevents file truncation or corruption if interrupted during write.
+    """
+    target = Path(file_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=str(target.parent),
+            delete=False,
+            encoding="utf-8",
+            suffix=".tmp",
+        ) as f:
+            temp_file = Path(f.name)
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        temp_file.replace(target)
+    except Exception as e:
+        logger.error("Failed to safely write JSON file %s: %s", file_path, e)
+        if temp_file and temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception:
+                pass
+        raise
 
 
 def get_conversation_path(conversation_id: str) -> str:
@@ -105,6 +142,34 @@ def merge_token_usages(
     return result
 
 
+def _accumulate_stage_item(
+    target: Dict[str, Any],
+    item: Optional[Dict[str, Any]],
+    default_model: Optional[str] = None,
+    fallback_prompt: int = 0,
+    fallback_content_key: Optional[str] = None,
+) -> None:
+    """Helper to accumulate token usage from an individual stage response or agent step."""
+    if not item or not isinstance(item, dict):
+        return
+    model = item.get("model") or default_model
+    usage = item.get("usage")
+    if usage and isinstance(usage, dict):
+        _accumulate_model_tokens(
+            target,
+            model,
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+            usage.get("total_tokens"),
+            tokens_saved=usage.get("tokens_saved", 0),
+        )
+    elif model and fallback_content_key:
+        content = item.get(fallback_content_key)
+        if content:
+            c_len = len(json.dumps(content)) if isinstance(content, (dict, list)) else len(str(content))
+            _accumulate_model_tokens(target, model, fallback_prompt, c_len // 4)
+
+
 def compute_turn_token_usage(
     stage1: Optional[List[Dict[str, Any]]] = None,
     stage2: Optional[List[Dict[str, Any]]] = None,
@@ -116,103 +181,29 @@ def compute_turn_token_usage(
     """Calculate token usage for a single assistant turn."""
     usage_result = empty_token_usage()
 
-    if stage1:
-        for r in stage1:
-            m = r.get("model")
-            u = r.get("usage")
-            if u:
-                _accumulate_model_tokens(
-                    usage_result,
-                    m,
-                    u.get("prompt_tokens", 0),
-                    u.get("completion_tokens", 0),
-                    u.get("total_tokens"),
-                    tokens_saved=u.get("tokens_saved", 0),
-                )
-            elif m and r.get("response"):
-                _accumulate_model_tokens(
-                    usage_result, m, 50, len(r["response"]) // 4
-                )
+    for r in stage1 or []:
+        _accumulate_stage_item(usage_result, r, fallback_prompt=50, fallback_content_key="response")
 
-    if stage2:
-        for r in stage2:
-            m = r.get("model")
-            u = r.get("usage")
-            if u:
-                _accumulate_model_tokens(
-                    usage_result,
-                    m,
-                    u.get("prompt_tokens", 0),
-                    u.get("completion_tokens", 0),
-                    u.get("total_tokens"),
-                    tokens_saved=u.get("tokens_saved", 0),
-                )
-            elif m and r.get("ranking"):
-                _accumulate_model_tokens(
-                    usage_result, m, 200, len(r["ranking"]) // 4
-                )
+    for r in stage2 or []:
+        _accumulate_stage_item(usage_result, r, fallback_prompt=200, fallback_content_key="ranking")
 
     if stage3:
-        m = stage3.get("model")
-        u = stage3.get("usage")
-        if u:
-            _accumulate_model_tokens(
-                usage_result,
-                m,
-                u.get("prompt_tokens", 0),
-                u.get("completion_tokens", 0),
-                u.get("total_tokens"),
-                tokens_saved=u.get("tokens_saved", 0),
-            )
-        elif m and stage3.get("response"):
-            _accumulate_model_tokens(
-                usage_result, m, 400, len(stage3["response"]) // 4
-            )
+        _accumulate_stage_item(usage_result, stage3, fallback_prompt=400, fallback_content_key="response")
 
     if stage4:
-        m = stage4.get("model") or "chairman"
-        u = stage4.get("usage")
-        if u:
-            _accumulate_model_tokens(
-                usage_result,
-                m,
-                u.get("prompt_tokens", 0),
-                u.get("completion_tokens", 0),
-                u.get("total_tokens"),
-                tokens_saved=u.get("tokens_saved", 0),
-            )
+        _accumulate_stage_item(usage_result, stage4, default_model="chairman")
 
-    if steps:
-        for step in steps:
-            u = step.get("usage")
-            m = step.get("model") or "chairperson"
-            if u:
-                _accumulate_model_tokens(
-                    usage_result,
-                    m,
-                    u.get("prompt_tokens", 0),
-                    u.get("completion_tokens", 0),
-                    u.get("total_tokens"),
-                    tokens_saved=u.get("tokens_saved", 0),
-                )
-            elif step.get("action"):
-                act_str = json.dumps(step["action"])
-                _accumulate_model_tokens(
-                    usage_result, m, 400, len(act_str) // 4
-                )
+    for step in steps or []:
+        _accumulate_stage_item(
+            usage_result,
+            step,
+            default_model="chairperson",
+            fallback_prompt=400,
+            fallback_content_key="action",
+        )
 
-    if extra_usages:
-        for item in extra_usages:
-            m = item.get("model")
-            u = item.get("usage") or {}
-            _accumulate_model_tokens(
-                usage_result,
-                m,
-                u.get("prompt_tokens", 0),
-                u.get("completion_tokens", 0),
-                u.get("total_tokens"),
-                tokens_saved=u.get("tokens_saved", 0),
-            )
+    for extra in extra_usages or []:
+        _accumulate_stage_item(usage_result, extra)
 
     calculate_token_cost(usage_result)
     return usage_result
@@ -300,10 +291,9 @@ def create_conversation(
         "standalone_token_usage": empty_token_usage(),
     }
 
-    # Save to file
+    # Atomically save to file
     path = get_conversation_path(conversation_id)
-    with open(path, "w") as f:
-        json.dump(conversation, f, indent=2)
+    _safe_write_json(path, conversation)
 
     return conversation
 
@@ -334,15 +324,23 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
         conversation_id: Unique identifier for the conversation
 
     Returns:
-        Conversation dict or None if not found
+        Conversation dict or None if not found or corrupted
     """
     path = get_conversation_path(conversation_id)
 
     if not os.path.exists(path):
         return None
 
-    with open(path, "r") as f:
-        data = json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.error("Failed to load conversation %s: %s", conversation_id, e)
+        return None
+
+    if not isinstance(data, dict):
+        logger.warning("Conversation file %s did not contain a JSON object.", path)
+        return None
 
     data["mode"] = get_conversation_mode_from_messages(
         data.get("messages", []), fallback=data.get("mode", "informational")
@@ -354,23 +352,21 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     return data
 
 
-def save_conversation(conversation: Dict[str, Any]):
+def save_conversation(conversation: Dict[str, Any]) -> None:
     """
-    Save a conversation to storage.
+    Save a conversation to storage using atomic writes.
 
     Args:
         conversation: Conversation dict to save
     """
     ensure_data_dir()
-
     path = get_conversation_path(conversation["id"])
-    with open(path, "w") as f:
-        json.dump(conversation, f, indent=2)
+    _safe_write_json(path, conversation)
 
 
 def list_conversations() -> List[Dict[str, Any]]:
     """
-    List all conversations (metadata only).
+    List all conversations (metadata only), safely skipping corrupted files.
 
     Returns:
         List of conversation metadata dicts
@@ -381,8 +377,11 @@ def list_conversations() -> List[Dict[str, Any]]:
     for filename in os.listdir(DATA_DIR):
         if filename.endswith(".json"):
             path = os.path.join(DATA_DIR, filename)
-            with open(path, "r") as f:
-                data = json.load(f)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict) or "id" not in data or "created_at" not in data:
+                    continue
                 messages = data.get("messages", [])
                 mode = get_conversation_mode_from_messages(
                     messages, fallback=data.get("mode", "informational")
@@ -397,6 +396,8 @@ def list_conversations() -> List[Dict[str, Any]]:
                         "token_usage": compute_conversation_token_usage(data),
                     }
                 )
+            except Exception as e:
+                logger.warning("Skipping unreadable conversation file %s: %s", filename, e)
 
     # Sort by creation time, newest first
     conversations.sort(key=lambda x: x["created_at"], reverse=True)

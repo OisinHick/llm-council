@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+import tempfile
 import urllib.request
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -49,11 +50,21 @@ class MCPClientManager:
             return {"mcpServers": {}}
 
     def _write_config(self, config_data: Dict[str, Any]) -> None:
-        """Write configuration to mcp_servers.json with clean formatting."""
+        """Write configuration to mcp_servers.json atomically."""
         try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(config_data, f, indent=2)
-                f.write("\n")
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                dir=str(self.config_path.parent),
+                delete=False,
+                encoding="utf-8",
+            ) as tf:
+                json.dump(config_data, tf, indent=2)
+                tf.write("\n")
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, self.config_path)
         except Exception as e:
             logger.error(f"Failed to write mcp_servers.json: {e}")
             raise

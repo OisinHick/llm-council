@@ -1,6 +1,7 @@
 """3-stage LLM Council orchestration."""
 
 import json
+import logging
 import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,6 +10,36 @@ from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
 from .mcp_tools import executor
 from .openrouter import query_model, query_models_parallel
+
+logger = logging.getLogger("llm_council.council")
+
+# Precompiled regexes for response parsing
+_RE_FINAL_RANKING_HEADER = re.compile(r"FINAL RANKING:\s*(.*)", re.DOTALL | re.IGNORECASE)
+_RE_NUMBERED_RESPONSE = re.compile(r"\d+\.\s*Response\s*([A-Z])", re.IGNORECASE)
+_RE_RESPONSE_LABEL = re.compile(r"Response\s*([A-Z])", re.IGNORECASE)
+_RE_JSON_CODE_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_RE_OUTER_JSON = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """Helper to safely extract and parse a JSON object from raw LLM text."""
+    if not text:
+        return None
+    # 1. Try markdown code block
+    m = _RE_JSON_CODE_BLOCK.search(text)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+    # 2. Try outer bracket search
+    m = _RE_OUTER_JSON.search(text)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -213,30 +244,31 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
         ranking_text: The full text response from the model
 
     Returns:
-        List of response labels in ranked order
+        List of response labels in ranked order (e.g. ["Response A", "Response B"])
     """
+    if not ranking_text:
+        return []
+
     # Look for "FINAL RANKING:" section
-    if "FINAL RANKING:" in ranking_text:
-        # Extract everything after "FINAL RANKING:"
-        parts = ranking_text.split("FINAL RANKING:")
-        if len(parts) >= 2:
-            ranking_section = parts[1]
-            # Try to extract numbered list format (e.g., "1. Response A")
-            # This pattern looks for: number, period, optional space, "Response X"
-            numbered_matches = re.findall(r"\d+\.\s*Response [A-Z]", ranking_section)
-            if numbered_matches:
-                # Extract just the "Response X" part
-                return [
-                    re.search(r"Response [A-Z]", m).group() for m in numbered_matches
-                ]
+    m_section = _RE_FINAL_RANKING_HEADER.search(ranking_text)
+    search_target = m_section.group(1) if m_section else ranking_text
 
-            # Fallback: Extract all "Response X" patterns in order
-            matches = re.findall(r"Response [A-Z]", ranking_section)
-            return matches
+    # Extract numbered list format (e.g., "1. Response A" -> "Response A")
+    numbered_matches = _RE_NUMBERED_RESPONSE.findall(search_target)
+    if numbered_matches:
+        return [f"Response {letter.upper()}" for letter in numbered_matches]
 
-    # Fallback: try to find any "Response X" patterns in order
-    matches = re.findall(r"Response [A-Z]", ranking_text)
-    return matches
+    # Fallback: Extract all "Response X" patterns in order
+    matches = _RE_RESPONSE_LABEL.findall(search_target)
+    if matches:
+        return [f"Response {letter.upper()}" for letter in matches]
+
+    # Overall fallback across entire response text if not found in section
+    if search_target != ranking_text:
+        fallback_matches = _RE_RESPONSE_LABEL.findall(ranking_text)
+        return [f"Response {letter.upper()}" for letter in fallback_matches]
+
+    return []
 
 
 def calculate_aggregate_rankings(
@@ -321,8 +353,8 @@ Title:"""
             storage.record_standalone_tokens(
                 conversation_id, chairman, response.get("usage")
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not record standalone tokens for conversation %s: %s", conversation_id, e)
 
     title = response.get("content", "New Conversation").strip()
 
@@ -482,21 +514,11 @@ Now generate the action plan JSON:"""
     response_text = response.get("content", "")
 
     # Parse JSON from response
-    try:
-        # Try to extract JSON from the response
-        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        if not json_match:
-            return {
-                "success": False,
-                "error": "Could not find JSON in response",
-                "raw_response": response_text,
-            }
-
-        action_plan = json.loads(json_match.group())
-    except json.JSONDecodeError as e:
+    action_plan = _extract_json_object(response_text)
+    if not action_plan:
         return {
             "success": False,
-            "error": f"Invalid JSON in action plan: {str(e)}",
+            "error": "Could not parse valid JSON action plan from response",
             "raw_response": response_text,
             "model": chairman,
             "usage": response.get("usage") if response else None,

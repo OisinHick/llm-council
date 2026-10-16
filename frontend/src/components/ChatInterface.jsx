@@ -23,77 +23,67 @@ const tryParseJSON = (str) => {
   return null;
 };
 
+const KNOWN_OUTPUT_KEYS = new Set([
+  "stdout",
+  "stderr",
+  "message",
+  "error",
+  "content",
+  "response",
+  "success",
+]);
+
+const mergeExtractedFields = (source, out) => {
+  if (!source || typeof source !== "object") return;
+  if (source.stdout) out.stdout = source.stdout;
+  if (source.stderr) out.stderr = source.stderr;
+  if (source.message) out.message = source.message;
+  if (source.error) out.error = source.error;
+
+  Object.entries(source).forEach(([key, val]) => {
+    if (!KNOWN_OUTPUT_KEYS.has(key)) {
+      out.metadata[key] = val;
+    }
+  });
+};
+
 const renderFormattedResult = (result) => {
   if (!result) return null;
 
-  let stdout = result.stdout || "";
-  let stderr = result.stderr || "";
-  let content = result.content || "";
-  let message = result.message || "";
-  let response = result.response || "";
-  let error = result.error || "";
-  let metadata = {};
+  const out = {
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    content: result.content || "",
+    message: result.message || "",
+    response: result.response || "",
+    error: result.error || "",
+    metadata: {},
+  };
 
-  // Try parsing content
-  const parsedContent = tryParseJSON(content);
+  // Try parsing content if it's a JSON string
+  const parsedContent = tryParseJSON(out.content);
   if (parsedContent) {
-    if (parsedContent.stdout) stdout = parsedContent.stdout;
-    if (parsedContent.stderr) stderr = parsedContent.stderr;
-    if (parsedContent.message) message = parsedContent.message;
-    if (parsedContent.error) error = parsedContent.error;
-
-    Object.keys(parsedContent).forEach((key) => {
-      if (!["stdout", "stderr", "message", "error", "content"].includes(key)) {
-        metadata[key] = parsedContent[key];
-      }
-    });
-    content = "";
+    mergeExtractedFields(parsedContent, out);
+    out.content = "";
   }
 
-  // Try parsing response
-  const parsedResponse = tryParseJSON(response);
+  // Try parsing response if stringified JSON or an object
+  const parsedResponse =
+    tryParseJSON(out.response) ||
+    (typeof out.response === "object" ? out.response : null);
   if (parsedResponse) {
-    if (parsedResponse.stdout) stdout = parsedResponse.stdout;
-    if (parsedResponse.stderr) stderr = parsedResponse.stderr;
-    if (parsedResponse.message) message = parsedResponse.message;
-    if (parsedResponse.error) error = parsedResponse.error;
-
-    Object.keys(parsedResponse).forEach((key) => {
-      if (!["stdout", "stderr", "message", "error", "response"].includes(key)) {
-        metadata[key] = parsedResponse[key];
-      }
-    });
-    response = "";
-  } else if (response && typeof response === "object") {
-    if (response.stdout) stdout = response.stdout;
-    if (response.stderr) stderr = response.stderr;
-    if (response.message) message = response.message;
-    if (response.error) error = response.error;
-
-    Object.keys(response).forEach((key) => {
-      if (!["stdout", "stderr", "message", "error"].includes(key)) {
-        metadata[key] = response[key];
-      }
-    });
-    response = "";
+    mergeExtractedFields(parsedResponse, out);
+    out.response = "";
   }
 
-  // Top level fields
-  Object.keys(result).forEach((key) => {
-    if (
-      ![
-        "stdout",
-        "stderr",
-        "message",
-        "error",
-        "content",
-        "response",
-        "success",
-      ].includes(key)
-    ) {
-      metadata[key] = result[key];
+  // Top level extra metadata fields
+  Object.entries(result).forEach(([key, val]) => {
+    if (!KNOWN_OUTPUT_KEYS.has(key)) {
+      out.metadata[key] = val;
     }
   });
+
+  const { stdout, stderr, content, message, response, error, metadata } = out;
 
   return (
     <div className="formatted-result-container">

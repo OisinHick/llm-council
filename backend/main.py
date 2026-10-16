@@ -19,7 +19,6 @@ from .config import get_settings, save_settings
 from .openrouter import (
     fetch_openrouter_models,
     fetch_dynamic_pricing,
-    get_cached_pricing_info,
 )
 from .council import (
     calculate_aggregate_rankings,
@@ -75,6 +74,15 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
 )
 logger = logging.getLogger("llm_council.backend")
+
+
+def _sse_event(event_type: str, data: Any = None, **kwargs) -> str:
+    """Format a Server-Sent Event data packet."""
+    payload: Dict[str, Any] = {"type": event_type, **kwargs}
+    if data is not None:
+        payload["data"] = data
+    return f"data: {json.dumps(payload)}\n\n"
+
 
 # Enable CORS for local development and containerized setups
 app.add_middleware(
@@ -446,32 +454,39 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 )
 
             # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            yield _sse_event("stage1_start")
             stage1_results = await stage1_collect_responses(request.content)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            yield _sse_event("stage1_complete", stage1_results)
 
             # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
                 request.content, stage1_results
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            yield _sse_event(
+                "stage2_complete",
+                stage2_results,
+                metadata={
+                    "label_to_model": label_to_model,
+                    "aggregate_rankings": aggregate_rankings,
+                },
+            )
 
             # Stage 3: Synthesize final answer
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
                 request.content, stage1_results, stage2_results
             )
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            yield _sse_event("stage3_complete", stage3_result)
 
             # Wait for title generation if it was started
             if title_task:
                 title = await title_task
                 storage.update_conversation_title(conversation_id, title)
-                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+                yield _sse_event("title_complete", {"title": title})
 
             # Save complete assistant message
             storage.add_assistant_message(
@@ -482,11 +497,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             conv_tokens = conv_updated.get("token_usage") if conv_updated else None
 
             # Send completion event with updated token usage
-            yield f"data: {json.dumps({'type': 'complete', 'token_usage': conv_tokens, 'data': {'token_usage': conv_tokens}})}\n\n"
+            yield _sse_event("complete", {"token_usage": conv_tokens}, token_usage=conv_tokens)
 
         except Exception as e:
             # Send error event
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield _sse_event("error", message=str(e))
 
     return StreamingResponse(
         event_generator(),
@@ -575,44 +590,51 @@ async def perform_action_stream(request: ActionRequest):
                 title_task = None
 
             # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            yield _sse_event("stage1_start")
             stage1_results = await stage1_collect_responses(request.request)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            yield _sse_event("stage1_complete", stage1_results)
 
             if not stage1_results:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond'})}\n\n"
+                yield _sse_event("error", message="All models failed to respond")
                 return
 
             # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
                 request.request, stage1_results
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            yield _sse_event(
+                "stage2_complete",
+                stage2_results,
+                metadata={
+                    "label_to_model": label_to_model,
+                    "aggregate_rankings": aggregate_rankings,
+                },
+            )
 
             # Stage 3: Synthesize
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
                 request.request, stage1_results, stage2_results
             )
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            yield _sse_event("stage3_complete", stage3_result)
 
             # Stage 4: Generate action plan
-            yield f"data: {json.dumps({'type': 'stage4_start'})}\n\n"
+            yield _sse_event("stage4_start")
             action_plan_result = await stage4_generate_action_plan(
                 request.request, stage1_results, aggregate_rankings
             )
-            yield f"data: {json.dumps({'type': 'stage4_action_plan', 'data': action_plan_result})}\n\n"
+            yield _sse_event("stage4_action_plan", action_plan_result)
 
             execution_result = None
             # Execute if requested
             if request.execute and action_plan_result.get("success"):
-                yield f"data: {json.dumps({'type': 'execution_start'})}\n\n"
+                yield _sse_event("execution_start")
                 execution_result = await execute_action_plan(action_plan_result)
-                yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
+                yield _sse_event("execution_complete", execution_result)
 
             if request.conversation_id is not None:
                 storage.add_assistant_message(
@@ -628,17 +650,17 @@ async def perform_action_stream(request: ActionRequest):
             if title_task:
                 title = await title_task
                 storage.update_conversation_title(request.conversation_id, title)
-                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+                yield _sse_event("title_complete", {"title": title})
 
             conv_tokens = None
             if request.conversation_id is not None:
                 conv_updated = storage.get_conversation(request.conversation_id)
                 conv_tokens = conv_updated.get("token_usage") if conv_updated else None
 
-            yield f"data: {json.dumps({'type': 'complete', 'token_usage': conv_tokens, 'data': {'token_usage': conv_tokens}})}\n\n"
+            yield _sse_event("complete", {"token_usage": conv_tokens}, token_usage=conv_tokens)
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield _sse_event("error", message=str(e))
 
     return StreamingResponse(
         event_generator(),
@@ -673,16 +695,16 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
 
     async def event_generator():
         try:
-            yield f"data: {json.dumps({'type': 'execution_start'})}\n\n"
+            yield _sse_event("execution_start")
             execution_result = await execute_action_plan(action_message["stage4"])
             storage.update_last_assistant_message(
                 request.conversation_id,
                 lambda msg: {**msg, "execution": execution_result},
             )
-            yield f"data: {json.dumps({'type': 'execution_complete', 'data': execution_result})}\n\n"
-            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            yield _sse_event("execution_complete", execution_result)
+            yield _sse_event("complete")
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield _sse_event("error", message=str(e))
 
     return StreamingResponse(
         event_generator(),
@@ -739,33 +761,43 @@ async def run_agent_stream(request: AgentRunRequest):
                     )
 
             # --- PHASE 1: INITIAL COUNCIL CROSS-REFERENCED DELIBERATION ---
-            yield f"data: {json.dumps({'type': 'council_deliberation_start'})}\n\n"
+            yield _sse_event("council_deliberation_start")
 
             # Stage 1: Collect proposals from all council models
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            yield _sse_event("stage1_start")
             stage1_results = await stage1_collect_responses(request.request)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            yield _sse_event("stage1_complete", stage1_results)
 
             if not stage1_results:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'All models failed to respond in council deliberation.'})}\n\n"
+                yield _sse_event(
+                    "error",
+                    message="All models failed to respond in council deliberation.",
+                )
                 return
 
             # Stage 2: Peer ranking & evaluation
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
                 request.request, stage1_results
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            yield _sse_event(
+                "stage2_complete",
+                stage2_results,
+                metadata={
+                    "label_to_model": label_to_model,
+                    "aggregate_rankings": aggregate_rankings,
+                },
+            )
 
             # Stage 3: Cross-referenced synthesis & blueprint
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
                 request.request, stage1_results, stage2_results
             )
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            yield _sse_event("stage3_complete", stage3_result)
 
             initial_council = {
                 "stage1": stage1_results,
@@ -809,7 +841,7 @@ async def run_agent_stream(request: AgentRunRequest):
             while not agent_task.done() or not queue.empty():
                 try:
                     event_type, data = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    yield f"data: {json.dumps({'type': event_type, 'data': data})}\n\n"
+                    yield _sse_event(event_type, data)
                 except asyncio.TimeoutError:
                     continue
 
@@ -832,18 +864,18 @@ async def run_agent_stream(request: AgentRunRequest):
             if title_task:
                 title = await title_task
                 storage.update_conversation_title(conv_id, title)
-                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+                yield _sse_event("title_complete", {"title": title})
 
             conv_tokens = None
             if conv_id is not None:
                 conv_updated = storage.get_conversation(conv_id)
                 conv_tokens = conv_updated.get("token_usage") if conv_updated else None
 
-            yield f"data: {json.dumps({'type': 'complete', 'data': agent_result, 'token_usage': conv_tokens})}\n\n"
+            yield _sse_event("complete", agent_result, token_usage=conv_tokens)
 
         except Exception as e:
             logger.exception("Error in agent stream: %s", str(e))
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield _sse_event("error", message=str(e))
         finally:
             if conv_id and conv_id in active_agents:
                 active_agents.pop(conv_id, None)

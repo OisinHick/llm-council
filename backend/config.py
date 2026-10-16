@@ -1,13 +1,17 @@
 """Configuration for the LLM Council."""
 
 import json
+import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("llm_council.config")
 
 # Data directory for conversation storage (absolute path)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -34,52 +38,83 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 
+# Default settings schema used when settings file is absent or incomplete
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    "openrouter_api_key": "",
+    "council_models": DEFAULT_COUNCIL_MODELS,
+    "chairman_model": DEFAULT_CHAIRMAN_MODEL,
+    "show_token_count": True,
+    "show_tokens_per_model": False,
+    "show_spend_value": True,
+    "show_saved_tokens": True,
+    "enable_token_compression": False,
+    "compression_algorithm": "headroom",
+}
+
+
 def get_settings() -> Dict[str, Any]:
-    """Load settings from JSON file or default values."""
+    """
+    Load active settings from data/settings.json or return default values.
+    
+    Falls back to environment variables (e.g. OPENROUTER_API_KEY) if not
+    configured in the JSON file. Catches and logs any corrupt file errors.
+    """
     env_key = os.getenv("OPENROUTER_API_KEY", "")
-    default_settings = {
-        "openrouter_api_key": env_key,
-        "council_models": DEFAULT_COUNCIL_MODELS,
-        "chairman_model": DEFAULT_CHAIRMAN_MODEL,
-        "show_token_count": True,
-        "show_tokens_per_model": False,
-        "show_spend_value": True,
-        "show_saved_tokens": True,
-        "enable_token_compression": False,
-        "compression_algorithm": "headroom",
-    }
+    settings = dict(DEFAULT_SETTINGS)
+    settings["openrouter_api_key"] = env_key
 
     if not SETTINGS_FILE.exists():
-        return default_settings
+        return settings
 
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        return {
-            "openrouter_api_key": data.get("openrouter_api_key") or env_key,
-            "council_models": data.get("council_models") or DEFAULT_COUNCIL_MODELS,
-            "chairman_model": data.get("chairman_model") or DEFAULT_CHAIRMAN_MODEL,
-            "show_token_count": data.get("show_token_count", True) if "show_token_count" in data else True,
-            "show_tokens_per_model": data.get("show_tokens_per_model", False) if "show_tokens_per_model" in data else False,
-            "show_spend_value": data.get("show_spend_value", True) if "show_spend_value" in data else True,
-            "show_saved_tokens": data.get("show_saved_tokens", True) if "show_saved_tokens" in data else True,
-            "enable_token_compression": data.get("enable_token_compression", False) if "enable_token_compression" in data else False,
-            "compression_algorithm": data.get("compression_algorithm", "headroom") if "compression_algorithm" in data else "headroom",
-        }
-    except Exception:
-        return default_settings
+        if not isinstance(data, dict):
+            logger.warning("settings.json content is not a dictionary; using defaults.")
+            return settings
+
+        # Merge persisted values with defaults
+        settings["openrouter_api_key"] = data.get("openrouter_api_key") or env_key
+        settings["council_models"] = data.get("council_models") or DEFAULT_COUNCIL_MODELS
+        settings["chairman_model"] = data.get("chairman_model") or DEFAULT_CHAIRMAN_MODEL
+
+        # Boolean flags with fallback defaults
+        for flag in (
+            "show_token_count",
+            "show_tokens_per_model",
+            "show_spend_value",
+            "show_saved_tokens",
+            "enable_token_compression",
+        ):
+            if flag in data:
+                settings[flag] = bool(data[flag])
+
+        if "compression_algorithm" in data and isinstance(data["compression_algorithm"], str):
+            settings["compression_algorithm"] = data["compression_algorithm"].strip()
+
+        return settings
+    except Exception as e:
+        logger.error("Failed to read settings file %s: %s; falling back to defaults.", SETTINGS_FILE, e)
+        return settings
 
 
 def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
-    """Save updated settings to file."""
+    """
+    Save updated settings to data/settings.json using atomic file writing.
+    
+    Args:
+        new_settings: Dictionary containing partial or complete updated settings.
+
+    Returns:
+        The updated complete settings dictionary.
+    """
     current = get_settings()
 
     if "openrouter_api_key" in new_settings and new_settings["openrouter_api_key"] is not None:
         current["openrouter_api_key"] = str(new_settings["openrouter_api_key"]).strip()
 
     if "council_models" in new_settings and isinstance(new_settings["council_models"], list):
-        # Filter non-empty strings
         models = [m.strip() for m in new_settings["council_models"] if isinstance(m, str) and m.strip()]
         if models:
             current["council_models"] = models
@@ -89,29 +124,45 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         if cm:
             current["chairman_model"] = cm
 
-    if "show_token_count" in new_settings and new_settings["show_token_count"] is not None:
-        current["show_token_count"] = bool(new_settings["show_token_count"])
-
-    if "show_tokens_per_model" in new_settings and new_settings["show_tokens_per_model"] is not None:
-        current["show_tokens_per_model"] = bool(new_settings["show_tokens_per_model"])
-
-    if "show_spend_value" in new_settings and new_settings["show_spend_value"] is not None:
-        current["show_spend_value"] = bool(new_settings["show_spend_value"])
-
-    if "show_saved_tokens" in new_settings and new_settings["show_saved_tokens"] is not None:
-        current["show_saved_tokens"] = bool(new_settings["show_saved_tokens"])
-
-    if "enable_token_compression" in new_settings and new_settings["enable_token_compression"] is not None:
-        current["enable_token_compression"] = bool(new_settings["enable_token_compression"])
+    for flag in (
+        "show_token_count",
+        "show_tokens_per_model",
+        "show_spend_value",
+        "show_saved_tokens",
+        "enable_token_compression",
+    ):
+        if flag in new_settings and new_settings[flag] is not None:
+            current[flag] = bool(new_settings[flag])
 
     if "compression_algorithm" in new_settings and isinstance(new_settings["compression_algorithm"], str):
         ca = new_settings["compression_algorithm"].strip()
         if ca:
             current["compression_algorithm"] = ca
 
+    # Atomic write to prevent file corruption on abrupt shutdowns
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(current, f, indent=2)
+    temp_file = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            dir=str(SETTINGS_FILE.parent),
+            delete=False,
+            encoding="utf-8",
+            suffix=".tmp",
+        ) as f:
+            temp_file = Path(f.name)
+            json.dump(current, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        temp_file.replace(SETTINGS_FILE)
+    except Exception as e:
+        logger.error("Failed to safely write settings file %s: %s", SETTINGS_FILE, e)
+        if temp_file and temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception:
+                pass
+        raise
 
     return current
 
