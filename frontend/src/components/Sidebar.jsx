@@ -1,8 +1,42 @@
+/**
+ * Sidebar component for LLM Council navigation and conversation management.
+ *
+ * Responsibilities:
+ * - Displays the application header and settings cog modal launcher.
+ * - Manages conversation switching and creating new conversations.
+ * - Renders conversation cards with title, message count, execution mode badge,
+ *   token usage indicator, estimated USD spend, and Headroom compression savings.
+ * - Persists and injects user-customizable CSS background color variables
+ *   (`--assistant-bg` and `--user-bg`) into the root document style.
+ */
+
 import { useState, useEffect } from "react";
 import SettingsModal from "./SettingsModal";
 import { formatShortNumber, formatSpend, formatExactSpend } from "../formatters";
 import "./Sidebar.css";
 
+/**
+ * Sidebar navigation component.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Array<Object>} props.conversations - List of all conversation summaries.
+ * @param {string|null} props.currentConversationId - Active conversation ID.
+ * @param {function(string): void} props.onSelectConversation - Callback when a conversation is clicked.
+ * @param {function(): void} props.onNewConversation - Callback to initialize a new conversation.
+ * @param {boolean} props.showAllDeliberationSteps - Toggle to display all deliberation stages vs only final answer.
+ * @param {function(boolean): void} props.setShowAllDeliberationSteps - Setter for deliberation display preference.
+ * @param {boolean} props.showTokenCount - Toggle to display token counters.
+ * @param {function(boolean): void} props.setShowTokenCount - Setter for token count display preference.
+ * @param {boolean} props.showTokensPerModel - Toggle to display per-model token breakdown.
+ * @param {function(boolean): void} props.setShowTokensPerModel - Setter for per-model breakdown preference.
+ * @param {boolean} props.showSpendValue - Toggle to display USD spend values.
+ * @param {function(boolean): void} props.setShowSpendValue - Setter for spend value display preference.
+ * @param {boolean} props.showSavedTokens - Toggle to display compression savings.
+ * @param {function(boolean): void} props.setShowSavedTokens - Setter for saved tokens display preference.
+ * @param {boolean} props.enableTokenCompression - Toggle for Headroom Labs compression.
+ * @param {function(boolean): void} props.setEnableTokenCompression - Setter for compression configuration.
+ * @returns {JSX.Element} Rendered Sidebar component.
+ */
 export default function Sidebar({
   conversations,
   currentConversationId,
@@ -21,15 +55,18 @@ export default function Sidebar({
   enableTokenCompression,
   setEnableTokenCompression,
 }) {
+  // Modal visibility flag for SettingsModal
   const [showSettings, setShowSettings] = useState(false);
+  // Custom response background color for assistant messages
   const [assistantColor, setAssistantColor] = useState(() => {
     return localStorage.getItem("llmCouncilColor") || "#f6f9ff";
   });
+  // Custom message background color for user messages
   const [userColor, setUserColor] = useState(() => {
     return localStorage.getItem("userColor") || "#f0f7ff";
   });
 
-  // Apply colors on mount and state changes
+  // Apply colors on mount and state changes to CSS custom properties
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--assistant-bg",
@@ -43,6 +80,9 @@ export default function Sidebar({
     localStorage.setItem("userColor", userColor);
   }, [userColor]);
 
+  /**
+   * Reset message background colors to default pastel blue/slate hues.
+   */
   const handleResetColors = () => {
     setAssistantColor("#f6f9ff");
     setUserColor("#f0f7ff");

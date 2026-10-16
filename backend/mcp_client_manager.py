@@ -1,4 +1,30 @@
-"""Manager for connecting to and orchestrating multiple stdio-based MCP servers."""
+"""Manager for connecting to and orchestrating multiple stdio-based MCP servers.
+
+This module implements the client management layer for the Model Context Protocol (MCP),
+allowing LLM Council to discover, connect to, monitor, and execute tools exposed by external
+stdio MCP server processes (e.g., kali-tools, filesystem servers, memory servers, git tools).
+
+Key Architecture & Robustness Mechanisms:
+    1. Subprocess Stdio Isolation & Stream Filtering:
+       - External MCP servers (such as npm packages or npx runners) frequently emit noisy,
+         non-JSON text to standard output during startup (e.g. npm update notices, node version
+         warnings, compilation logs, or progress bars).
+       - Because the MCP JSON-RPC protocol specification mandates that stdout carry strictly
+         valid JSON-RPC frames, arbitrary non-JSON stdout lines will immediately corrupt the
+         transport session and terminate the connection.
+       - To solve this, `start_server` wraps the server invocation in a lightweight Python
+         filter subprocess that intercepts stdout, validates each line as valid JSON, and only
+         passes validated JSON-RPC lines downstream to the MCP ClientSession while discarding noise.
+    2. Atomic Configuration Management:
+       - Configured servers and their enabled/disabled states are stored in `mcp_servers.json`.
+       - All modifications to `mcp_servers.json` use atomic temporary file replacement (`os.replace`)
+         and `os.fsync`.
+    3. Health Checks & Resilient Tool Discovery:
+       - Servers like `kali-tools` depend on background docker containers; health checks are
+         performed before routing calls to avoid cascading failures.
+       - A background polling loop (`_poll_servers_loop`) periodically reconciles server states
+         and refreshes available tool schemas in the background.
+"""
 
 import asyncio
 import base64
@@ -18,6 +44,14 @@ logger = logging.getLogger("llm_council.mcp_client_manager")
 
 
 def check_kali_tools_health() -> bool:
+    """Check if the Kali Linux tools HTTP backend service is healthy and responding.
+
+    Probes the health endpoint specified by `KALI_API_URL` (default: http://127.0.0.1:5000/health)
+    with a short 2-second timeout.
+
+    Returns:
+        bool: True if the endpoint returns HTTP 200, False otherwise.
+    """
     url = os.environ.get("KALI_API_URL", "http://127.0.0.1:5000") + "/health"
     try:
         with urllib.request.urlopen(url, timeout=2) as response:
@@ -27,19 +61,32 @@ def check_kali_tools_health() -> bool:
 
 
 class MCPClientManager:
-    """Orchestrates standard stdio MCP client connections to external servers."""
+    """Orchestrates standard stdio MCP client connections to external tool servers.
 
-    def __init__(self):
+    Manages the lifecycle of subprocess-based MCP servers:
+      - Starts and stops subprocesses safely.
+      - Maintains active `ClientSession` instances inside an `AsyncExitStack`.
+      - Exposes aggregated tool definitions across all enabled servers.
+      - Routes tool execution calls to the appropriate running server session.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the MCP client manager with empty sessions, caches, and file paths."""
         self.sessions: Dict[str, ClientSession] = {}
         self.exit_stacks: Dict[str, AsyncExitStack] = {}
-        self.config_path = Path(__file__).resolve().parent.parent / "mcp_servers.json"
+        self.config_path: Path = Path(__file__).resolve().parent.parent / "mcp_servers.json"
         self.configured_servers: List[str] = []
         self.server_statuses: Dict[str, str] = {}
         self.cached_tools: List[Dict[str, Any]] = []
         self.polling_task: Optional[asyncio.Task] = None
 
     def _read_config(self) -> Dict[str, Any]:
-        """Read and parse the mcp_servers.json configuration file."""
+        """Read and parse the `mcp_servers.json` configuration file from disk.
+
+        Returns:
+            Dict[str, Any]: Parsed configuration dictionary with a 'mcpServers' object mapping,
+                or a default empty schema `{"mcpServers": {}}` if missing or unparseable.
+        """
         if not self.config_path.exists():
             return {"mcpServers": {}}
         try:
@@ -50,7 +97,14 @@ class MCPClientManager:
             return {"mcpServers": {}}
 
     def _write_config(self, config_data: Dict[str, Any]) -> None:
-        """Write configuration to mcp_servers.json atomically."""
+        """Write updated configuration to `mcp_servers.json` using atomic temporary file write.
+
+        Args:
+            config_data (Dict[str, Any]): Complete MCP configuration dictionary to persist.
+
+        Raises:
+            Exception: If temporary file writing or replacement fails.
+        """
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
@@ -72,9 +126,18 @@ class MCPClientManager:
     def is_server_enabled(
         self, name: str, config_data: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """
-        Check if a given MCP server is enabled.
-        Defaults to True unless explicitly disabled.
+        """Check whether a given MCP server is enabled in configuration.
+
+        Defaults to True unless the server configuration explicitly specifies
+        `disabled: true` or `enabled: false`.
+
+        Args:
+            name (str): Server name key in `mcp_servers.json`.
+            config_data (Optional[Dict[str, Any]]): Pre-loaded configuration data.
+                If None, reads fresh configuration from disk.
+
+        Returns:
+            bool: True if the server is enabled and allowed to run, False otherwise.
         """
         if config_data is None:
             config_data = self._read_config()
@@ -85,10 +148,21 @@ class MCPClientManager:
         return srv.get("enabled", True)
 
     async def start_server(self, name: str, server_config: Dict[str, Any]) -> bool:
+        """Start an individual MCP server process, filter its stdout, and establish a ClientSession.
+
+        Launches the server executable via a Python wrapper script that filters out non-JSON
+        stdout lines before feeding them into the stdio transport. Initializes the client session
+        and records the server status.
+
+        Args:
+            name (str): Identifier name for the server (e.g. 'kali-tools').
+            server_config (Dict[str, Any]): Server configuration containing 'command',
+                optional 'args', and optional 'env' variables.
+
+        Returns:
+            bool: True if connection succeeded, False if configuration was invalid or launch failed.
         """
-        Start an individual MCP server process and establish a ClientSession.
-        """
-        # Stop any existing instance first
+        # Stop any existing instance first to prevent orphan subprocesses
         await self.stop_server(name)
 
         command = server_config.get("command")
@@ -182,8 +256,13 @@ for line in iter(proc.stdout.readline, b''):
             return False
 
     async def stop_server(self, name: str) -> None:
-        """
-        Stop an individual running MCP server and release its resources.
+        """Stop an individual running MCP server and release all associated resources.
+
+        Closes the server's `AsyncExitStack`, terminates the subprocess, and removes
+        its registered session and cached tools.
+
+        Args:
+            name (str): Identifier of the server to stop.
         """
         stack = self.exit_stacks.pop(name, None)
         if stack:
@@ -198,7 +277,10 @@ for line in iter(proc.stdout.readline, b''):
         self.cached_tools = [t for t in self.cached_tools if t.get("server") != name]
 
     async def start_all_servers(self) -> None:
-        """Load mcp_servers.json config and start all enabled servers."""
+        """Load `mcp_servers.json` configuration and start all enabled servers.
+
+        Populates initial tools cache and launches background status polling task.
+        """
         config_data = self._read_config()
         servers = config_data.get("mcpServers", {})
 
@@ -219,7 +301,7 @@ for line in iter(proc.stdout.readline, b''):
             self.polling_task = asyncio.create_task(self._poll_servers_loop())
 
     async def stop_all_servers(self) -> None:
-        """Stop all started MCP servers and clean up resources."""
+        """Stop all running MCP servers, cancel background polling, and clean up resources."""
         if self.polling_task:
             self.polling_task.cancel()
             self.polling_task = None
@@ -233,9 +315,20 @@ for line in iter(proc.stdout.readline, b''):
         logger.info("All MCP servers stopped.")
 
     async def set_server_enabled(self, name: str, enabled: bool) -> Dict[str, Any]:
-        """
-        Enable or disable a specific MCP server, update mcp_servers.json,
-        and start or stop the corresponding process.
+        """Enable or disable a specific MCP server, update configuration, and adjust runtime state.
+
+        If enabled=True, writes config and launches the server subprocess.
+        If enabled=False, writes config and terminates the server subprocess.
+
+        Args:
+            name (str): Server identifier name.
+            enabled (bool): New enabled status.
+
+        Returns:
+            Dict[str, Any]: Summary dictionary containing name, enabled, status, servers metadata, and tools list.
+
+        Raises:
+            ValueError: If the requested server is not defined in `mcp_servers.json`.
         """
         config_data = self._read_config()
         servers = config_data.get("mcpServers", {})
@@ -265,8 +358,19 @@ for line in iter(proc.stdout.readline, b''):
         }
 
     def get_servers_metadata(self) -> List[Dict[str, Any]]:
-        """
-        Return structured metadata for all configured MCP servers.
+        """Return structured status and configuration metadata for all configured MCP servers.
+
+        Reads configuration and collects runtime status ('connected', 'disconnected', 'disabled',
+        or error description) along with tool counts for each server.
+
+        Returns:
+            List[Dict[str, Any]]: List of server metadata dictionaries, each containing:
+                - "name" (str): Unique server identifier.
+                - "enabled" (bool): Whether the server is active.
+                - "status" (str): Runtime status description.
+                - "command" (str): Executable command string.
+                - "args" (List[str]): Command line arguments.
+                - "tools_count" (int): Number of tools registered by this server.
         """
         config_data = self._read_config()
         servers = config_data.get("mcpServers", {})
@@ -291,7 +395,11 @@ for line in iter(proc.stdout.readline, b''):
         return metadata
 
     async def _poll_servers_loop(self) -> None:
-        """Periodically refresh tools and statuses in the background."""
+        """Background coroutine that periodically refreshes tools and connection statuses.
+
+        Runs continuously every 10 seconds until cancelled on shutdown. Safely catches and logs
+        any exceptions to keep the polling worker alive.
+        """
         while True:
             try:
                 await self.get_available_tools(bypass_cache=True)
@@ -307,11 +415,22 @@ for line in iter(proc.stdout.readline, b''):
     async def get_available_tools(
         self, bypass_cache: bool = False
     ) -> List[Dict[str, Any]]:
-        """
-        List all available tools exposed by all enabled, running servers.
+        """Discover and aggregate all tools exposed by enabled and running MCP servers.
+
+        Queries each connected `ClientSession` via `session.list_tools()`. For special services
+        like `kali-tools`, verifies container health before attempting tool discovery.
+        Updates the internal cache (`self.cached_tools`) and server health statuses.
+
+        Args:
+            bypass_cache (bool): If True, queries all active server sessions over stdio;
+                if False and cached tools exist, returns the cached tool definitions immediately.
 
         Returns:
-            List of dicts representing tools, each with server, name, description, schema
+            List[Dict[str, Any]]: List of available tool definitions, each containing:
+                - "server" (str): Originating MCP server name.
+                - "name" (str): Function/tool identifier.
+                - "description" (str): Human and LLM readable documentation.
+                - "input_schema" (dict): JSON Schema describing accepted arguments.
         """
         if not bypass_cache and self.cached_tools:
             return self.cached_tools
@@ -362,16 +481,23 @@ for line in iter(proc.stdout.readline, b''):
     async def call_tool(
         self, server_name: str, tool_name: str, arguments: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Execute a tool call on a specific running server.
+        """Execute a tool call against a specific running MCP server.
+
+        Validates that the server is enabled and running, invokes `session.call_tool(...)`,
+        parses TextContent elements out of the returned MCP content list, and returns
+        a standardized success/failure payload.
 
         Args:
-            server_name: The name of the target MCP server
-            tool_name: The name of the tool to invoke
-            arguments: Dict of parameters for the tool
+            server_name (str): Identifier name of target MCP server (e.g. 'kali-tools').
+            tool_name (str): Name of the tool function to call on the server.
+            arguments (Dict[str, Any]): Dictionary of arguments matching the tool's input schema.
 
         Returns:
-            Dict representing result status and text payload
+            Dict[str, Any]: Standardized execution outcome dictionary:
+                - "success" (bool): True if tool executed without error.
+                - "content" (str): Consolidated textual output from tool response.
+                - "raw_result" (str): String representation of the raw protocol response.
+                - "error" (Optional[str]): Error message if execution failed.
         """
         if not self.is_server_enabled(server_name):
             return {

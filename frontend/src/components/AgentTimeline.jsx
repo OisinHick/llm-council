@@ -1,3 +1,18 @@
+/**
+ * AgentTimeline Component: Interactive Visual Execution Tracker for Council Chairperson Agent.
+ *
+ * This component visualizes the autonomous ReAct (Reasoning + Acting) loop:
+ * - Live Status Banner: Indicates active running state, completion, user cancellation, or error.
+ * - Initial Deliberation Expander: Displays the optional Stage 1-3 council strategy session that preceded agent steps.
+ * - Iterative Step Cards:
+ *     - Chairperson Reasoning: Internal thought process guiding the action.
+ *     - Action Details: Target paths, code snippets, bash command lines, or directory parameters.
+ *     - Observation Block: Execution outcome (stdout, stderr, exit code, error messages).
+ *     - Sub-Council Consultations: Integrated mini-council deliberations called during execution,
+ *       with on-demand expanders for Stage 1 responses and Stage 2 peer rankings.
+ * - Deliverables Card: Summarizes created/modified file artifacts and the final Chairperson summary report.
+ */
+
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,12 +21,23 @@ import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
 import "./AgentTimeline.css";
 
+/**
+ * Visual timeline renderer for Council Autonomous Agent execution.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Object} props.agentData - Agent state object containing status, initial_council, steps, artifacts, summary.
+ * @param {boolean} [props.isRunning=false] - Whether the agent loop is currently actively executing.
+ * @param {function(): void} [props.onCancel] - Optional callback to halt agent execution.
+ * @returns {JSX.Element|null} Rendered timeline or null if agentData is falsy.
+ */
 export default function AgentTimeline({
   agentData,
   isRunning = false,
   onCancel,
 }) {
+  // Collapsible toggle for initial council deliberation
   const [showInitialCouncil, setShowInitialCouncil] = useState(false);
+  // Map of stepNumber -> boolean to expand/collapse sub-council peer review evaluations
   const [expandedCouncilConsultations, setExpandedCouncilConsultations] =
     useState({});
 

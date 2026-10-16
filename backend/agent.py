@@ -1,8 +1,21 @@
 """Council Autonomous Agent orchestration.
 
 The Chairperson model acts as the executive agent, running a multi-step
-ReAct loop to write code, generate documents, run commands, and verify results,
-advised by cross-referenced Council deliberations.
+ReAct (Reason + Act) loop to write code, generate documents, run commands,
+and verify results, advised by cross-referenced Council deliberations.
+
+Key Capabilities:
+- Sensitivity-Driven Council Deliberation: Supports 4 sensitivity levels
+  ('low', 'medium', 'high', 'extreme') controlling when and how often
+  the agent consults the broader LLM Council.
+- Autonomous Self-Correction: Optionally invokes automatic diagnostic
+  micro-councils when local tools or shell commands fail.
+- Pre-Completion Review: Extreme sensitivity forces an independent council
+  peer review before the agent can finalize and close a task.
+- Token & Cost Accounting: Tracks prompt, completion, and total tokens
+  across both the Chairperson and all sub-council models.
+- Event Streaming: Streams structured events to SSE clients for live
+  thought and action visualization in the frontend timeline.
 """
 
 import json
@@ -18,12 +31,19 @@ from .openrouter import query_model
 
 logger = logging.getLogger("llm_council.agent")
 
+# Precompiled regular expressions for extracting JSON objects from model outputs
 _RE_AGENT_CODE_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _RE_AGENT_OUTER_JSON = re.compile(r"\{.*\}", re.DOTALL)
 
 
 class CouncilAgent:
-    """Autonomous agent driven by the Council Chairperson model."""
+    """Autonomous agent driven by the Council Chairperson model.
+
+    Executes a multi-turn ReAct loop where the Chairman generates thoughts
+    and tool actions, executes them against local workspace tools or external
+    MCP servers, receives observation feedback, and consults the LLM Council
+    for consensus advice when encountering tricky bugs or dilemmas.
+    """
 
     def __init__(
         self,
@@ -33,10 +53,27 @@ class CouncilAgent:
         deliberation_sensitivity: str = "medium",
         sensitivity_config: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize the autonomous Council Agent.
+
+        Args:
+            user_request: The user's primary goal, task, or prompt.
+            initial_council: Outcome of the initial 3-stage council deliberation
+                containing Stage 1 responses, Stage 2 rankings, and Stage 3 synthesis.
+            max_steps: Maximum ReAct loop iterations before stopping (0 or negative means unlimited).
+                Defaults to 20 if omitted.
+            deliberation_sensitivity: Sensitivity preset ('low', 'medium', 'high', 'extreme').
+                Defaults to 'medium'.
+            sensitivity_config: Optional dictionary overriding fine-grained sensitivity flags:
+                - level (str): Override sensitivity preset name.
+                - auto_trigger_on_error (bool): Automatically run diagnostic council on tool failure.
+                - review_before_completion (bool): Require council review before accepting complete_task.
+                - max_consultations (int): Maximum allowed sub-council consultations (0 for unlimited).
+                - max_steps (int): Override max execution steps.
+        """
         self.user_request = user_request
         self.initial_council = initial_council
 
-        # Sensitivity configuration
+        # Extract fine-grained sensitivity configuration
         cfg = sensitivity_config or {}
         self.sensitivity_level = str(
             cfg.get("level") or deliberation_sensitivity or "medium"
@@ -65,6 +102,7 @@ class CouncilAgent:
         else:
             self.max_steps = max_steps if max_steps is not None else 20
 
+        # Execution tracking state
         self.steps: List[Dict[str, Any]] = []
         self.artifacts: List[str] = []
         self.summary: Optional[str] = None
@@ -79,7 +117,16 @@ class CouncilAgent:
         }
 
     def _record_tokens(self, model: str, usage: Optional[Dict[str, Any]]):
-        """Record token usage for a given model."""
+        """Record token consumption for a given model into the agent's aggregate metrics.
+
+        Updates cumulative prompt, completion, and total tokens, as well as
+        a model-by-model usage breakdown.
+
+        Args:
+            model: OpenRouter model identifier.
+            usage: Token usage dictionary containing prompt_tokens, completion_tokens,
+                and total_tokens.
+        """
         if not usage or not model:
             return
         p = int(usage.get("prompt_tokens") or 0)
@@ -104,7 +151,14 @@ class CouncilAgent:
         by_m[model]["total_tokens"] += t
 
     def _record_sub_council_tokens(self, council_data: Dict[str, Any]):
-        """Record tokens from a sub-council deliberation."""
+        """Record all token usage consumed during a sub-council deliberation.
+
+        Traverses Stage 1, Stage 2, and Stage 3 result payloads and attributes
+        token expenditures to their respective models.
+
+        Args:
+            council_data: Result dictionary returned by `run_sub_council`.
+        """
         if not council_data:
             return
         for r in council_data.get("stage1", []) or []:
@@ -126,10 +180,21 @@ class CouncilAgent:
         return self.max_consultations is None or self.max_consultations <= 0
 
     def cancel(self):
-        """Signal the agent to abort execution."""
+        """Signal the agent to cooperatively abort execution at the next loop iteration."""
         self.is_cancelled = True
 
     def _build_system_prompt(self, external_tools: List[Dict[str, Any]]) -> str:
+        """Construct the comprehensive system instructions for the Chairperson model.
+
+        Documents available workspace tools, connected external MCP tools,
+        the deliberation sensitivity policy, and the strict JSON output schema.
+
+        Args:
+            external_tools: List of tool metadata dictionaries discovered via connected MCP servers.
+
+        Returns:
+            str: Complete system prompt string for the Chairperson.
+        """
         tools_doc = """Available Tools:
 1. write_file: Create or overwrite a file with given content.
    Parameters: {"path": "file/path.ext", "content": "file text content"}
@@ -158,6 +223,7 @@ class CouncilAgent:
                 tools_doc += f"- {t['name']} (server: {t['server']}): {t['description']}\n"
                 tools_doc += f"  Parameters Schema: {json.dumps(t.get('input_schema', {}))}\n"
 
+        # Dynamically inject rules based on active deliberation sensitivity level
         if self.sensitivity_level == "low":
             deliberation_rule = (
                 "4. COUNCIL DELIBERATION SENSITIVITY: LOW (MINIMAL). "
@@ -207,6 +273,13 @@ CRITICAL OPERATIONAL RULES:
 """
 
     def _format_initial_briefing(self) -> str:
+        """Format the initial Council Deliberation blueprint for injection into the user prompt.
+
+        Summarizes peer ranking consensus and presents the Stage 3 synthesis.
+
+        Returns:
+            str: Markdown-formatted briefing text.
+        """
         s3 = self.initial_council.get("stage3", {}).get("response", "No synthesis available.")
         rankings = self.initial_council.get("metadata", {}).get("aggregate_rankings", [])
         rankings_str = ", ".join(
@@ -226,7 +299,18 @@ Consensus Synthesis & Strategy:
         on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]],
         step_count: int,
     ) -> Optional[Callable[[str, Any], Awaitable[None]]]:
-        """Create a forwarding callback for streaming nested sub-council events."""
+        """Create a forwarding callback for streaming nested sub-council events.
+
+        Wraps events produced inside `run_sub_council` into a parent `sub_council_event`
+        tagged with the current agent step number.
+
+        Args:
+            on_event: The parent SSE event callback.
+            step_count: The active step number of the agent ReAct loop.
+
+        Returns:
+            Optional[Callable]: Async forwarder function, or None if on_event is not provided.
+        """
         if not on_event:
             return None
 
@@ -239,7 +323,16 @@ Consensus Synthesis & Strategy:
         return sub_event_forwarder
 
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
-        """Extract and parse JSON from model output."""
+        """Extract and parse a JSON dictionary from raw model text.
+
+        Checks for ```json code blocks first, falling back to outer curly braces.
+
+        Args:
+            text: Raw string generated by the Chairperson model.
+
+        Returns:
+            Optional[Dict[str, Any]]: Parsed dictionary if valid JSON, otherwise None.
+        """
         if not text:
             return None
 
@@ -265,8 +358,37 @@ Consensus Synthesis & Strategy:
         self,
         on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
-        """
-        Execute the autonomous agent loop until task completion or max steps.
+        """Execute the autonomous agent loop until task completion or max steps.
+
+        Execution Lifecycle:
+        1. Queries connected MCP servers to collect available external tool definitions.
+        2. Injects system instructions, initial council deliberation, and user task.
+        3. Loops up to `max_steps`:
+           a. Checks for user cancellation signal.
+           b. Queries the Chairperson model for the next thought and action.
+           c. Parses JSON response; re-prompts if malformed.
+           d. If action is `complete_task`:
+              - Performs pre-completion review sub-council if extreme sensitivity is enabled.
+              - Finalizes deliverables, collects artifacts, and breaks loop.
+           e. Dispatches tool action (`write_file`, `read_file`, `edit_file`,
+              `list_directory`, `execute_command`, `consult_council`, or external MCP tool).
+           f. If tool fails and `auto_trigger_on_error` is enabled, triggers automatic
+              diagnostic sub-council.
+           g. Appends tool observation to conversation history and broadcasts SSE events.
+        4. Compiles and returns final execution summary, artifacts, and token metrics.
+
+        Args:
+            on_event: Optional async callback receiving `(event_type, event_data)` for
+                streaming progress updates to the caller.
+
+        Returns:
+            Dict[str, Any]: Agent outcome payload containing:
+                - success (bool): True if task was declared completed.
+                - steps (list): Recorded step history with thoughts, actions, and observations.
+                - artifacts (list): List of modified/created file paths.
+                - summary (str): Completion summary statement.
+                - error (str, optional): Error message if loop terminated abnormally.
+                - token_usage (dict): Total and per-model token consumption statistics.
         """
         external_tools = await mcp_manager.get_available_tools()
         system_prompt = self._build_system_prompt(external_tools)

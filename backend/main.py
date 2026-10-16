@@ -1,4 +1,22 @@
-"""FastAPI backend for LLM Council."""
+"""FastAPI backend for LLM Council.
+
+This module exposes the complete REST and Server-Sent Events (SSE) API surface
+for the LLM Council application, orchestrating:
+1. Application Lifecycle:
+   - Startup initialization: Starting configured MCP stdio/SSE servers and initiating
+     background OpenRouter dynamic pricing prefetch & periodic 15-minute refresh.
+   - Shutdown cleanup: Terminating active background refresh tasks and stopping all MCP servers.
+2. Streaming Protocols (SSE):
+   - Real-time progress updates for 3-stage council deliberation (`/message/stream`).
+   - Real-time 4-stage action planning and tool execution (`/action/stream`).
+   - Asynchronous multi-turn autonomous agent execution (`/agent/stream`).
+3. Core REST Endpoints:
+   - Conversation management (CRUD operations, title generation, mode updates).
+   - Dynamic pricing queries and model discovery via OpenRouter.
+   - Token compression statistics, preview dry-runs, and counter resets.
+   - External MCP tool discovery, status checks, and server toggling.
+   - System configuration and user preferences persistence.
+"""
 
 import asyncio
 import json
@@ -42,6 +60,17 @@ from .compression import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown lifecycles.
+
+    On startup:
+    1. Boots up all enabled MCP servers (stdio subprocesses and SSE connections).
+    2. Spawns a background task to prefetch real-time OpenRouter model pricing rates.
+    3. Initializes a recurring background task to auto-refresh pricing every 15 minutes.
+
+    On shutdown:
+    1. Cancels the background pricing refresh loop.
+    2. Gracefully disconnects and terminates all active MCP server client sessions.
+    """
     # Start all configured MCP servers on startup
     await mcp_manager.start_all_servers()
     # Prefetch dynamic OpenRouter pricing in the background
@@ -49,6 +78,7 @@ async def lifespan(app: FastAPI):
 
     # Periodically auto-refresh OpenRouter pricing in the background
     async def periodic_pricing_refresh():
+        """Background coroutine refreshing OpenRouter pricing every 900 seconds."""
         while True:
             try:
                 await asyncio.sleep(900)  # 15 minutes
@@ -69,7 +99,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="LLM Council API", lifespan=lifespan)
 
 
-# Basic logging configuration
+# Basic logging configuration for application tracing
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
 )
@@ -77,7 +107,19 @@ logger = logging.getLogger("llm_council.backend")
 
 
 def _sse_event(event_type: str, data: Any = None, **kwargs) -> str:
-    """Format a Server-Sent Event data packet."""
+    """Format a Server-Sent Event (SSE) data packet.
+
+    Builds a JSON payload adhering to the standard SSE event format:
+    `data: {"type": <event_type>, "data": <data>, ...}\n\n`.
+
+    Args:
+        event_type: String identifier representing the event kind (e.g. 'stage1_start').
+        data: Optional payload associated with this event.
+        **kwargs: Additional key-value pairs included directly at the top level of the payload.
+
+    Returns:
+        str: Serialized SSE event frame string.
+    """
     payload: Dict[str, Any] = {"type": event_type, **kwargs}
     if data is not None:
         payload["data"] = data
@@ -95,40 +137,40 @@ app.add_middleware(
 
 
 class CreateConversationRequest(BaseModel):
-    """Request to create a new conversation."""
+    """Request payload for creating a new conversation."""
 
     mode: Optional[str] = "informational"
 
 
 class UpdateConversationModeRequest(BaseModel):
-    """Request to update conversation mode."""
+    """Request payload for updating the conversation mode."""
 
     mode: str
 
 
 
 class SendMessageRequest(BaseModel):
-    """Request to send a message in a conversation."""
+    """Request payload for submitting a user message to a conversation."""
 
     content: str
 
 
 class ActionRequest(BaseModel):
-    """Request to perform an action with council voting."""
+    """Request payload for executing a single action via 4-stage council deliberation."""
 
     request: str
-    execute: bool = True  # Whether to actually execute the action
+    execute: bool = True  # Whether to actually execute the action plan tools
     conversation_id: Optional[str] = None
 
 
 class ExecuteStoredActionRequest(BaseModel):
-    """Request to execute an existing action plan stored in a conversation."""
+    """Request payload to execute an existing action plan stored in a conversation."""
 
     conversation_id: str
 
 
 class AgentRunRequest(BaseModel):
-    """Request to run the Council Chairperson agent."""
+    """Request payload to start an autonomous Council Chairperson agent run."""
 
     request: str
     conversation_id: Optional[str] = None
@@ -138,13 +180,13 @@ class AgentRunRequest(BaseModel):
 
 
 class CancelAgentRequest(BaseModel):
-    """Request to cancel an active agent run."""
+    """Request payload to abort an active agent execution."""
 
     conversation_id: str
 
 
 class UpdateSettingsRequest(BaseModel):
-    """Request to update configuration settings."""
+    """Request payload for updating application configuration settings."""
 
     openrouter_api_key: Optional[str] = None
     council_models: Optional[List[str]] = None
@@ -158,7 +200,7 @@ class UpdateSettingsRequest(BaseModel):
 
 
 class CompressionPreviewRequest(BaseModel):
-    """Request to preview token compression on sample messages."""
+    """Request payload to preview token compression effects on sample messages."""
 
     messages: List[Dict[str, Any]]
     model: Optional[str] = "openai/gpt-4o-mini"
@@ -166,13 +208,13 @@ class CompressionPreviewRequest(BaseModel):
 
 
 class ToggleMcpServerRequest(BaseModel):
-    """Request to toggle or set enabled status for an MCP server."""
+    """Request payload to toggle or explicitly set the enabled status for an MCP server."""
 
     enabled: Optional[bool] = None
 
 
 class ConversationMetadata(BaseModel):
-    """Conversation metadata for list view."""
+    """Summary metadata representation of a conversation for list views."""
 
     id: str
     created_at: str
@@ -183,7 +225,7 @@ class ConversationMetadata(BaseModel):
 
 
 class Conversation(BaseModel):
-    """Full conversation with all messages."""
+    """Complete conversation model including full message history and token usage."""
 
     id: str
     created_at: str
@@ -195,7 +237,7 @@ class Conversation(BaseModel):
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint confirming API service readiness."""
     return {"status": "ok", "service": "LLM Council API"}
 
 
@@ -231,13 +273,13 @@ async def refresh_pricing_endpoint():
 
 @app.get("/api/settings")
 async def get_settings_endpoint():
-    """Get current settings."""
+    """Get current configuration settings."""
     return get_settings()
 
 
 @app.post("/api/settings")
 async def save_settings_endpoint(request: UpdateSettingsRequest):
-    """Update settings."""
+    """Update and persist configuration settings."""
     try:
         data = (
             request.model_dump(exclude_unset=True)
@@ -252,7 +294,16 @@ async def save_settings_endpoint(request: UpdateSettingsRequest):
 
 @app.get("/api/compression/stats")
 async def get_compression_stats_endpoint():
-    """Get cumulative token compression metrics."""
+    """Get cumulative token compression metrics across the current backend session.
+
+    Returns:
+        Dict[str, Any]: Aggregate statistics including:
+            - total_tokens_before (int): Cumulative uncompressed token count.
+            - total_tokens_after (int): Cumulative compressed token count.
+            - total_tokens_saved (int): Net tokens saved across all compressed prompts.
+            - total_calls (int): Number of compression operations invoked.
+            - by_algorithm (dict): Per-algorithm breakdown of usage and savings.
+    """
     try:
         stats = get_compression_stats()
         return {"success": True, "stats": stats}
@@ -262,7 +313,19 @@ async def get_compression_stats_endpoint():
 
 @app.post("/api/compression/preview")
 async def preview_compression_endpoint(request: CompressionPreviewRequest):
-    """Dry-run preview of compression on sample messages."""
+    """Dry-run preview of prompt token compression without modifying conversation state.
+
+    Executes the specified compression algorithm against sample messages to preview
+    token savings, applied transformations (e.g. whitespace collapsing, comment stripping),
+    and compression ratios before committing them to live model interactions.
+
+    Args:
+        request: CompressionPreviewRequest containing messages, model, and algorithm.
+
+    Returns:
+        Dict[str, Any]: Detailed preview payload with before/after token counts and
+            the transformed message list.
+    """
     try:
         result = compress_messages(
             messages=request.messages,
@@ -288,7 +351,11 @@ async def preview_compression_endpoint(request: CompressionPreviewRequest):
 
 @app.post("/api/compression/reset-stats")
 async def reset_compression_stats_endpoint():
-    """Reset cumulative compression metrics."""
+    """Reset cumulative in-memory compression metrics back to zero.
+
+    Returns:
+        Dict[str, Any]: Confirmation message.
+    """
     try:
         reset_compression_stats()
         return {"success": True, "message": "Compression stats reset successfully"}
@@ -298,7 +365,14 @@ async def reset_compression_stats_endpoint():
 
 @app.get("/api/mcp/tools")
 async def get_mcp_tools():
-    """Get all available tools from connected MCP servers."""
+    """Get all available tools from connected MCP servers and their operational statuses.
+
+    Returns:
+        Dict[str, Any]: Aggregated dictionary containing:
+            - tools: List of tool schemas across all active servers.
+            - statuses: Per-server connection health statuses ('connected', 'connecting', 'stopped', 'error').
+            - servers: Configuration metadata for all known MCP servers.
+    """
     try:
         tools = await mcp_manager.get_available_tools()
         return {
@@ -313,7 +387,11 @@ async def get_mcp_tools():
 
 @app.get("/api/mcp/servers")
 async def get_mcp_servers():
-    """Get metadata and statuses for all configured MCP servers."""
+    """Get metadata and connection statuses for all configured MCP servers.
+
+    Returns:
+        Dict[str, Any]: Server metadata list including name, command, transport, and enabled status.
+    """
     try:
         return {
             "success": True,
@@ -327,7 +405,17 @@ async def get_mcp_servers():
 async def toggle_mcp_server(
     server_name: str, request: Optional[ToggleMcpServerRequest] = None
 ):
-    """Enable or disable a specific MCP server."""
+    """Enable or disable a specific MCP server dynamically at runtime.
+
+    Starting or stopping the server process and updating the persisted settings.
+
+    Args:
+        server_name: The registered name of the target MCP server.
+        request: Optional body specifying desired enabled state; toggles current state if omitted.
+
+    Returns:
+        Dict[str, Any]: Result dictionary containing updated server status.
+    """
     try:
         if request and request.enabled is not None:
             target_enabled = request.enabled
@@ -345,13 +433,28 @@ async def toggle_mcp_server(
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
-    """List all conversations (metadata only)."""
+    """List summary metadata for all conversations, sorted newest first.
+
+    Used by the frontend sidebar to populate conversation history.
+
+    Returns:
+        List[ConversationMetadata]: Conversation descriptors with ID, title, message count,
+            mode, and cumulative token usage.
+    """
     return storage.list_conversations()
 
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: Optional[CreateConversationRequest] = None):
-    """Create a new conversation."""
+    """Create a new empty conversation with a generated UUID.
+
+    Args:
+        request: Optional request specifying the conversation mode ('informational',
+            'one_shot', or 'agentic'). Defaults to 'informational'.
+
+    Returns:
+        Conversation: Newly initialized conversation object.
+    """
     mode = request.mode if request and request.mode else "informational"
     conversation_id = str(uuid.uuid4())
     conversation = storage.create_conversation(conversation_id, mode=mode)
@@ -362,7 +465,15 @@ async def create_conversation(request: Optional[CreateConversationRequest] = Non
 async def update_conversation_mode_endpoint(
     conversation_id: str, request: UpdateConversationModeRequest
 ):
-    """Update the mode of a specific conversation."""
+    """Update the operating mode of an existing conversation.
+
+    Args:
+        conversation_id: Unique UUID of the target conversation.
+        request: Payload containing the new mode string.
+
+    Returns:
+        Dict[str, str]: Status confirmation and new mode.
+    """
     updated = storage.update_conversation_mode(conversation_id, request.mode)
     if updated is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -371,7 +482,14 @@ async def update_conversation_mode_endpoint(
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(conversation_id: str):
-    """Get a specific conversation with all its messages."""
+    """Retrieve a complete conversation record including full message transcript and token metrics.
+
+    Args:
+        conversation_id: Unique UUID of the conversation.
+
+    Returns:
+        Conversation: Full conversation schema.
+    """
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -380,9 +498,19 @@ async def get_conversation(conversation_id: str):
 
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
-    """
-    Send a message and run the 3-stage council process.
-    Returns the complete response with all stages.
+    """Send a user message and synchronously execute the 3-stage council deliberation.
+
+    Blocks until Stage 1 (divergence), Stage 2 (peer ranking), and Stage 3 (synthesis)
+    complete. Automatically generates a descriptive title if this is the first message.
+    Saves user and assistant entries into storage before returning.
+
+    Args:
+        conversation_id: Unique UUID of the conversation.
+        request: Payload containing the user's message text.
+
+    Returns:
+        Dict[str, Any]: Complete deliberation outcome with stage1, stage2, stage3,
+            metadata, and cumulative token usage.
     """
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
@@ -427,9 +555,21 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, request: SendMessageRequest):
-    """
-    Send a message and stream the 3-stage council process.
-    Returns Server-Sent Events as each stage completes.
+    """Send a user message and stream the 3-stage council process via Server-Sent Events (SSE).
+
+    Emits live events as deliberation progresses:
+    - `stage1_start`, `stage1_complete`
+    - `stage2_start`, `stage2_complete`
+    - `stage3_start`, `stage3_complete`
+    - `title_complete` (if first message)
+    - `complete` (with updated conversation token usage)
+
+    Args:
+        conversation_id: Unique UUID of the conversation.
+        request: Payload containing the user's message text.
+
+    Returns:
+        StreamingResponse: SSE stream formatted with text/event-stream.
     """
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
@@ -440,6 +580,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     is_first_message = len(conversation["messages"]) == 0
 
     async def event_generator():
+        """Asynchronous generator yielding formatted SSE frames for each stage."""
         try:
             # Add user message
             storage.add_user_message(conversation_id, request.content)
@@ -515,14 +656,19 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
 @app.post("/api/action")
 async def perform_action(request: ActionRequest):
-    """
-    Run the full 4-stage council with action execution.
-    Stage 1: Collect approaches from all models
-    Stage 2: Models vote on best approach
-    Stage 3: Chairman synthesizes
-    Stage 4: Generate and execute MCP tool calls
+    """Execute a 4-stage council deliberation with action plan generation and tool execution.
 
-    Returns the complete result with execution details.
+    Stages:
+    - Stage 1: Collect proposals from all models.
+    - Stage 2: Peer ranking and vote aggregation.
+    - Stage 3: Chairman synthesizes best response.
+    - Stage 4: Synthesize structured action plan and execute MCP/local tool calls.
+
+    Args:
+        request: ActionRequest specifying user request, execution flag, and optional conversation ID.
+
+    Returns:
+        Dict[str, Any]: Comprehensive result including all stages and execution outputs.
     """
     if request.conversation_id is not None:
         conversation = storage.get_conversation(request.conversation_id)
@@ -563,8 +709,21 @@ async def perform_action(request: ActionRequest):
 
 @app.post("/api/action/stream")
 async def perform_action_stream(request: ActionRequest):
-    """
-    Run the full 4-stage council with streaming updates.
+    """Stream a 4-stage action deliberation and execution pipeline via SSE.
+
+    Emits events:
+    - `stage1_start`, `stage1_complete`
+    - `stage2_start`, `stage2_complete`
+    - `stage3_start`, `stage3_complete`
+    - `stage4_start`, `stage4_action_plan`
+    - `execution_start`, `execution_complete` (if execute is True)
+    - `complete`
+
+    Args:
+        request: ActionRequest specifying task, execution flag, and optional conversation ID.
+
+    Returns:
+        StreamingResponse: Real-time event stream.
     """
     conversation = None
     is_first_message = False
@@ -575,6 +734,7 @@ async def perform_action_stream(request: ActionRequest):
         is_first_message = len(conversation["messages"]) == 0
 
     async def event_generator():
+        """Asynchronous generator yielding SSE events for action synthesis and execution."""
         try:
             if request.conversation_id is not None:
                 storage.add_user_message(request.conversation_id, request.request)
@@ -674,8 +834,17 @@ async def perform_action_stream(request: ActionRequest):
 
 @app.post("/api/action/execute/stream")
 async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
-    """
-    Execute a previously generated action plan stored in the conversation.
+    """Execute a previously synthesized action plan stored in a conversation transcript.
+
+    Scans the conversation history for the latest assistant message containing
+    a Stage 4 action plan, dispatches the tool calls, updates the message
+    in storage with the execution output, and streams progress over SSE.
+
+    Args:
+        request: ExecuteStoredActionRequest with the conversation ID.
+
+    Returns:
+        StreamingResponse: Stream of execution events (`execution_start`, `execution_complete`, `complete`).
     """
     conversation = storage.get_conversation(request.conversation_id)
     if conversation is None:
@@ -694,6 +863,7 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
         )
 
     async def event_generator():
+        """Asynchronous generator yielding execution progress events."""
         try:
             yield _sse_event("execution_start")
             execution_result = await execute_action_plan(action_message["stage4"])
@@ -716,13 +886,23 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
     )
 
 
-# In-memory registry of active agent runs
+# In-memory registry of active agent runs mapped by conversation ID
 active_agents: Dict[str, CouncilAgent] = {}
 
 
 @app.post("/api/agent/cancel")
 async def cancel_agent(request: CancelAgentRequest):
-    """Cancel an active agent execution."""
+    """Cancel an active autonomous agent execution.
+
+    Signals the `CouncilAgent` instance associated with the conversation
+    to abort at its next iteration.
+
+    Args:
+        request: CancelAgentRequest containing the target conversation_id.
+
+    Returns:
+        Dict[str, Any]: Status payload indicating whether an active agent was found and signalled.
+    """
     agent = active_agents.get(request.conversation_id)
     if agent:
         agent.cancel()
@@ -732,9 +912,19 @@ async def cancel_agent(request: CancelAgentRequest):
 
 @app.post("/api/agent/stream")
 async def run_agent_stream(request: AgentRunRequest):
-    """
-    Run autonomous CouncilAgent with initial Council Deliberation and
-    streaming multi-step Chairperson execution loop.
+    """Run autonomous CouncilAgent with initial Council Deliberation and streaming ReAct loop.
+
+    Execution Pipeline:
+    - Phase 1 (Deliberation): Runs Stages 1-3 to create a peer-voted strategy blueprint.
+    - Phase 2 (Autonomous ReAct Loop): Spawns `CouncilAgent` which reads/writes code, executes tests,
+      and consults sub-councils, forwarding live thoughts and tool results to the client over SSE.
+    - Phase 3 (Persistence): Persists the complete run, artifacts, and token metrics to conversation storage.
+
+    Args:
+        request: AgentRunRequest with user prompt, conversation ID, max steps, and sensitivity settings.
+
+    Returns:
+        StreamingResponse: Comprehensive SSE stream with real-time thought and action updates.
     """
     conversation = None
     is_first_message = False
@@ -747,6 +937,7 @@ async def run_agent_stream(request: AgentRunRequest):
         is_first_message = len(conversation["messages"]) == 0
 
     async def event_generator():
+        """Asynchronous generator orchestrating initial deliberation and agent loop SSE streaming."""
         nonlocal is_first_message
         title_task = None
         agent = None
@@ -833,6 +1024,7 @@ async def run_agent_stream(request: AgentRunRequest):
             queue = asyncio.Queue()
 
             async def on_agent_event(event_type: str, data: Dict[str, Any]):
+                """Queue agent lifecycle and tool execution events for SSE emission."""
                 await queue.put((event_type, data))
 
             # Run agent loop as a task so we can stream events from queue
@@ -890,7 +1082,7 @@ async def run_agent_stream(request: AgentRunRequest):
     )
 
 
-# Serve built frontend static files if present (e.g. in Docker)
+# Serve built frontend static files if present (e.g. in Docker or production builds)
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     from fastapi.staticfiles import StaticFiles
@@ -899,7 +1091,7 @@ if frontend_dist.exists() and (frontend_dist / "index.html").exists():
 else:
     @app.get("/")
     async def root():
-        """Health check endpoint when frontend is served separately."""
+        """Health check endpoint when frontend is served separately in development."""
         return {"status": "ok", "service": "LLM Council API"}
 
 

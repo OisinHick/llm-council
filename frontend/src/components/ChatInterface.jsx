@@ -1,3 +1,28 @@
+/**
+ * ChatInterface Component: Main Conversation View and Execution Controls.
+ *
+ * Responsibilities:
+ * - Conversation Header: Displays conversation title, mode tag, and interactive token counter badge.
+ * - Message History Feed:
+ *     - User messages with markdown rendering.
+ *     - Assistant messages supporting:
+ *         * Multi-stage Council deliberation (Stage 1 individual responses, Stage 2 peer rankings, Stage 3 synthesis).
+ *         * "Just show final answer" mode with clean, unencumbered text.
+ *         * One-shot Stage 4 Action Plan review and tool execution blocks.
+ *         * Autonomous AgentTimeline with iterative ReAct loops and nested sub-council consultations.
+ *         * Granular per-turn token usage badges and model breakdown tags.
+ * - Tool Execution Output Renderer:
+ *     - Formats structured tool results (stdout, stderr, JSON content, error banners, metadata key-values).
+ * - Connected MCP Tools Drawer:
+ *     - Displays discovered MCP tools, JSON input schemas, and real-time server connection status.
+ *     - Allows enabling/disabling individual MCP servers.
+ * - Execution Mode Slider:
+ *     - Accessible 3-position glider: "Informational" (Stages 1-3), "One Shot" (Stage 4), "Agentic" (ReAct loop).
+ * - Prompt Input Box:
+ *     - Auto-resizing textarea with Enter to submit and Shift+Enter for newlines.
+ *     - Quick launcher for the Council Deliberation Sensitivity configuration modal.
+ */
+
 import { useState, useEffect, useRef, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,6 +35,12 @@ import { api } from "../api";
 import { formatSpend, formatExactSpend, formatShortNumber } from "../formatters";
 import "./ChatInterface.css";
 
+/**
+ * Safely parse a JSON string, returning null if invalid or not an object.
+ *
+ * @param {string} str - String to parse.
+ * @returns {Object|null} Parsed object or null.
+ */
 const tryParseJSON = (str) => {
   if (typeof str !== "string") return null;
   try {
@@ -23,6 +54,9 @@ const tryParseJSON = (str) => {
   return null;
 };
 
+/**
+ * Standard known output keys in tool observation payloads.
+ */
 const KNOWN_OUTPUT_KEYS = new Set([
   "stdout",
   "stderr",
@@ -33,6 +67,12 @@ const KNOWN_OUTPUT_KEYS = new Set([
   "success",
 ]);
 
+/**
+ * Extract recognized tool output fields from a nested payload and assign remaining fields to metadata.
+ *
+ * @param {Object} source - Raw tool result object.
+ * @param {Object} out - Output accumulator object.
+ */
 const mergeExtractedFields = (source, out) => {
   if (!source || typeof source !== "object") return;
   if (source.stdout) out.stdout = source.stdout;
@@ -47,6 +87,12 @@ const mergeExtractedFields = (source, out) => {
   });
 };
 
+/**
+ * Render structured tool observation results with styled stdout, stderr, JSON, and metadata cards.
+ *
+ * @param {Object|null} result - Raw tool result object.
+ * @returns {JSX.Element|null} Formatted tool result view or null.
+ */
 const renderFormattedResult = (result) => {
   if (!result) return null;
 
@@ -176,6 +222,9 @@ const renderFormattedResult = (result) => {
   );
 };
 
+/**
+ * Individual MCP tool card with expandable JSON input schema viewer.
+ */
 const McpToolItem = memo(({ tool }) => {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -208,6 +257,9 @@ const McpToolItem = memo(({ tool }) => {
   );
 });
 
+/**
+ * List of active MCP tools rendered in the MCP tools discovery drawer.
+ */
 const McpToolsList = memo(({ mcpTools }) => {
   if (mcpTools.length === 0) {
     return (
@@ -223,6 +275,35 @@ const McpToolsList = memo(({ mcpTools }) => {
   ));
 });
 
+/**
+ * Main chat interface component.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Object|null} props.conversation - Active conversation object.
+ * @param {string} [props.mode="informational"] - Active execution mode ("informational" | "one_shot" | "agentic").
+ * @param {function(string): void} props.onModeChange - Mode change callback.
+ * @param {boolean} [props.showAllDeliberationSteps=true] - Display all steps vs final answer.
+ * @param {function(string): void} props.onSendMessage - Send informational message callback.
+ * @param {function(string): void} props.onGenerateActionPlan - Generate action plan callback.
+ * @param {function(): void} props.onExecuteActionPlan - Execute action plan callback.
+ * @param {function(string, Object): void} props.onRunAgent - Run autonomous agent callback.
+ * @param {function(): void} props.onCancelAgent - Cancel active agent callback.
+ * @param {boolean} [props.agentLoading=false] - Whether an agent run is active.
+ * @param {string|null} [props.agentError] - Error from agent run.
+ * @param {Object|null} props.actionPlanResult - Generated action plan result.
+ * @param {Object|null} props.actionExecutionResult - Executed action plan result.
+ * @param {Object} props.actionStageResults - Intermediate stage results in action mode.
+ * @param {Object} props.actionStageLoading - Intermediate stage loading flags in action mode.
+ * @param {boolean} props.actionLoading - Action mode loading flag.
+ * @param {string|null} props.actionError - Action mode error string.
+ * @param {string} props.actionPlanRequest - Action mode prompt text.
+ * @param {boolean} props.isLoading - Informational mode loading flag.
+ * @param {boolean} [props.showTokenCount=true] - Display token counts toggle.
+ * @param {boolean} [props.showTokensPerModel=false] - Display tokens per model toggle.
+ * @param {boolean} [props.showSpendValue=true] - Display USD spend toggle.
+ * @param {boolean} [props.showSavedTokens=true] - Display saved tokens toggle.
+ * @returns {JSX.Element} Rendered chat interface.
+ */
 export default function ChatInterface({
   conversation,
   mode = "informational",
@@ -292,6 +373,11 @@ export default function ChatInterface({
     };
   });
 
+  /**
+   * Persist updated council deliberation sensitivity preferences to state and localStorage.
+   *
+   * @param {Object} newConfig - New sensitivity config object.
+   */
   const handleSaveSensitivity = (newConfig) => {
     setSensitivityConfig(newConfig);
     try {
@@ -345,6 +431,12 @@ export default function ChatInterface({
       .length;
   }, [mcpStatuses]);
 
+  /**
+   * Toggle an MCP server's enabled/disabled state via backend API.
+   *
+   * @param {string} serverName - Identifier name of the MCP server.
+   * @param {React.MouseEvent} [e] - Click event to stop propagation.
+   */
   const handleToggleServer = async (serverName, e) => {
     if (e) e.stopPropagation();
     setTogglingServer(serverName);
@@ -368,6 +460,7 @@ export default function ChatInterface({
     }
   };
 
+  // Poll MCP tools and server statuses every 5 seconds
   useEffect(() => {
     const fetchTools = async () => {
       try {
@@ -388,10 +481,18 @@ export default function ChatInterface({
     return () => clearInterval(interval);
   }, [actionLoading, isLoading, agentLoading]);
 
+  /**
+   * Scroll the message feed container smoothly to the bottom.
+   */
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  /**
+   * Switch the execution mode across Informational, One Shot, and Agentic.
+   *
+   * @param {string} newMode - "informational" | "one_shot" | "agentic".
+   */
   const handleSelectMode = (newMode) => {
     if (isLoading || actionLoading || agentLoading) return;
     if (onModeChange) {
@@ -407,6 +508,11 @@ export default function ChatInterface({
     scrollToBottom();
   }, [conversation]);
 
+  /**
+   * Form submission handler: dispatches to onRunAgent, onGenerateActionPlan, or onSendMessage.
+   *
+   * @param {React.FormEvent} e - Form submission event.
+   */
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading || actionLoading || agentLoading) return;
@@ -424,6 +530,11 @@ export default function ChatInterface({
     setInput("");
   };
 
+  /**
+   * Keydown handler: triggers form submission on Enter (without Shift), allowing Shift+Enter for newlines.
+   *
+   * @param {React.KeyboardEvent} e - Keyboard event.
+   */
   const handleKeyDown = (e) => {
     // Submit on Enter (without Shift)
     if (e.key === "Enter" && !e.shiftKey) {

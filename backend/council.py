@@ -1,4 +1,19 @@
-"""3-stage LLM Council orchestration."""
+"""3-stage LLM Council orchestration.
+
+This module coordinates multi-model deliberation through a structured consensus pipeline:
+- Stage 1 (Divergence): Concurrently queries all configured council models with the user
+  prompt to gather diverse, independent perspectives without cross-contamination.
+- Stage 2 (Blind Peer Review & Ranking): Anonymizes each response under synthetic labels
+  ('Response A', 'Response B', ...) to eliminate brand bias. Council models evaluate and rank
+  their peers' answers, from best to worst.
+- Stage 3 (Convergence & Synthesis): The Chairman model inspects the full council
+  transcripts—including individual proposals and peer ranking distributions—and synthesizes
+  a final authoritative consensus answer.
+- Stage 4 (Action Planning): Translates the top-ranked solution into concrete, schema-valid
+  tool calls for execution across local primitives or external MCP servers.
+- Sub-Council Deliberation: Enables the autonomous agent to spin up on-demand micro-councils
+  with streaming event callbacks for architectural dilemmas or error diagnostics.
+"""
 
 import json
 import logging
@@ -13,7 +28,7 @@ from .openrouter import query_model, query_models_parallel
 
 logger = logging.getLogger("llm_council.council")
 
-# Precompiled regexes for response parsing
+# Precompiled regular expressions for robust parsing of model rankings and JSON payloads
 _RE_FINAL_RANKING_HEADER = re.compile(r"FINAL RANKING:\s*(.*)", re.DOTALL | re.IGNORECASE)
 _RE_NUMBERED_RESPONSE = re.compile(r"\d+\.\s*Response\s*([A-Z])", re.IGNORECASE)
 _RE_RESPONSE_LABEL = re.compile(r"Response\s*([A-Z])", re.IGNORECASE)
@@ -22,7 +37,18 @@ _RE_OUTER_JSON = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
-    """Helper to safely extract and parse a JSON object from raw LLM text."""
+    """Helper to safely extract and parse a JSON dictionary from raw LLM text.
+
+    Uses a two-phase extraction strategy:
+    1. Attempts to locate a fenced markdown code block (````json ... ````).
+    2. Falls back to finding the outermost matching curly braces (`{...}`).
+
+    Args:
+        text: Raw text response received from an LLM.
+
+    Returns:
+        Optional[Dict[str, Any]]: Parsed JSON dictionary if valid, or None if extraction failed.
+    """
     if not text:
         return None
     # 1. Try markdown code block
@@ -43,21 +69,27 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
-    """
-    Stage 1: Collect individual responses from all council models.
+    """Stage 1: Collect individual responses from all council models.
+
+    Fans out parallel queries to all models configured in the council using
+    `query_models_parallel` with a 180-second timeout. Filters out any models
+    that failed or timed out, returning only successful outputs with token usage.
 
     Args:
-        user_query: The user's question
+        user_query: The user's input query or problem statement.
 
     Returns:
-        List of dicts with 'model' and 'response' keys
+        List[Dict[str, Any]]: List of response dictionaries, each containing:
+            - model (str): OpenRouter model identifier.
+            - response (str): Generated textual response.
+            - usage (dict): Token consumption dictionary (prompt, completion, total).
     """
     messages = [{"role": "user", "content": user_query}]
 
-    # Query all models in parallel with an overall timeout
+    # Query all models in parallel with an overall timeout of 180 seconds
     responses = await query_models_parallel(get_council_models(), messages, timeout=180.0)
 
-    # Format results
+    # Format results, filtering out models that timed out or errored (response is None)
     stage1_results = []
     for model, response in responses.items():
         if response is not None:  # Only include successful responses
@@ -78,15 +110,23 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
 async def stage2_collect_rankings(
     user_query: str, stage1_results: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    """
-    Stage 2: Each model ranks the anonymized responses.
+    """Stage 2: Each model ranks the anonymized responses.
+
+    To eliminate brand bias and ensure impartial peer review:
+    1. Maps each model's Stage 1 response to an anonymous label ('Response A', 'Response B', ...).
+    2. Builds a structured evaluation prompt presenting all anonymized proposals.
+    3. Dispatches the prompt in parallel to all council models.
+    4. Parses the model's critique and structured 'FINAL RANKING:' section.
 
     Args:
-        user_query: The original user query
-        stage1_results: Results from Stage 1
+        user_query: The original user question.
+        stage1_results: The collection of responses gathered in Stage 1.
 
     Returns:
-        Tuple of (rankings list, label_to_model mapping)
+        Tuple[List[Dict[str, Any]], Dict[str, str]]:
+            - stage2_results: List of per-model evaluation dictionaries with raw text,
+              parsed ranking order, and token usage.
+            - label_to_model: Dictionary mapping anonymous labels to real model IDs.
     """
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
@@ -97,7 +137,7 @@ async def stage2_collect_rankings(
         for label, result in zip(labels, stage1_results)
     }
 
-    # Build the ranking prompt
+    # Build the ranking prompt with anonymized proposals
     responses_text = "\n\n".join(
         [
             f"Response {label}:\n{result['response']}"
@@ -167,16 +207,24 @@ async def stage3_synthesize_final(
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """
-    Stage 3: Chairman synthesizes final response.
+    """Stage 3: Chairman synthesizes final response based on Stage 1 & 2 outputs.
+
+    Provides the Chairman model with:
+    - Full individual model responses from Stage 1.
+    - Peer reviews, rankings, and critique summaries from Stage 2.
+    Instructs the Chairman to synthesize an authoritative, coherent solution reflecting
+    the collective consensus and resolving conflicting claims.
 
     Args:
-        user_query: The original user query
-        stage1_results: Individual model responses from Stage 1
-        stage2_results: Rankings from Stage 2
+        user_query: The original user question.
+        stage1_results: Individual model responses from Stage 1.
+        stage2_results: Evaluations and rankings from Stage 2.
 
     Returns:
-        Dict with 'model' and 'response' keys
+        Dict[str, Any]: Result dictionary containing:
+            - model (str): Chairman model identifier.
+            - response (str): Synthesized final response.
+            - usage (dict): Token consumption dictionary.
     """
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join(
@@ -219,7 +267,7 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     response = await query_model(chairman, messages, timeout=120.0)
 
     if response is None:
-        # Fallback if chairman fails
+        # Fallback if chairman query times out or fails
         return {
             "model": chairman,
             "response": "Error: Unable to generate final synthesis.",
@@ -237,14 +285,19 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
-    """
-    Parse the FINAL RANKING section from the model's response.
+    """Parse the FINAL RANKING section from a model's Stage 2 evaluation text.
+
+    Extraction order:
+    1. Identifies the "FINAL RANKING:" header and restricts search to text following it.
+    2. Searches for numbered entries (e.g. "1. Response A", "2. Response B").
+    3. If no numbered list is found, searches for all occurrences of "Response X" in order.
+    4. If the section was not found or yielded nothing, falls back to scanning the entire text.
 
     Args:
-        ranking_text: The full text response from the model
+        ranking_text: Raw evaluation string returned by a council model.
 
     Returns:
-        List of response labels in ranked order (e.g. ["Response A", "Response B"])
+        List[str]: Ordered list of normalized response labels (e.g., ["Response A", "Response B"]).
     """
     if not ranking_text:
         return []
@@ -274,15 +327,21 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
 def calculate_aggregate_rankings(
     stage2_results: List[Dict[str, Any]], label_to_model: Dict[str, str]
 ) -> List[Dict[str, Any]]:
-    """
-    Calculate aggregate rankings across all models.
+    """Calculate aggregate rankings across all models.
+
+    Computes the arithmetic mean rank position for each model across all
+    peer votes. Lower average rank numbers indicate higher peer preference
+    (1.0 is the best possible score).
 
     Args:
-        stage2_results: Rankings from each model
-        label_to_model: Mapping from anonymous labels to model names
+        stage2_results: List of Stage 2 evaluation dicts containing parsed rankings.
+        label_to_model: Mapping from anonymous labels ('Response A') to model IDs.
 
     Returns:
-        List of dicts with model name and average rank, sorted best to worst
+        List[Dict[str, Any]]: List of ranking summary dicts sorted best to worst:
+            - model (str): Model identifier.
+            - average_rank (float): Average position assigned by peers.
+            - rankings_count (int): Number of models that ranked this proposal.
     """
     # Track positions for each model
     model_positions = defaultdict(list)
@@ -311,7 +370,7 @@ def calculate_aggregate_rankings(
                 }
             )
 
-    # Sort by average rank (lower is better)
+    # Sort by average rank (lower is better, e.g. 1.0 > 2.5)
     aggregate.sort(key=lambda x: x["average_rank"])
 
     return aggregate
@@ -320,15 +379,17 @@ def calculate_aggregate_rankings(
 async def generate_conversation_title(
     user_query: str, conversation_id: Optional[str] = None
 ) -> str:
-    """
-    Generate a short title for a conversation based on the first user message.
+    """Generate a short title for a conversation based on the first user message.
+
+    Prompts the Chairman model to produce a concise 3-5 word summary without quotes.
+    If a `conversation_id` is supplied, records the token usage in conversation storage.
 
     Args:
-        user_query: The first user message
-        conversation_id: Optional conversation ID to record title generation tokens
+        user_query: The initial user message text.
+        conversation_id: Optional UUID of the conversation for token tracking.
 
     Returns:
-        A short title (3-5 words)
+        str: Cleaned conversation title string (at most 50 characters).
     """
     title_prompt = f"""Generate a very short title (3-5 words maximum) that summarizes the following question.
 The title should be concise and descriptive. Do not use quotes or punctuation in the title.
@@ -344,7 +405,7 @@ Title:"""
     response = await query_model(chairman, messages, timeout=30.0)
 
     if response is None:
-        # Fallback to a generic title
+        # Fallback to a generic title if chairman query fails
         return "New Conversation"
 
     if conversation_id and response.get("usage"):
@@ -369,14 +430,22 @@ Title:"""
 
 
 async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
-    """
-    Run the complete 3-stage council process.
+    """Run the complete 3-stage council deliberation pipeline.
+
+    1. Executes Stage 1 to collect independent responses from all council models.
+    2. Handles total failure fallback if no models responded.
+    3. Executes Stage 2 to collect blind peer rankings and computes aggregate scores.
+    4. Executes Stage 3 to produce the Chairman's synthesized consensus answer.
 
     Args:
-        user_query: The user's question
+        user_query: The user's question or prompt.
 
     Returns:
-        Tuple of (stage1_results, stage2_results, stage3_result, metadata)
+        Tuple[List, List, Dict, Dict]:
+            - stage1_results: Individual model responses.
+            - stage2_results: Peer evaluations and parsed rankings.
+            - stage3_result: Final synthesis dictionary from Chairman.
+            - metadata: Auxiliary data (label_to_model map, aggregate rankings).
     """
     # Stage 1: Collect individual responses
     stage1_results = await stage1_collect_responses(user_query)
@@ -420,16 +489,25 @@ async def stage4_generate_action_plan(
     stage1_results: List[Dict[str, Any]],
     aggregate_rankings: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """
-    Stage 4: Generate and execute MCP tool calls based on the top-ranked response.
+    """Stage 4: Generate an executable tool action plan based on the top-ranked response.
+
+    Identifies the model voted #1 by the council peers, gathers all currently
+    available tool schemas (local primitives and external MCP tools), and prompts
+    the Chairman to translate the recommended solution into a structured JSON
+    action plan with specific tool calls.
 
     Args:
-        user_request: The original user request/task
-        stage1_results: Individual responses from Stage 1
-        aggregate_rankings: Ranked responses by council vote
+        user_request: The original user request or operational task.
+        stage1_results: Individual model responses from Stage 1.
+        aggregate_rankings: Sorted aggregate rankings from Stage 2.
 
     Returns:
-        Dict with action plan and execution results
+        Dict[str, Any]: Generation outcome dictionary containing:
+            - success (bool): True if a valid action plan was generated and parsed.
+            - action_plan (dict, optional): Parsed JSON action plan with description,
+              reasoning, and list of tool calls.
+            - best_response_model (str): Name of the model whose response was selected.
+            - error (str, optional): Diagnostic error message on failure.
     """
     # Find the best response based on aggregate rankings
     if not aggregate_rankings or not stage1_results:
@@ -534,14 +612,18 @@ Now generate the action plan JSON:"""
 
 
 async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Execute the MCP tool calls from the action plan.
+    """Execute the MCP tool calls from a generated action plan.
+
+    Validates the generated plan and dispatches all tool calls via `executor.execute_tools`.
 
     Args:
-        action_plan_response: Result from stage4_generate_action_plan
+        action_plan_response: Outcome dictionary returned by `stage4_generate_action_plan`.
 
     Returns:
-        Dict with execution results
+        Dict[str, Any]: Execution result payload containing:
+            - success (bool): True if all tool executions succeeded.
+            - action_plan (dict): The original action plan that was run.
+            - execution_results (dict): Per-tool execution statuses and outputs.
     """
     if not action_plan_response.get("success"):
         return {
@@ -569,15 +651,18 @@ async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str,
 async def run_full_council_with_action(
     user_request: str, execute: bool = True
 ) -> Dict[str, Any]:
-    """
-    Run the complete 4-stage council process with optional action execution.
+    """Run the complete 4-stage council process with optional action execution.
+
+    Coordinates Stages 1-3 deliberation, Stage 4 action plan generation,
+    and conditionally executes the plan if `execute=True`.
 
     Args:
-        user_request: The user's request/task
-        execute: Whether to actually execute the action plan (default True)
+        user_request: The user's request or task instructions.
+        execute: Whether to immediately execute the tool action plan. Defaults to True.
 
     Returns:
-        Dict with all stages and execution results
+        Dict[str, Any]: Complete council run result including stage1, stage2, stage3,
+            metadata, stage4_action_plan, and execution results.
     """
     # Stages 1-3: Run the council
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
@@ -610,16 +695,26 @@ async def run_sub_council(
     context: Optional[str] = None,
     on_event: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """
-    Run an on-demand sub-council deliberation on a specific subtask, code problem, or dilemma.
+    """Run an on-demand sub-council deliberation on a specific subtask, code problem, or dilemma.
+
+    Used by the autonomous agent to request targeted peer review during its ReAct loop
+    (e.g., when resolving test failures or checking deliverable completeness).
+    Supports streaming progress updates via the `on_event` callback.
 
     Args:
-        question: The specific question or dilemma for the council
-        context: Relevant background context, code, or error output
-        on_event: Optional async callback for streaming events
+        question: The specific dilemma or problem statement for the sub-council.
+        context: Optional background context (code snippets, error traces, file diffs).
+        on_event: Optional async callable for streaming sub-council stage events.
 
     Returns:
-        Dict with stage1, stage2, stage3, aggregate_rankings, and consensus_recommendation
+        Dict[str, Any]: Comprehensive deliberation result containing:
+            - question (str): The evaluated question.
+            - context (str, optional): The provided context.
+            - stage1 (list): Individual model responses.
+            - stage2 (list): Peer rankings.
+            - stage3 (dict): Synthesized recommendation.
+            - aggregate_rankings (list): Aggregate peer rankings.
+            - consensus_recommendation (str): Synthesized advice text.
     """
     full_prompt = question
     if context:

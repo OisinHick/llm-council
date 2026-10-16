@@ -1,7 +1,9 @@
 """Agent tools for the LLM Council autonomous agent.
 
 Provides robust file reading, writing, editing, directory inspection,
-shell command execution, and MCP tool forwarding.
+shell command execution, and MCP tool forwarding. Designed to provide safe,
+line-indexed, and uniquely-targeted primitives that the Chairperson model
+can invoke during its autonomous ReAct loop.
 """
 
 import asyncio
@@ -12,16 +14,20 @@ from typing import Any, Dict, List, Optional
 from .config import BASE_DIR
 
 
-# Directory names ignored during directory scans
+# Directory names ignored during directory scans to keep payload sizes reasonable
 IGNORED_DIR_NAMES = frozenset({".git", "__pycache__", "node_modules", ".venv"})
 
 
 def _truncate_stream_output(text: str, max_chars: int = 4000) -> tuple[str, bool]:
-    """
-    Truncate command output strings exceeding max_chars to keep payload manageable.
+    """Truncate command output strings exceeding max_chars to keep payload manageable.
+
+    Args:
+        text: The raw output stream string (stdout or stderr).
+        max_chars: Maximum allowed characters before appending a truncation notice.
+            Defaults to 4000.
 
     Returns:
-        tuple[str, bool]: (possibly-truncated text, whether truncation occurred)
+        tuple[str, bool]: A pair of (possibly-truncated text, whether truncation occurred).
     """
     if len(text) > max_chars:
         return text[:max_chars] + f"\n... [Output truncated to {max_chars} chars]", True
@@ -29,13 +35,36 @@ def _truncate_stream_output(text: str, max_chars: int = 4000) -> tuple[str, bool
 
 
 class AgentToolExecutor:
-    """Executes tools on behalf of the Chairperson agent."""
+    """Executes tools on behalf of the Chairperson agent.
+
+    This executor provides file manipulation and environment execution primitives
+    tailored for autonomous agents:
+    - Path resolution relative to an isolated or project workspace root.
+    - 1-indexed, line-numbered file reading with bounds checking.
+    - Automatic parent directory creation on file creation/overwrite.
+    - Exact single-occurrence search-and-replace editing to prevent ambiguous edits.
+    - Filtered directory listing (respecting recursive depth and ignoring heavy folders).
+    - Subprocess execution with process killing on timeout and output stream truncation.
+    """
 
     def __init__(self, workspace_root: Optional[Path] = None):
+        """Initialize the AgentToolExecutor with a designated workspace root.
+
+        Args:
+            workspace_root: Optional base path for resolving relative paths.
+                Defaults to BASE_DIR if not provided.
+        """
         self.workspace_root = workspace_root or BASE_DIR
 
     def _resolve_path(self, path_str: str) -> Path:
-        """Resolve a relative or absolute path against the workspace root."""
+        """Resolve a relative or absolute path against the workspace root.
+
+        Args:
+            path_str: String representation of the target path.
+
+        Returns:
+            Path: Absolute resolved Path object.
+        """
         p = Path(path_str)
         if not p.is_absolute():
             p = (self.workspace_root / p).resolve()
@@ -49,8 +78,25 @@ class AgentToolExecutor:
         start_line: Optional[int] = None,
         end_line: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Read the contents of a file, optionally bounded by line numbers (1-indexed).
+        """Read the contents of a file, optionally bounded by line numbers (1-indexed).
+
+        Prepends line numbers (e.g., '1: content') to aid the LLM in understanding
+        the exact line indices for subsequent modifications or reference.
+
+        Args:
+            path: Target file path (relative to workspace or absolute).
+            start_line: Optional 1-indexed starting line number (inclusive).
+            end_line: Optional 1-indexed ending line number (inclusive).
+
+        Returns:
+            Dict[str, Any]: Result dictionary containing:
+                - success (bool): True if reading succeeded, False otherwise.
+                - path (str): String representation of the resolved file path.
+                - total_lines (int): Total number of lines in the file.
+                - start_line (int): Effective start line.
+                - end_line (int): Effective end line.
+                - content (str): Line-numbered text content.
+                - error (str, optional): Error message if file not found or reading failed.
         """
         try:
             file_path = self._resolve_path(path)
@@ -62,10 +108,11 @@ class AgentToolExecutor:
             lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
             total_lines = len(lines)
 
-            # Apply line range if provided
+            # Apply line range if provided, ensuring bounds are respected
             s = max(1, start_line) if start_line is not None else 1
             e = min(total_lines, end_line) if end_line is not None else total_lines
 
+            # Handle edge case where start_line is greater than the total lines
             if s > total_lines:
                 return {
                     "success": True,
@@ -74,6 +121,7 @@ class AgentToolExecutor:
                     "message": f"Start line {s} exceeds total lines {total_lines}.",
                 }
 
+            # Slice lines and format with 1-indexed prefixes
             selected_lines = lines[s - 1 : e]
             numbered = [
                 f"{i}: {line}" for i, line in enumerate(selected_lines, start=s)
@@ -91,12 +139,27 @@ class AgentToolExecutor:
             return {"success": False, "error": f"Failed to read file: {str(e)}"}
 
     async def write_file(self, path: str, content: str) -> Dict[str, Any]:
-        """
-        Create or overwrite a file with the given content.
-        Creates parent directories automatically if needed.
+        """Create or overwrite a file with the given content.
+
+        Creates parent directories automatically if needed. Emits relative path
+        if within workspace_root, along with bytes written and line count.
+
+        Args:
+            path: Target file path to write.
+            content: Complete string content to write into the file.
+
+        Returns:
+            Dict[str, Any]: Result dictionary containing:
+                - success (bool): True if writing succeeded.
+                - path (str): Relative path if within workspace, otherwise absolute path.
+                - bytes_written (int): Byte count of written UTF-8 content.
+                - line_count (int): Number of lines written.
+                - message (str): Human-readable success message.
+                - error (str, optional): Error description if write operation failed.
         """
         try:
             file_path = self._resolve_path(path)
+            # Create any missing parent directories
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
 
@@ -119,9 +182,23 @@ class AgentToolExecutor:
     async def edit_file(
         self, path: str, target_content: str, replacement_content: str
     ) -> Dict[str, Any]:
-        """
-        Replace target_content with replacement_content in a file.
-        target_content must exist uniquely in the file.
+        """Replace target_content with replacement_content in an existing file.
+
+        Enforces uniqueness: target_content must appear exactly once in the file.
+        If target_content is not found or appears multiple times, the operation
+        fails with an informative error instructing the model how to fix it.
+
+        Args:
+            path: Path to the target file to modify.
+            target_content: Exact substring to search for (including whitespace).
+            replacement_content: Substring to replace target_content with.
+
+        Returns:
+            Dict[str, Any]: Result dictionary containing:
+                - success (bool): True if replacement was performed cleanly.
+                - path (str): File path that was edited.
+                - message (str): Success confirmation.
+                - error (str, optional): Diagnostic explanation if target was missing or non-unique.
         """
         try:
             file_path = self._resolve_path(path)
@@ -148,6 +225,7 @@ class AgentToolExecutor:
                     ),
                 }
 
+            # Replace single exact match
             updated = original.replace(target_content, replacement_content, 1)
             file_path.write_text(updated, encoding="utf-8")
 
@@ -162,8 +240,24 @@ class AgentToolExecutor:
     async def list_directory(
         self, path: str = ".", recursive: bool = False, max_depth: int = 2
     ) -> Dict[str, Any]:
-        """
-        List files and subdirectories within a directory.
+        """List files and subdirectories within a directory.
+
+        Filters out hidden files and common build/dependency caches
+        (such as `.git`, `__pycache__`, `node_modules`, `.venv`). In non-recursive
+        mode, includes file sizes. Caps output to 150 entries to avoid prompt overflow.
+
+        Args:
+            path: Directory path to scan (defaults to workspace root ".").
+            recursive: Whether to walk subdirectories recursively.
+            max_depth: Maximum directory depth to traverse when recursive=True (default 2).
+
+        Returns:
+            Dict[str, Any]: Result dictionary containing:
+                - success (bool): True if directory was successfully read.
+                - directory (str): Target directory path.
+                - count (int): Total number of matching entries discovered.
+                - entries (List[Dict[str, Any]]): Capped list of entries with metadata.
+                - error (str, optional): Error details if path does not exist or is not a directory.
         """
         try:
             dir_path = self._resolve_path(path)
@@ -174,13 +268,14 @@ class AgentToolExecutor:
 
             items = []
             if recursive:
+                # Walk filesystem recursively up to max_depth
                 for root, dirs, files in os.walk(dir_path):
                     rel_root = Path(root).relative_to(dir_path)
                     depth = len(rel_root.parts)
                     if depth > max_depth:
                         continue
 
-                    # Filter hidden dirs and ignored build/cache directories
+                    # Filter hidden dirs and ignored build/cache directories in-place
                     dirs[:] = [
                         d
                         for d in dirs
@@ -197,6 +292,7 @@ class AgentToolExecutor:
                         rel_f = (rel_root / f).as_posix() if str(rel_root) != "." else f
                         items.append({"path": rel_f, "type": "file"})
             else:
+                # Flat directory listing
                 for entry in sorted(dir_path.iterdir()):
                     if entry.name.startswith(".") or entry.name in IGNORED_DIR_NAMES:
                         continue
@@ -210,7 +306,7 @@ class AgentToolExecutor:
                 "success": True,
                 "directory": str(dir_path),
                 "count": len(items),
-                "entries": items[:150],  # Cap output size
+                "entries": items[:150],  # Cap output size to prevent context overflow
             }
         except Exception as e:
             return {"success": False, "error": f"Failed to list directory: {str(e)}"}
@@ -218,8 +314,24 @@ class AgentToolExecutor:
     async def execute_command(
         self, command: str, timeout: int = 60
     ) -> Dict[str, Any]:
-        """
-        Execute a shell command with a timeout.
+        """Execute a shell command within the workspace root with a timeout.
+
+        If execution exceeds the timeout, the process is killed asynchronously
+        and a failure payload is returned. Output streams (stdout and stderr)
+        are truncated if they exceed 4000 characters to keep context windows clean.
+
+        Args:
+            command: Shell command string to execute.
+            timeout: Maximum allowed execution time in seconds (default 60s).
+
+        Returns:
+            Dict[str, Any]: Subprocess execution result containing:
+                - success (bool): True if returncode is 0.
+                - returncode (int): Integer exit code of the process (-1 on timeout/error).
+                - stdout (str): Standard output (truncated if exceeding limits).
+                - stderr (str): Standard error (truncated if exceeding limits).
+                - truncated (bool): True if either stdout or stderr was truncated.
+                - error (str, optional): Diagnostic message on timeout or exception.
         """
         try:
             process = await asyncio.create_subprocess_shell(
@@ -234,6 +346,7 @@ class AgentToolExecutor:
                     process.communicate(), timeout=timeout
                 )
             except asyncio.TimeoutError:
+                # Forcefully kill runaway subprocess on timeout
                 try:
                     process.kill()
                     await process.wait()
@@ -271,7 +384,15 @@ class AgentToolExecutor:
             }
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Return schema descriptions of available tools for the Chairperson prompt."""
+        """Return schema descriptions of available tools for the Chairperson prompt.
+
+        These definitions are injected into the agent's system prompt so the
+        model understands which action primitives exist, what each does,
+        and the parameter schemas expected.
+
+        Returns:
+            List[Dict[str, Any]]: List of tool definition dictionaries.
+        """
         return [
             {
                 "name": "write_file",
@@ -334,5 +455,5 @@ class AgentToolExecutor:
         ]
 
 
-# Default singleton instance
+# Default singleton instance for the Chairperson agent
 agent_executor = AgentToolExecutor()

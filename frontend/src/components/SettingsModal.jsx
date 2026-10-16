@@ -1,8 +1,53 @@
+/**
+ * SettingsModal Component: Configuration Dialog for LLM Council.
+ *
+ * This modal allows users to configure:
+ * - Tab 1 (OpenRouter Models):
+ *     - OpenRouter API Key input with visibility toggle and catalog test fetch.
+ *     - Chairman Model selector (responsible for Stage 3 synthesis & Stage 4 action plans).
+ *     - Selected Council Members tag list (with single-click removal).
+ *     - OpenRouter Model Catalog search picker (with real-time filtering by name or vendor).
+ * - Tab 2 (Display & Appearance):
+ *     - Deliberation steps display: "Show all deliberation steps" vs "Just show final answer".
+ *     - Conversation Token Counter toggle.
+ *     - Granular per-model token breakdown toggle.
+ *     - Estimated USD spend value toggle ($) with live dynamic OpenRouter rates.
+ *     - Headroom Labs token compression toggle & saved tokens display badge.
+ *     - Dynamic OpenRouter rates status card with manual refresh button.
+ *     - Headroom compression savings metrics card with reset button.
+ *     - Custom message background colors (assistant & user) with color picker and reset button.
+ */
+
 import { useState, useEffect } from "react";
 import { api } from "../api";
 import { formatSpend } from "../formatters";
 import "./SettingsModal.css";
 
+/**
+ * Settings configuration modal dialog.
+ *
+ * @param {Object} props - Component properties.
+ * @param {boolean} props.isOpen - Whether the modal dialog is rendered.
+ * @param {function(): void} props.onClose - Callback invoked when the modal is dismissed.
+ * @param {string} props.assistantColor - Hex color for assistant messages.
+ * @param {function(string): void} props.setAssistantColor - Assistant color setter.
+ * @param {string} props.userColor - Hex color for user messages.
+ * @param {function(string): void} props.setUserColor - User color setter.
+ * @param {function(): void} props.onResetColors - Resets message colors to defaults.
+ * @param {boolean} [props.showAllDeliberationSteps=true] - Toggle for all steps vs final answer.
+ * @param {function(boolean): void} [props.setShowAllDeliberationSteps] - Setter for deliberation steps.
+ * @param {boolean} [props.showTokenCount=true] - Toggle for token counters.
+ * @param {function(boolean): void} [props.setShowTokenCount] - Setter for token count.
+ * @param {boolean} [props.showTokensPerModel=false] - Toggle for per-model token breakdown.
+ * @param {function(boolean): void} [props.setShowTokensPerModel] - Setter for tokens per model.
+ * @param {boolean} [props.showSpendValue=true] - Toggle for dollar spend display.
+ * @param {function(boolean): void} [props.setShowSpendValue] - Setter for spend value.
+ * @param {boolean} [props.showSavedTokens=true] - Toggle for saved tokens display.
+ * @param {function(boolean): void} [props.setShowSavedTokens] - Setter for saved tokens.
+ * @param {boolean} [props.enableTokenCompression=false] - Toggle for token compression.
+ * @param {function(boolean): void} [props.setEnableTokenCompression] - Setter for compression toggle.
+ * @returns {JSX.Element|null} Rendered modal or null if isOpen is false.
+ */
 export default function SettingsModal({
   isOpen,
   onClose,
@@ -24,22 +69,32 @@ export default function SettingsModal({
   enableTokenCompression = false,
   setEnableTokenCompression,
 }) {
+  // Active navigation tab ("models" | "appearance")
   const [activeTab, setActiveTab] = useState("models");
+  // OpenRouter API key input
   const [apiKey, setApiKey] = useState("");
+  // Toggle password masking on API key input
   const [showApiKey, setShowApiKey] = useState(false);
+  // List of selected council model IDs
   const [councilModels, setCouncilModels] = useState([]);
+  // Selected Chairman model ID
   const [chairmanModel, setChairmanModel] = useState("");
+  // All available models fetched from OpenRouter
   const [availableModels, setAvailableModels] = useState([]);
+  // Local staged toggle states before saving
   const [localShowTokenCount, setLocalShowTokenCount] = useState(showTokenCount);
   const [localShowTokensPerModel, setLocalShowTokensPerModel] = useState(showTokensPerModel);
   const [localShowSpendValue, setLocalShowSpendValue] = useState(showSpendValue);
   const [localShowSavedTokens, setLocalShowSavedTokens] = useState(showSavedTokens);
   const [localEnableTokenCompression, setLocalEnableTokenCompression] = useState(enableTokenCompression);
+  // Dynamic OpenRouter pricing status info
   const [pricingInfo, setPricingInfo] = useState(null);
   const [refreshingPricing, setRefreshingPricing] = useState(false);
+  // Cumulative compression savings stats
   const [compressionStats, setCompressionStats] = useState(null);
   const [resettingCompressionStats, setResettingCompressionStats] = useState(false);
   
+  // Loading and status banners
   const [loading, setLoading] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -58,6 +113,10 @@ export default function SettingsModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  /**
+   * Load active configuration settings, dynamic model pricing rates,
+   * compression savings statistics, and available models from the backend.
+   */
   async function loadInitialData() {
     setLoading(true);
     setStatusMessage(null);
@@ -112,6 +171,9 @@ export default function SettingsModal({
     }
   }
 
+  /**
+   * Force refresh dynamic OpenRouter pricing rates and display confirmation banner.
+   */
   async function handleRefreshPricing() {
     setRefreshingPricing(true);
     try {
@@ -132,6 +194,9 @@ export default function SettingsModal({
     }
   }
 
+  /**
+   * Reset cumulative compression savings counters (tokens, dollars, query counts) to zero.
+   */
   async function handleResetCompressionStats() {
     setResettingCompressionStats(true);
     try {
@@ -154,6 +219,11 @@ export default function SettingsModal({
     }
   }
 
+  /**
+   * Fetch full OpenRouter models catalog using the provided or saved API key.
+   *
+   * @param {string} [keyToUse] - OpenRouter API key.
+   */
   async function fetchModels(keyToUse) {
     setLoadingModels(true);
     try {
@@ -172,6 +242,11 @@ export default function SettingsModal({
     }
   }
 
+  /**
+   * Toggle a model's inclusion in the Council member list.
+   *
+   * @param {string} modelId - Model identifier string.
+   */
   const handleToggleCouncilModel = (modelId) => {
     setCouncilModels((prev) => {
       if (prev.includes(modelId)) {
@@ -182,10 +257,18 @@ export default function SettingsModal({
     });
   };
 
+  /**
+   * Remove a model from the Council member list.
+   *
+   * @param {string} modelId - Model identifier string.
+   */
   const handleRemoveCouncilModel = (modelId) => {
     setCouncilModels((prev) => prev.filter((id) => id !== modelId));
   };
 
+  /**
+   * Validate selections and persist updated settings to backend storage and localStorage.
+   */
   const handleSaveSettings = async () => {
     if (councilModels.length === 0) {
       setStatusMessage({

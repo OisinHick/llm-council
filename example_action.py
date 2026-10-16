@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-"""
-Example script demonstrating LLM Council MCP action execution.
+"""Example script demonstrating LLM Council MCP action execution.
 
-This shows how to use the council to vote on approaches and execute them.
+This standalone demonstration script connects to the LLM Council backend API
+(`POST /api/action` and `POST /api/action/stream`) to execute end-to-end tasks
+governed by multi-model consensus deliberation.
+
+Features demonstrated:
+- Stage 1: Individual model proposals.
+- Stage 2: Peer ranking and Borda-count aggregate ranking.
+- Stage 3: Chairman synthesis.
+- Stage 4: Action plan synthesis into structured MCP tool calls.
+- Tool Execution: Live local or MCP server tool execution.
+- SSE Streaming: Real-time event consumption and pretty terminal formatting.
 """
 
 import asyncio
@@ -14,13 +23,16 @@ import httpx
 
 
 async def perform_action(task: str, execute: bool = True, stream: bool = False):
-    """
-    Perform a task using the LLM Council with MCP action execution.
+    """Perform a task using the LLM Council with MCP action execution.
+
+    Connects to the LLM Council HTTP API, dispatching either a streaming SSE
+    request or a blocking JSON POST request.
 
     Args:
-        task: The task description
-        execute: Whether to actually execute the action (default True)
-        stream: Whether to stream results (default False)
+        task: Human-readable task description (e.g. "Find all Python files in the current directory").
+        execute: Whether to actually execute the synthesized action plan tools (default True).
+            If False, only the plan is generated without running tools.
+        stream: Whether to stream intermediate deliberation events over SSE (default False).
     """
 
     url = "http://localhost:8001/api/action"
@@ -49,8 +61,17 @@ async def perform_action(task: str, execute: bool = True, stream: bool = False):
             sys.exit(1)
 
 
-async def stream_events(client, url: str, payload: dict):
-    """Stream events from the council."""
+async def stream_events(client: httpx.AsyncClient, url: str, payload: dict):
+    """Stream and print real-time deliberation events from the council SSE endpoint.
+
+    Consumes Server-Sent Events line by line, parses valid JSON event payloads,
+    and forwards them to `print_event` for terminal formatting.
+
+    Args:
+        client: The asynchronous HTTP client instance.
+        url: The SSE streaming endpoint URL (`http://localhost:8001/api/action/stream`).
+        payload: Request payload dictionary containing 'request' and 'execute'.
+    """
 
     async with client.stream("POST", url, json=payload, timeout=600.0) as response:
         if response.status_code != 200:
@@ -69,7 +90,19 @@ async def stream_events(client, url: str, payload: dict):
 
 
 def print_event(event: dict):
-    """Pretty print an event."""
+    """Pretty-print an individual Server-Sent Event to stdout with emojis and formatting.
+
+    Handles events for:
+    - Stage 1: Individual approaches from council members.
+    - Stage 2: Peer ranking outcomes and aggregate scores.
+    - Stage 3: Chairman consensus synthesis.
+    - Stage 4: Action plan tool specifications.
+    - Execution: Tool run progress and success/error status.
+    - Complete & Error events.
+
+    Args:
+        event: Decoded SSE event dictionary containing 'type' and event data/metadata.
+    """
 
     event_type = event.get("type")
 
@@ -142,8 +175,17 @@ def print_event(event: dict):
         print(f"\n❌ Error: {event.get('message', 'Unknown error')}\n")
 
 
-async def fetch_full_response(client, url: str, payload: dict):
-    """Fetch full response without streaming."""
+async def fetch_full_response(client: httpx.AsyncClient, url: str, payload: dict):
+    """Fetch complete council deliberation response via blocking HTTP POST.
+
+    Prints a comprehensive text summary covering all 4 deliberation stages,
+    ranking outcomes, tool plans, and execution outputs, followed by indented JSON.
+
+    Args:
+        client: The asynchronous HTTP client instance.
+        url: The non-streaming action endpoint URL (`http://localhost:8001/api/action`).
+        payload: Request payload dictionary.
+    """
 
     response = await client.post(url, json=payload, timeout=600.0)
 
@@ -204,7 +246,12 @@ async def fetch_full_response(client, url: str, payload: dict):
 
 
 async def main():
-    """Main entry point."""
+    """Main CLI entry point for executing action examples from the command line.
+
+    Parses command-line arguments to determine the task description and whether
+    to run in plan-only mode (`--plan`). If no task is supplied, prints usage
+    guidance and executes a safe sample demonstration.
+    """
 
     # Example tasks
     examples = [

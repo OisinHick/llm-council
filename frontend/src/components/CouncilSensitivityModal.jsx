@@ -1,6 +1,25 @@
+/**
+ * CouncilSensitivityModal Component: Deliberation Sensitivity Configuration.
+ *
+ * This modal configures the operational autonomy and oversight level of the
+ * Council Chairperson Agent during ReAct loop execution:
+ * - 4 Sensitivity Presets:
+ *     1. Low (Minimal): Autonomous execution; only consults Council when deadlocked.
+ *     2. Medium (Balanced): Default mode; consults Council on design forks and complex bugs.
+ *     3. High (Proactive): Automatically triggers Council deliberations on errors and test failures.
+ *     4. Extreme (Continuous): Triggers Council diagnostic on every failure + mandates
+ *        pre-completion Council review.
+ * - Granular automated triggers (error auto-trigger, pre-completion review).
+ * - Deliberation consultation caps (1, 3, 5, 10, 20, 50, 100, Unlimited).
+ * - Maximum execution loop steps (5, 10, 20, 30, 50, 100, Unlimited).
+ */
+
 import React, { useState } from "react";
 import "./CouncilSensitivityModal.css";
 
+/**
+ * Predefined sensitivity configurations mapping level IDs to UI themes and default behaviors.
+ */
 const SENSITIVITY_PRESETS = [
   {
     id: "low",
@@ -60,6 +79,16 @@ const SENSITIVITY_PRESETS = [
   },
 ];
 
+/**
+ * Modal wrapper that conditionally renders the sensitivity configuration dialog.
+ *
+ * @param {Object} props - Component properties.
+ * @param {boolean} props.isOpen - Whether the modal dialog is rendered.
+ * @param {function(): void} props.onClose - Callback when modal is dismissed.
+ * @param {Object} [props.sensitivityConfig] - Current sensitivity configuration object.
+ * @param {function(Object): void} props.onSave - Callback receiving updated sensitivity configuration.
+ * @returns {JSX.Element|null} Rendered dialog or null when closed.
+ */
 export default function CouncilSensitivityModal({
   isOpen,
   onClose,
@@ -77,6 +106,15 @@ export default function CouncilSensitivityModal({
   );
 }
 
+/**
+ * Inner dialog component holding form state for sensitivity options.
+ *
+ * @param {Object} props - Dialog properties.
+ * @param {function(): void} props.onClose - Callback to dismiss the dialog.
+ * @param {Object} [props.sensitivityConfig] - Initial sensitivity settings.
+ * @param {function(Object): void} props.onSave - Callback when settings are saved.
+ * @returns {JSX.Element} Rendered dialog content.
+ */
 function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
   const initialLevel = sensitivityConfig?.level || "medium";
   const [level, setLevel] = useState(initialLevel);
@@ -101,6 +139,11 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
   const currentPreset =
     SENSITIVITY_PRESETS.find((p) => p.id === level) || SENSITIVITY_PRESETS[1];
 
+  /**
+   * Switch the sensitivity preset level and apply its default automated trigger policies.
+   *
+   * @param {string} newLevel - "low" | "medium" | "high" | "extreme".
+   */
   const handleSelectLevel = (newLevel) => {
     setLevel(newLevel);
     const preset = SENSITIVITY_PRESETS.find((p) => p.id === newLevel);
@@ -110,12 +153,18 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
     }
   };
 
+  /**
+   * Reset all settings to Medium (Balanced) preset defaults.
+   */
   const handleResetDefaults = () => {
     handleSelectLevel("medium");
     setMaxConsultations(5);
     setMaxSteps(20);
   };
 
+  /**
+   * Compile and validate sensitivity configuration and invoke the onSave callback.
+   */
   const handleSave = () => {
     const newConfig = {
       level,

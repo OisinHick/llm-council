@@ -1,23 +1,53 @@
+/**
+ * Main application component for LLM Council.
+ *
+ * Architecture and responsibilities:
+ * - Conversation Management: Manages active and historical conversations, lazy-loading details on demand.
+ * - Mode Routing: Orchestrates three distinct operational modes:
+ *     1. `informational`: Standard 3-stage multi-model council deliberation (Proposals -> Peer Review -> Synthesis).
+ *     2. `one_shot`: Single-turn action plan generation via Council Chairman with tool execution.
+ *     3. `agentic`: Autonomous multi-step ReAct loop with iterative tool execution, observation, and sub-councils.
+ * - Real-Time Streaming: Consumes Server-Sent Events (SSE) from the backend, progressively updating UI state.
+ * - Preference Persistence: Stores user display preferences (token counters, model spend, deliberation steps)
+ *   in `localStorage` and synchronizes with server settings.
+ */
+
 import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatInterface from "./components/ChatInterface";
 import { api } from "./api";
 import "./App.css";
 
+/**
+ * Root Application component.
+ *
+ * @returns {JSX.Element} The rendered LLM Council application.
+ */
 function App() {
+  // List of all conversations with summary metadata for the sidebar
   const [conversations, setConversations] = useState([]);
+  // Currently active conversation ID
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  // Full detail object for the currently selected conversation (including messages array and token usage)
   const [currentConversation, setCurrentConversation] = useState(null);
+  // Loading flag for informational message streaming
   const [isLoading, setIsLoading] = useState(false);
+
+  // --- One-Shot Action Mode State ---
+  // The raw prompt text for the action plan
   const [actionPlanRequest, setActionPlanRequest] = useState("");
+  // Generated Stage 4 action plan structure
   const [actionPlanResult, setActionPlanResult] = useState(null);
+  // Result payload from tool execution
   const [actionExecutionResult, setActionExecutionResult] = useState(null);
+  // Results for intermediate stages (1 to 3) during one-shot planning
   const [actionStageResults, setActionStageResults] = useState({
     stage1: null,
     stage2: null,
     stage3: null,
     metadata: null,
   });
+  // Loading indicators for individual stages in one-shot mode
   const [actionStageLoading, setActionStageLoading] = useState({
     stage1: false,
     stage2: false,
@@ -25,14 +55,19 @@ function App() {
     stage4: false,
     execution: false,
   });
+  // Overall loading indicator for action plan generation/execution
   const [actionLoading, setActionLoading] = useState(false);
+  // Error message for action plan operations
   const [actionError, setActionError] = useState(null);
+
+  // --- Mode State & Migration ---
+  // Map of conversationId -> mode ("informational" | "one_shot" | "agentic")
   const [councilModeState, setCouncilModeState] = useState(() => {
     try {
       const saved = localStorage.getItem("councilModeState");
       if (saved) return JSON.parse(saved);
 
-      // Fallback migration from legacy toggle states
+      // Fallback migration from legacy boolean toggle states (agentToggleState / generateActionPlanToggleState)
       const legacyAgent = localStorage.getItem("agentToggleState");
       const legacyAction = localStorage.getItem("generateActionPlanToggleState");
       const parsedAgent = legacyAgent ? JSON.parse(legacyAgent) : {};
@@ -57,7 +92,11 @@ function App() {
       return {};
     }
   });
+
+  // Default mode for a new unsaved conversation before messages are sent
   const [pendingMode, setPendingMode] = useState("informational");
+
+  // Display preference: Show all 3 deliberation steps vs. only the final Chairman answer
   const [showAllDeliberationSteps, setShowAllDeliberationSteps] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilShowAllSteps");
@@ -67,6 +106,8 @@ function App() {
       return true;
     }
   });
+
+  // Display preference: Show total tokens badge in header and list
   const [showTokenCount, setShowTokenCount] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilShowTokenCount");
@@ -76,6 +117,8 @@ function App() {
       return true;
     }
   });
+
+  // Display preference: Show granular per-model token breakdown
   const [showTokensPerModel, setShowTokensPerModel] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilShowTokensPerModel");
@@ -85,6 +128,8 @@ function App() {
       return false;
     }
   });
+
+  // Display preference: Show estimated USD spend values alongside tokens
   const [showSpendValue, setShowSpendValue] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilShowSpendValue");
@@ -94,6 +139,8 @@ function App() {
       return true;
     }
   });
+
+  // Display preference: Show tokens and cost saved by Headroom compression
   const [showSavedTokens, setShowSavedTokens] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilShowSavedTokens");
@@ -103,6 +150,8 @@ function App() {
       return true;
     }
   });
+
+  // Configuration preference: Enable prompt token compression via Headroom Labs
   const [enableTokenCompression, setEnableTokenCompression] = useState(() => {
     try {
       const saved = localStorage.getItem("llmCouncilEnableTokenCompression");
@@ -112,9 +161,13 @@ function App() {
       return false;
     }
   });
+
+  // Loading flag for autonomous ReAct agent execution
   const [agentLoading, setAgentLoading] = useState(false);
+  // Error string from agent execution failure
   const [agentError, setAgentError] = useState(null);
 
+  // Sync display preferences to localStorage whenever changed
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -181,6 +234,15 @@ function App() {
     }
   }, [enableTokenCompression]);
 
+  /**
+   * Synchronize local action plan and execution state from an existing conversation record.
+   *
+   * Scans the conversation's messages in reverse to find the most recent action message
+   * (containing `action_request`, `stage4`, or `execution`). If found, populates
+   * `actionPlanRequest`, `actionPlanResult`, `actionExecutionResult`, and stage states.
+   *
+   * @param {Object|null} conversation - The loaded conversation object or null.
+   */
   const syncActionStateFromConversation = (conversation) => {
     if (!conversation?.messages?.length) {
       resetActionState();
@@ -224,6 +286,11 @@ function App() {
     setActionError(null);
   };
 
+  /**
+   * Optimistically append a user action request and empty assistant response pair to conversation state.
+   *
+   * @param {string} requestText - Prompt instruction for action plan generation.
+   */
   const appendActionRequestMessage = (requestText) => {
     if (!currentConversation) return;
 
@@ -252,6 +319,12 @@ function App() {
     }));
   };
 
+  /**
+   * Immutably update fields on the most recent action message in current conversation.
+   *
+   * @param {function(Object): Object} updater - Transformation function receiving current message
+   *   and returning partial patch object.
+   */
   const updateLastActionMessage = (updater) => {
     setCurrentConversation((prev) => {
       if (!prev?.messages?.length) return prev;
@@ -263,6 +336,11 @@ function App() {
     });
   };
 
+  /**
+   * Fetch all conversation summaries from backend and update local list and mode mapping.
+   *
+   * @returns {Promise<void>}
+   */
   async function loadConversations() {
     try {
       const convs = await api.listConversations();
@@ -281,6 +359,12 @@ function App() {
     }
   }
 
+  /**
+   * Fetch full conversation details by ID, preserving unpersisted optimistic messages.
+   *
+   * @param {string} id - Unique conversation ID.
+   * @returns {Promise<void>}
+   */
   async function loadConversation(id) {
     try {
       const conv = await api.getConversation(id);
@@ -478,6 +562,9 @@ function App() {
     }
   }, [councilModeState]);
 
+  /**
+   * Reset all local one-shot action plan states, loading flags, and error messages.
+   */
   const resetActionState = () => {
     setActionPlanRequest("");
     setActionPlanResult(null);
@@ -499,10 +586,20 @@ function App() {
     setActionLoading(false);
   };
 
+  /**
+   * Current active conversation mode:
+   * Uses the mode bound to the current conversation ID if active,
+   * otherwise defaults to `pendingMode`.
+   */
   const activeMode = currentConversationId
     ? councilModeState[currentConversationId] || "informational"
     : pendingMode;
 
+  /**
+   * Initialize a new conversation with the currently active mode and set it active in the UI.
+   *
+   * @returns {Promise<void>}
+   */
   const handleNewConversation = async () => {
     try {
       resetActionState();
@@ -536,6 +633,11 @@ function App() {
     }
   };
 
+  /**
+   * Switch the active conversation to a different conversation ID.
+   *
+   * @param {string} id - Selected conversation ID.
+   */
   const handleSelectConversation = (id) => {
     if (id === currentConversationId) return;
     resetActionState();
@@ -543,6 +645,12 @@ function App() {
     setCurrentConversationId(id);
   };
 
+  /**
+   * Ensure that an active conversation exists before sending a message or running an action/agent.
+   * Creates a new conversation automatically if none is currently active.
+   *
+   * @returns {Promise<string>} Active conversation identifier.
+   */
   const ensureActiveConversation = async () => {
     if (currentConversationId && currentConversation) {
       return currentConversationId;
@@ -576,6 +684,18 @@ function App() {
     return newConv.id;
   };
 
+  /**
+   * Send a prompt in Informational mode and process streaming multi-model council events.
+   *
+   * Workflow:
+   * 1. Ensures an active conversation exists.
+   * 2. Optimistically injects the user's message and an empty assistant shell into UI state.
+   * 3. Streams council deliberation events (`stage1_*`, `stage2_*`, `stage3_*`).
+   * 4. Updates conversation title and accumulates token count on stream completion.
+   *
+   * @param {string} content - Raw user query or prompt.
+   * @returns {Promise<void>}
+   */
   const handleSendMessage = async (content) => {
     if (!content.trim()) return;
 
@@ -759,6 +879,15 @@ function App() {
     }
   };
 
+  /**
+   * Request a structured Stage 4 Action Plan without immediate tool execution.
+   *
+   * Sends the request with `execute=false`. Once the plan is returned, the user
+   * can review the proposed tool calls before clicking "Execute Action Plan".
+   *
+   * @param {string} requestText - User instruction to plan out.
+   * @returns {Promise<void>}
+   */
   const handleGenerateActionPlan = async (requestText) => {
     if (!requestText.trim()) return;
 
@@ -809,6 +938,11 @@ function App() {
     }
   };
 
+  /**
+   * Switch the active execution mode for the current conversation and UI slider.
+   *
+   * @param {string} mode - "informational" | "one_shot" | "agentic".
+   */
   const handleModeChange = (mode) => {
     setPendingMode(mode);
     if (currentConversationId) {
@@ -819,6 +953,21 @@ function App() {
     }
   };
 
+  /**
+   * Run the Council Autonomous Agent with streaming updates over SSE.
+   *
+   * Orchestrates the agent lifecycle:
+   * 1. Creates or verifies active conversation.
+   * 2. Sets up agent message shell with steps, artifacts, and running state.
+   * 3. Streams Thought -> Action -> Observation steps in real-time.
+   * 4. Updates file artifacts when files are written or edited.
+   * 5. Displays nested sub-council consultations and recommendations.
+   * 6. Marks final completion status, summary, and accumulated token usage.
+   *
+   * @param {string} requestText - High-level task description for the agent.
+   * @param {Object} [sensitivityConfig] - Optional sensitivity configuration (preset level, triggers, caps).
+   * @returns {Promise<void>}
+   */
   const handleRunAgent = async (requestText, sensitivityConfig = undefined) => {
     if (!requestText.trim()) return;
 
@@ -1064,6 +1213,11 @@ function App() {
     }
   };
 
+  /**
+   * Request premature cancellation of an active autonomous agent run on the backend.
+   *
+   * @returns {Promise<void>}
+   */
   const handleCancelAgent = async () => {
     if (!currentConversationId) return;
     try {
@@ -1073,6 +1227,13 @@ function App() {
     }
   };
 
+  /**
+   * Execute the stored or generated Action Plan using connected tools.
+   *
+   * Streams execution events and updates the execution status badge and output blocks.
+   *
+   * @returns {Promise<void>}
+   */
   const handleExecuteActionPlan = async () => {
     if (!actionPlanRequest || !currentConversationId) return;
 
