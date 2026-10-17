@@ -308,6 +308,59 @@
   user-select: none;
 }
 
+/* Ctrl+click Pan Mode */
+.graph-canvas-container.is-ctrl-pressed {
+  cursor: grab !important;
+}
+
+.graph-canvas-container.is-ctrl-pressed .canvas-node,
+.graph-canvas-container.is-ctrl-pressed .graph-edge-path,
+.graph-canvas-container.is-ctrl-pressed .node-port {
+  cursor: grab !important;
+}
+
+.graph-canvas-container.is-panning {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.graph-canvas-container.is-panning .canvas-node,
+.graph-canvas-container.is-panning .graph-edge-path,
+.graph-canvas-container.is-panning .node-port {
+  cursor: grabbing !important;
+}
+
+.canvas-pan-hint {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  color: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 20px;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.canvas-pan-hint kbd {
+  background: #334155;
+  color: #f1f5f9;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 .graph-canvas-world {
   position: relative;
   width: 2800px;

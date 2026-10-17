@@ -277,6 +277,360 @@ const McpToolsList = memo(({ mcpTools }) => {
 });
 
 /**
+ * Memoized individual message item (User or Assistant turn) in the chat feed.
+ */
+const ChatMessageItem = memo(function ChatMessageItem({
+  msg,
+  actionRequestText,
+  showAllDeliberationSteps,
+  showTokenCount,
+  showSpendValue,
+  showTokensPerModel,
+  showSavedTokens,
+  onCancelAgent,
+  onExecuteActionPlan,
+  actionLoading,
+}) {
+  return (
+    <div className="message-group">
+      {msg.role === "user" ? (
+        <div className="user-message">
+          <div className="message-content">
+            <div className="message-label">You</div>
+            <div className="markdown-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {msg.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="assistant-message">
+          <div className="message-label">
+            <span>
+              {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
+            </span>
+            {showTokenCount && msg.token_usage && msg.token_usage.total_tokens > 0 && (
+              <span
+                className="msg-token-badge"
+                title={`Turn Tokens: ${msg.token_usage.total_tokens.toLocaleString()} (Input: ${(msg.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(msg.token_usage.completion_tokens || 0).toLocaleString()})${
+                  msg.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(msg.token_usage.total_cost)}` : ""
+                }${
+                  showSavedTokens && msg.token_usage?.tokens_saved ? ` · Saved: ${msg.token_usage.tokens_saved.toLocaleString()} tokens` : ""
+                }${
+                  showSavedTokens && msg.token_usage?.total_cost_saved ? ` (${formatExactSpend(msg.token_usage.total_cost_saved)})` : ""
+                }`}
+              >
+                🪙 {msg.token_usage.total_tokens.toLocaleString()} tokens
+                {showSpendValue && msg.token_usage?.total_cost > 0 && (
+                  <span className="msg-token-spend"> · {formatSpend(msg.token_usage.total_cost)}</span>
+                )}
+                {showSavedTokens && msg.token_usage?.tokens_saved > 0 && (
+                  <span className="msg-token-saved">
+                    {" "}· 🌱 Saved {formatShortNumber(msg.token_usage.tokens_saved)}
+                    {showSpendValue && msg.token_usage?.total_cost_saved > 0 && (
+                      <> ({formatSpend(msg.token_usage.total_cost_saved)})</>
+                    )}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+
+          {showTokensPerModel &&
+            msg.token_usage?.by_model &&
+            Object.keys(msg.token_usage.by_model).length > 0 && (
+              <div className="msg-model-tokens-breakdown">
+                {Object.entries(msg.token_usage.by_model).map(
+                  ([modelName, mData]) => {
+                    const shortM = modelName.split("/")[1] || modelName;
+                    const mTotal = mData.total_tokens || 0;
+                    const mCost = mData.cost;
+                    return (
+                      <span
+                        key={modelName}
+                        className="msg-model-token-tag"
+                        title={`${modelName}: ${mTotal.toLocaleString()} tokens (Input: ${(mData.prompt_tokens || 0).toLocaleString()} | Output: ${(mData.completion_tokens || 0).toLocaleString()})${
+                          mCost !== undefined ? ` · Est. Spend: ${formatExactSpend(mCost)}` : ""
+                        }`}
+                      >
+                        {shortM}: {mTotal.toLocaleString()}
+                        {showSpendValue && mCost !== undefined && (
+                          <span className="msg-model-spend"> ({formatSpend(mCost)})</span>
+                        )}
+                      </span>
+                    );
+                  }
+                )}
+              </div>
+            )}
+
+          {msg.type === "workflow" ? (
+            <WorkflowTimeline
+              workflowName={msg.workflow_name}
+              status={msg.status}
+              nodes={msg.nodes}
+              finalOutput={msg.final_output}
+              tokenUsage={msg.token_usage}
+              showTokenCount={showTokenCount}
+              showSpendValue={showSpendValue}
+            />
+          ) : msg.type === "agent" || msg.steps ? (
+            <AgentTimeline
+              agentData={msg}
+              isRunning={msg.isRunning || (msg.status === "running")}
+              onCancel={onCancelAgent}
+            />
+          ) : (
+            <>
+              {showAllDeliberationSteps ? (
+                <>
+                  {/* Stage 1 */}
+                  {msg.loading?.stage1 && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>
+                        Running Stage 1: Collecting individual responses...
+                      </span>
+                    </div>
+                  )}
+                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
+
+                  {/* Stage 2 */}
+                  {msg.loading?.stage2 && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>Running Stage 2: Peer rankings...</span>
+                    </div>
+                  )}
+                  {msg.stage2 && (
+                    <Stage2
+                      rankings={msg.stage2}
+                      labelToModel={msg.metadata?.label_to_model}
+                      aggregateRankings={msg.metadata?.aggregate_rankings}
+                    />
+                  )}
+
+                  {/* Stage 3 */}
+                  {msg.loading?.stage3 && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>Running Stage 3: Final synthesis...</span>
+                    </div>
+                  )}
+                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+                </>
+              ) : (
+                <>
+                  {(msg.loading?.stage1 ||
+                    msg.loading?.stage2 ||
+                    msg.loading?.stage3) &&
+                    !msg.stage3 && (
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>Council is deliberating...</span>
+                      </div>
+                    )}
+                  {msg.stage3?.response && (
+                    <div className="markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.stage3.response}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Action Request */}
+              {actionRequestText && (
+                <div className="action-request-block">
+                  <h4>Action Request</h4>
+                  <div className="markdown-content">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {actionRequestText}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Plan */}
+              {msg.loading?.stage4 && (
+                <div className="stage-loading">
+                  <div className="spinner"></div>
+                  <span>Generating action plan...</span>
+                </div>
+              )}
+
+              {msg.stage4 && (
+                <div className="action-plan-block">
+                  <h4>Action Plan</h4>
+                  {msg.stage4.success || msg.stage4.action_plan ? (
+                    <>
+                      <div className="plan-summary">
+                        <p>{msg.stage4.action_plan?.description}</p>
+                        <p>{msg.stage4.action_plan?.reasoning}</p>
+                      </div>
+                      <div className="tool-calls">
+                        {msg.stage4.action_plan?.tool_calls?.map(
+                          (call, idx) => (
+                            <div key={idx} className="tool-call">
+                              <div className="tool-call-header">
+                                <strong>
+                                  {call.tool}{" "}
+                                  {call.server &&
+                                    call.server !== "local" && (
+                                      <span className="server-tag">
+                                        ({call.server})
+                                      </span>
+                                    )}
+                                </strong>
+                                <span>{call.description}</span>
+                              </div>
+                              {call.params &&
+                                Object.values(call.params).some(
+                                  (val) =>
+                                    val !== null &&
+                                    val !== undefined &&
+                                    val !== "",
+                                ) && (
+                                  <div className="formatted-params">
+                                    {Object.entries(call.params)
+                                      .filter(
+                                        (entry) =>
+                                          entry[1] !== null &&
+                                          entry[1] !== undefined &&
+                                          entry[1] !== "",
+                                      )
+                                      .map(([key, value]) => (
+                                        <div
+                                          key={key}
+                                          className="param-row"
+                                        >
+                                          <span className="param-key">
+                                            {key}
+                                          </span>
+                                          <span className="param-value">
+                                            {typeof value === "object"
+                                              ? JSON.stringify(
+                                                  value,
+                                                  null,
+                                                  2,
+                                                )
+                                              : String(value)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                )}
+                            </div>
+                          ),
+                        )}
+                      </div>
+
+                      {!msg.execution && msg.stage4.action_plan && (
+                        <div className="action-buttons">
+                          <button
+                            type="button"
+                            className="execute-action-btn"
+                            onClick={onExecuteActionPlan}
+                            disabled={actionLoading || msg.loading?.execution}
+                          >
+                            Execute Action Plan
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="action-error">
+                      <strong>Action plan failed:</strong>{" "}
+                      {msg.stage4.error}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {msg.loading?.execution && (
+                <div className="stage-loading">
+                  <div className="spinner"></div>
+                  <span>Executing action plan...</span>
+                </div>
+              )}
+
+              {msg.execution && (
+                <div className="execution-block">
+                  <h4 className="execution-heading">
+                    <span>Execution Results</span>
+                    <span
+                      className={`execution-status-badge ${
+                        msg.execution.success ? "success" : "failure"
+                      }`}
+                    >
+                      {msg.execution.success ? "✅ Success" : "⚠️ Failed"}
+                    </span>
+                  </h4>
+                  {msg.execution.execution_results?.results?.map(
+                    (toolResult, idx) => (
+                      <div key={idx} className="tool-result">
+                        <div className="result-header">
+                          <strong>
+                            {toolResult.tool}
+                            {toolResult.server &&
+                              toolResult.server !== "local" && (
+                                <span className="server-tag">
+                                  ({toolResult.server})
+                                </span>
+                              )}
+                          </strong>
+                        </div>
+
+                        {toolResult.params &&
+                          Object.keys(toolResult.params).filter(
+                            (key) =>
+                              toolResult.params[key] !== null &&
+                              toolResult.params[key] !== undefined &&
+                              toolResult.params[key] !== "",
+                          ).length > 0 && (
+                            <div className="output-section">
+                              <h5>Parameters</h5>
+                              <div className="formatted-params">
+                                {Object.entries(toolResult.params)
+                                  .filter(
+                                    (entry) =>
+                                      entry[1] !== null &&
+                                      entry[1] !== undefined &&
+                                      entry[1] !== "",
+                                  )
+                                  .map(([key, value]) => (
+                                    <div key={key} className="param-row">
+                                      <span className="param-key">{key}</span>
+                                      <span className="param-value">
+                                        {typeof value === "object"
+                                          ? JSON.stringify(value, null, 2)
+                                          : String(value)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+
+                        <div className="result-output">
+                          {renderFormattedResult(toolResult.result)}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
  * Main chat interface component.
  *
  * @param {Object} props - Component properties.
@@ -509,13 +863,28 @@ export default function ChatInterface({
     fetchTools();
     const interval = setInterval(fetchTools, 5000);
     return () => clearInterval(interval);
-  }, [actionLoading, isLoading, agentLoading]);
+  }, []);
+
+  const messagesContainerRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+
+  const handleMessagesScroll = () => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 120;
+  };
 
   /**
-   * Scroll the message feed container smoothly to the bottom.
+   * Scroll the message feed container to the bottom.
    */
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = (behavior = "auto") => {
+    if (messagesContainerRef.current) {
+      if (behavior === "smooth") {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      } else {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }
   };
 
   /**
@@ -544,7 +913,9 @@ export default function ChatInterface({
   }, [currentMode]);
 
   useEffect(() => {
-    scrollToBottom();
+    if (isNearBottomRef.current) {
+      scrollToBottom("auto");
+    }
   }, [conversation]);
 
   /**
@@ -707,7 +1078,11 @@ export default function ChatInterface({
         )}
       </div>
 
-      <div className="messages-container">
+      <div
+        className="messages-container"
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+      >
         {!hasConversation ? (
           <div className="empty-state">
             <h2>Welcome to LLM Council</h2>
@@ -733,347 +1108,20 @@ export default function ChatInterface({
                 : null);
 
             return (
-              <div key={index} className="message-group">
-                {msg.role === "user" ? (
-                  <div className="user-message">
-                    <div className="message-content">
-                      <div className="message-label">You</div>
-                      <div className="markdown-content">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="assistant-message">
-                    <div className="message-label">
-                      <span>
-                        {msg.type === "agent" ? "Council Chairperson Agent" : "LLM Council"}
-                      </span>
-                      {showTokenCount && msg.token_usage && msg.token_usage.total_tokens > 0 && (
-                        <span
-                          className="msg-token-badge"
-                          title={`Turn Tokens: ${msg.token_usage.total_tokens.toLocaleString()} (Input: ${(msg.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(msg.token_usage.completion_tokens || 0).toLocaleString()})${
-                            msg.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(msg.token_usage.total_cost)}` : ""
-                          }${
-                            showSavedTokens && msg.token_usage?.tokens_saved ? ` · Saved: ${msg.token_usage.tokens_saved.toLocaleString()} tokens` : ""
-                          }${
-                            showSavedTokens && msg.token_usage?.total_cost_saved ? ` (${formatExactSpend(msg.token_usage.total_cost_saved)})` : ""
-                          }`}
-                        >
-                          🪙 {msg.token_usage.total_tokens.toLocaleString()} tokens
-                          {showSpendValue && msg.token_usage?.total_cost > 0 && (
-                            <span className="msg-token-spend"> · {formatSpend(msg.token_usage.total_cost)}</span>
-                          )}
-                          {showSavedTokens && msg.token_usage?.tokens_saved > 0 && (
-                            <span className="msg-token-saved">
-                              {" "}· 🌱 Saved {formatShortNumber(msg.token_usage.tokens_saved)}
-                              {showSpendValue && msg.token_usage?.total_cost_saved > 0 && (
-                                <> ({formatSpend(msg.token_usage.total_cost_saved)})</>
-                              )}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-
-                    {showTokensPerModel &&
-                      msg.token_usage?.by_model &&
-                      Object.keys(msg.token_usage.by_model).length > 0 && (
-                        <div className="msg-model-tokens-breakdown">
-                          {Object.entries(msg.token_usage.by_model).map(
-                            ([modelName, mData]) => {
-                              const shortM = modelName.split("/")[1] || modelName;
-                              const mTotal = mData.total_tokens || 0;
-                              const mCost = mData.cost;
-                              return (
-                                <span
-                                  key={modelName}
-                                  className="msg-model-token-tag"
-                                  title={`${modelName}: ${mTotal.toLocaleString()} tokens (Input: ${(mData.prompt_tokens || 0).toLocaleString()} | Output: ${(mData.completion_tokens || 0).toLocaleString()})${
-                                    mCost !== undefined ? ` · Est. Spend: ${formatExactSpend(mCost)}` : ""
-                                  }`}
-                                >
-                                  {shortM}: {mTotal.toLocaleString()}
-                                  {showSpendValue && mCost !== undefined && (
-                                    <span className="msg-model-spend"> ({formatSpend(mCost)})</span>
-                                  )}
-                                </span>
-                              );
-                            }
-                          )}
-                        </div>
-                      )}
-
-                    {msg.type === "workflow" ? (
-                      <WorkflowTimeline
-                        workflowName={msg.workflow_name}
-                        status={msg.status}
-                        nodes={msg.nodes}
-                        finalOutput={msg.final_output}
-                        tokenUsage={msg.token_usage}
-                        showTokenCount={showTokenCount}
-                        showSpendValue={showSpendValue}
-                      />
-                    ) : msg.type === "agent" || msg.steps ? (
-                      <AgentTimeline
-                        agentData={msg}
-                        isRunning={msg.isRunning || (msg.status === "running")}
-                        onCancel={onCancelAgent}
-                      />
-                    ) : (
-                      <>
-                        {showAllDeliberationSteps ? (
-                          <>
-                            {/* Stage 1 */}
-                            {msg.loading?.stage1 && (
-                              <div className="stage-loading">
-                                <div className="spinner"></div>
-                                <span>
-                                  Running Stage 1: Collecting individual responses...
-                                </span>
-                              </div>
-                            )}
-                            {msg.stage1 && <Stage1 responses={msg.stage1} />}
-
-                            {/* Stage 2 */}
-                            {msg.loading?.stage2 && (
-                              <div className="stage-loading">
-                                <div className="spinner"></div>
-                                <span>Running Stage 2: Peer rankings...</span>
-                              </div>
-                            )}
-                            {msg.stage2 && (
-                              <Stage2
-                                rankings={msg.stage2}
-                                labelToModel={msg.metadata?.label_to_model}
-                                aggregateRankings={msg.metadata?.aggregate_rankings}
-                              />
-                            )}
-
-                            {/* Stage 3 */}
-                            {msg.loading?.stage3 && (
-                              <div className="stage-loading">
-                                <div className="spinner"></div>
-                                <span>Running Stage 3: Final synthesis...</span>
-                              </div>
-                            )}
-                            {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
-                          </>
-                        ) : (
-                          <>
-                            {/* Just show final answer: clean chat response with no intermediate stages, sub-divs, headings or dropdown */}
-                            {(msg.loading?.stage1 ||
-                              msg.loading?.stage2 ||
-                              msg.loading?.stage3) &&
-                              !msg.stage3 && (
-                                <div className="stage-loading">
-                                  <div className="spinner"></div>
-                                  <span>Council is deliberating...</span>
-                                </div>
-                              )}
-                            {msg.stage3?.response && (
-                              <div className="markdown-content">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {msg.stage3.response}
-                                </ReactMarkdown>
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                    {/* Action Request */}
-                    {actionRequestText && (
-                      <div className="action-request-block">
-                        <h4>Action Request</h4>
-                        <div className="markdown-content">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {actionRequestText}
-                          </ReactMarkdown>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action Plan */}
-                    {msg.loading?.stage4 && (
-                      <div className="stage-loading">
-                        <div className="spinner"></div>
-                        <span>Generating action plan...</span>
-                      </div>
-                    )}
-
-                    {msg.stage4 && (
-                      <div className="action-plan-block">
-                        <h4>Action Plan</h4>
-                        {msg.stage4.success || msg.stage4.action_plan ? (
-                          <>
-                            <div className="plan-summary">
-                              <p>{msg.stage4.action_plan?.description}</p>
-                              <p>{msg.stage4.action_plan?.reasoning}</p>
-                            </div>
-                          <div className="tool-calls">
-                            {msg.stage4.action_plan?.tool_calls?.map(
-                              (call, idx) => (
-                                <div key={idx} className="tool-call">
-                                  <div className="tool-call-header">
-                                    <strong>
-                                      {call.tool}{" "}
-                                      {call.server &&
-                                        call.server !== "local" && (
-                                          <span className="server-tag">
-                                            ({call.server})
-                                          </span>
-                                        )}
-                                    </strong>
-                                    <span>{call.description}</span>
-                                  </div>
-                                  {call.params &&
-                                    Object.values(call.params).some(
-                                      (val) =>
-                                        val !== null &&
-                                        val !== undefined &&
-                                        val !== "",
-                                    ) && (
-                                      <div className="formatted-params">
-                                        {Object.entries(call.params)
-                                          .filter(
-                                            (entry) =>
-                                              entry[1] !== null &&
-                                              entry[1] !== undefined &&
-                                              entry[1] !== "",
-                                          )
-                                          .map(([key, value]) => (
-                                            <div
-                                              key={key}
-                                              className="param-row"
-                                            >
-                                              <span className="param-key">
-                                                {key}
-                                              </span>
-                                              <span className="param-value">
-                                                {typeof value === "object"
-                                                  ? JSON.stringify(
-                                                      value,
-                                                      null,
-                                                      2,
-                                                    )
-                                                  : String(value)}
-                                              </span>
-                                            </div>
-                                          ))}
-                                      </div>
-                                    )}
-                                </div>
-                              ),
-                            )}
-                          </div>
-
-                          {!msg.execution && msg.stage4.action_plan && (
-                            <div className="action-buttons">
-                              <button
-                                type="button"
-                                className="execute-action-btn"
-                                onClick={onExecuteActionPlan}
-                                disabled={
-                                  actionLoading || msg.loading?.execution
-                                }
-                              >
-                                Execute Action Plan
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="action-error">
-                          <strong>Action plan failed:</strong>{" "}
-                          {msg.stage4.error}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {msg.loading?.execution && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Executing action plan...</span>
-                    </div>
-                  )}
-
-                  {msg.execution && (
-                    <div className="execution-block">
-                      <h4 className="execution-heading">
-                        <span>Execution Results</span>
-                        <span
-                          className={`execution-status-badge ${
-                            msg.execution.success ? "success" : "failure"
-                          }`}
-                        >
-                          {msg.execution.success ? "✅ Success" : "⚠️ Failed"}
-                        </span>
-                      </h4>
-                      {msg.execution.execution_results?.results?.map(
-                        (toolResult, idx) => (
-                          <div key={idx} className="tool-result">
-                            <div className="result-header">
-                              <strong>
-                                {toolResult.tool}
-                                {toolResult.server &&
-                                  toolResult.server !== "local" && (
-                                    <span className="server-tag">
-                                      ({toolResult.server})
-                                    </span>
-                                  )}
-                              </strong>
-                            </div>
-
-                            {toolResult.params &&
-                              Object.keys(toolResult.params).filter(
-                                (key) =>
-                                  toolResult.params[key] !== null &&
-                                  toolResult.params[key] !== undefined &&
-                                  toolResult.params[key] !== "",
-                              ).length > 0 && (
-                                <div className="output-section">
-                                  <h5>Parameters</h5>
-                                  <div className="formatted-params">
-                                    {Object.entries(toolResult.params)
-                                      .filter(
-                                        (entry) =>
-                                          entry[1] !== null &&
-                                          entry[1] !== undefined &&
-                                          entry[1] !== "",
-                                      )
-                                      .map(([key, value]) => (
-                                        <div key={key} className="param-row">
-                                          <span className="param-key">
-                                            {key}
-                                          </span>
-                                          <span className="param-value">
-                                            {typeof value === "object"
-                                              ? JSON.stringify(value, null, 2)
-                                              : String(value)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                </div>
-                              )}
-
-                            <div className="result-output">
-                              {renderFormattedResult(toolResult.result)}
-                            </div>
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
+              <ChatMessageItem
+                key={msg.id || `${msg.role}-${index}`}
+                msg={msg}
+                actionRequestText={actionRequestText}
+                showAllDeliberationSteps={showAllDeliberationSteps}
+                showTokenCount={showTokenCount}
+                showSpendValue={showSpendValue}
+                showTokensPerModel={showTokensPerModel}
+                showSavedTokens={showSavedTokens}
+                onCancelAgent={onCancelAgent}
+                onExecuteActionPlan={onExecuteActionPlan}
+                actionLoading={actionLoading}
+              />
+            );
         })
       )}
 

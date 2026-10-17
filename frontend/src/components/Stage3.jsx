@@ -9,6 +9,7 @@
  * - In "Just show final answer" mode, this synthesized answer is displayed directly.
  */
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./Stage3.css";
@@ -20,7 +21,7 @@ import "./Stage3.css";
  * @param {{model?: string, response?: string}|null} props.finalResponse - Chairman synthesis result object.
  * @returns {JSX.Element|null} Rendered component or null if finalResponse is not provided.
  */
-export default function Stage3({ finalResponse }) {
+function Stage3({ finalResponse }) {
   if (!finalResponse) {
     return null;
   }
@@ -46,3 +47,5 @@ export default function Stage3({ finalResponse }) {
     </div>
   );
 }
+
+export default memo(Stage3);

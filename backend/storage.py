@@ -892,5 +892,5 @@ def add_workflow_message(
 
     conversation["messages"].append(message)
     conversation["mode"] = "custom_workflows"
-    reconcile_conversation_tokens(conversation)
+    conversation["token_usage"] = compute_conversation_token_usage(conversation)
     save_conversation(conversation)

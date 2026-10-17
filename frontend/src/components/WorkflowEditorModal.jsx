@@ -85,11 +85,59 @@ export default function WorkflowEditorModal({
   const [draggingNode, setDraggingNode] = useState(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
 
+  // Canvas pan state (Ctrl + click drag)
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const isPanningRef = useRef(false);
+  const panStartRef = useRef({ mouseX: 0, mouseY: 0, scrollLeft: 0, scrollTop: 0 });
+  const didPanRef = useRef(false);
+  const canvasRectRef = useRef(null);
+  const pendingNodePosRef = useRef(null);
+  const rafIdRef = useRef(null);
+
   // Edge drawing state
   const [connectingSource, setConnectingSource] = useState(null); // { nodeId, portType: 'out' }
   const [mouseCanvasPos, setMouseCanvasPos] = useState({ x: 0, y: 0 });
 
   const canvasRef = useRef(null);
+
+  // Global key and mouse listeners for panning and dragging
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCtrlPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCtrlPressed(false);
+      }
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+        setIsPanning(false);
+      }
+      setDraggingNode(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [isOpen]);
 
   // Initialize workflow state when modal opens
   useEffect(() => {
@@ -231,8 +279,37 @@ export default function WorkflowEditorModal({
     e.dataTransfer.dropEffect = "copy";
   };
 
+  // Start canvas pan
+  const startCanvasPan = (e) => {
+    if (!canvasRef.current) return;
+    e.preventDefault();
+    isPanningRef.current = true;
+    didPanRef.current = false;
+    panStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      scrollLeft: canvasRef.current.scrollLeft,
+      scrollTop: canvasRef.current.scrollTop,
+    };
+    setIsPanning(true);
+  };
+
+  // Canvas mouse down handler
+  const handleCanvasMouseDown = (e) => {
+    if (e.ctrlKey || e.metaKey || e.button === 1) {
+      startCanvasPan(e);
+    }
+  };
+
   // Node position drag handling on canvas
   const handleNodeMouseDown = (e, node) => {
+    // If Ctrl/Cmd is held or middle click, pan the graph canvas instead of dragging the node
+    if (e.ctrlKey || e.metaKey || e.button === 1) {
+      e.stopPropagation();
+      startCanvasPan(e);
+      return;
+    }
+
     if (e.target.closest(".node-port") || e.target.closest(".node-delete-icon-btn")) {
       return;
     }
@@ -240,6 +317,7 @@ export default function WorkflowEditorModal({
     setSelectedNodeId(node.id);
 
     const canvasRect = canvasRef.current.getBoundingClientRect();
+    canvasRectRef.current = canvasRect;
     const scrollLeft = canvasRef.current.scrollLeft;
     const scrollTop = canvasRef.current.scrollTop;
 
@@ -251,28 +329,61 @@ export default function WorkflowEditorModal({
     setDraggingNode(node.id);
   };
 
-  // Mouse move handler for node dragging and edge drawing
+  // Mouse move handler for canvas panning, node dragging, and edge drawing
   const handleCanvasMouseMove = (e) => {
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    const scrollLeft = canvasRef.current.scrollLeft;
-    const scrollTop = canvasRef.current.scrollTop;
+    // 1. Canvas panning via Ctrl + click drag
+    if (isPanningRef.current && canvasRef.current) {
+      const deltaX = e.clientX - panStartRef.current.mouseX;
+      const deltaY = e.clientY - panStartRef.current.mouseY;
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+        didPanRef.current = true;
+      }
+      canvasRef.current.scrollLeft = panStartRef.current.scrollLeft - deltaX;
+      canvasRef.current.scrollTop = panStartRef.current.scrollTop - deltaY;
+      return;
+    }
 
-    const currentCanvasX = e.clientX - canvasRect.left + scrollLeft;
-    const currentCanvasY = e.clientY - canvasRect.top + scrollTop;
+    // 2. Only compute coordinates & update preview state when actively drawing an edge
+    if (connectingSource && canvasRef.current) {
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const scrollLeft = canvasRef.current.scrollLeft;
+      const scrollTop = canvasRef.current.scrollTop;
+      const currentCanvasX = e.clientX - canvasRect.left + scrollLeft;
+      const currentCanvasY = e.clientY - canvasRect.top + scrollTop;
+      setMouseCanvasPos({ x: currentCanvasX, y: currentCanvasY });
+    }
 
-    setMouseCanvasPos({ x: currentCanvasX, y: currentCanvasY });
+    // 3. Node dragging with requestAnimationFrame throttling for smooth 60+ FPS
+    if (draggingNode && canvasRef.current) {
+      const canvasRect = canvasRectRef.current || canvasRef.current.getBoundingClientRect();
+      const scrollLeft = canvasRef.current.scrollLeft;
+      const scrollTop = canvasRef.current.scrollTop;
+      const currentCanvasX = e.clientX - canvasRect.left + scrollLeft;
+      const currentCanvasY = e.clientY - canvasRect.top + scrollTop;
 
-    if (draggingNode) {
       const newX = Math.max(20, Math.round(currentCanvasX - dragOffsetRef.current.x));
       const newY = Math.max(20, Math.round(currentCanvasY - dragOffsetRef.current.y));
 
-      setNodes((prev) =>
-        prev.map((n) => (n.id === draggingNode ? { ...n, position: { x: newX, y: newY } } : n))
-      );
+      pendingNodePosRef.current = { id: draggingNode, x: newX, y: newY };
+      if (!rafIdRef.current) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          if (pendingNodePosRef.current) {
+            const { id, x, y } = pendingNodePosRef.current;
+            setNodes((prev) =>
+              prev.map((n) => (n.id === id ? { ...n, position: { x, y } } : n))
+            );
+          }
+        });
+      }
     }
   };
 
   const handleCanvasMouseUp = () => {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+      setIsPanning(false);
+    }
     if (draggingNode) {
       setDraggingNode(null);
     }
@@ -571,10 +682,11 @@ export default function WorkflowEditorModal({
             <div className="palette-help">
               <strong>Quick Guide:</strong>
               <ul style={{ margin: "6px 0 0 0", paddingLeft: "16px" }}>
-                <li>Drag nodes from palette onto the canvas.</li>
+                <li>Drag nodes from palette onto canvas.</li>
                 <li>Drag node header to reposition.</li>
+                <li><strong>Ctrl + Click & drag</strong> anywhere to pan canvas.</li>
                 <li>
-                  Drag from right port (<strong>●</strong>) to left port (
+                  Drag right port (<strong>●</strong>) to left port (
                   <strong>●</strong>) to connect.
                 </li>
                 <li>Click any line to remove connection.</li>
@@ -584,17 +696,26 @@ export default function WorkflowEditorModal({
 
           {/* Center: Graph Canvas */}
           <div
-            className="graph-canvas-container"
+            className={`graph-canvas-container ${isCtrlPressed ? "is-ctrl-pressed" : ""} ${isPanning ? "is-panning" : ""}`}
             ref={canvasRef}
+            onMouseDown={handleCanvasMouseDown}
             onDrop={handleCanvasDrop}
             onDragOver={handleCanvasDragOver}
             onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
             onClick={() => {
+              if (didPanRef.current) {
+                didPanRef.current = false;
+                return;
+              }
               // Click canvas to clear active selection
               setSelectedNodeId(null);
               setConnectingSource(null);
             }}
           >
+            <div className="canvas-pan-hint">
+              <kbd>Ctrl</kbd> + Click & Drag to pan canvas
+            </div>
             <div className="graph-canvas-world">
               {/* SVG Connector Layer */}
               <svg className="graph-svg-layer">

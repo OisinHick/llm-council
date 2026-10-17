@@ -14,7 +14,7 @@
  *   for clear, readable presentation to the human user.
  */
 
-import { useState } from "react";
+import { useState, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./Stage2.css";
@@ -62,14 +62,19 @@ function deAnonymizeText(text, labelToModel) {
  *   Aggregated Borda-count rankings across all evaluations.
  * @returns {JSX.Element|null} Rendered component or null if rankings array is empty.
  */
-export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
+function Stage2({ rankings, labelToModel, aggregateRankings }) {
   const [activeTab, setActiveTab] = useState(0);
+
+  const activeRanking = (rankings && (rankings[activeTab] || rankings[0])) || {};
+
+  const deAnonymizedContent = useMemo(
+    () => deAnonymizeText(activeRanking.ranking, labelToModel),
+    [activeRanking.ranking, labelToModel]
+  );
 
   if (!rankings || rankings.length === 0) {
     return null;
   }
-
-  const activeRanking = rankings[activeTab] || rankings[0] || {};
 
   return (
     <div className="stage stage2">
@@ -99,7 +104,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         <div className="ranking-model">{activeRanking.model || "Unknown Model"}</div>
         <div className="ranking-content markdown-content">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {deAnonymizeText(activeRanking.ranking, labelToModel)}
+            {deAnonymizedContent}
           </ReactMarkdown>
         </div>
 
@@ -146,3 +151,5 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
     </div>
   );
 }
+
+export default memo(Stage2);

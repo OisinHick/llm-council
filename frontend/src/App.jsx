@@ -12,7 +12,7 @@
  *   in `localStorage` and synchronizes with server settings.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatInterface from "./components/ChatInterface";
 import WorkflowSelectorModal from "./components/WorkflowSelectorModal";
@@ -663,7 +663,7 @@ function App() {
    *
    * @returns {Promise<void>}
    */
-  const handleNewConversation = async () => {
+  const handleNewConversation = useCallback(async () => {
     try {
       resetActionState();
       setCurrentConversation(null);
@@ -694,19 +694,19 @@ function App() {
     } catch (error) {
       console.error("Failed to create conversation:", error);
     }
-  };
+  }, [activeMode]);
 
   /**
    * Switch the active conversation to a different conversation ID.
    *
    * @param {string} id - Selected conversation ID.
    */
-  const handleSelectConversation = (id) => {
+  const handleSelectConversation = useCallback((id) => {
     if (id === currentConversationId) return;
     resetActionState();
     setCurrentConversation(null);
     setCurrentConversationId(id);
-  };
+  }, [currentConversationId]);
 
   /**
    * Ensure that an active conversation exists before sending a message or running an action/agent.
@@ -1006,7 +1006,7 @@ function App() {
    *
    * @param {string} mode - "informational" | "one_shot" | "agentic".
    */
-  const handleModeChange = (mode) => {
+  const handleModeChange = useCallback((mode) => {
     setPendingMode(mode);
     if (currentConversationId) {
       setCouncilModeState((prev) => ({
@@ -1014,7 +1014,7 @@ function App() {
         [currentConversationId]: mode,
       }));
     }
-  };
+  }, [currentConversationId]);
 
   /**
    * Run the Council Autonomous Agent with streaming updates over SSE.

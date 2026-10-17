@@ -13,7 +13,7 @@
  * - Deliverables Card: Summarizes created/modified file artifacts and the final Chairperson summary report.
  */
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Stage1 from "./Stage1";
@@ -30,7 +30,7 @@ import "./AgentTimeline.css";
  * @param {function(): void} [props.onCancel] - Optional callback to halt agent execution.
  * @returns {JSX.Element|null} Rendered timeline or null if agentData is falsy.
  */
-export default function AgentTimeline({
+function AgentTimeline({
   agentData,
   isRunning = false,
   onCancel,
@@ -407,3 +407,5 @@ export default function AgentTimeline({
     </div>
   );
 }
+
+export default memo(AgentTimeline);

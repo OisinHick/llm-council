@@ -8,7 +8,7 @@
  * - Final output box formatted in markdown.
  */
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatSpend, formatShortNumber } from "../formatters";
@@ -27,7 +27,7 @@ import "./WorkflowTimeline.css";
  * @param {boolean} [props.showSpendValue=true] - Display USD spend toggle.
  * @returns {JSX.Element} Rendered timeline.
  */
-export default function WorkflowTimeline({
+function WorkflowTimeline({
   workflowName,
   status = "completed",
   nodes = [],
@@ -192,3 +192,5 @@ export default function WorkflowTimeline({
     </div>
   );
 }
+
+export default memo(WorkflowTimeline);

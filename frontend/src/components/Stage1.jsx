@@ -11,7 +11,7 @@
  *   and `remark-gfm` (supporting tables, checklists, strikethrough, and fenced code).
  */
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./Stage1.css";
@@ -23,7 +23,7 @@ import "./Stage1.css";
  * @param {Array<{model: string, response: string}>} props.responses - List of model response objects.
  * @returns {JSX.Element|null} Rendered component or null if responses array is empty.
  */
-export default function Stage1({ responses }) {
+function Stage1({ responses }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!responses || responses.length === 0) {
@@ -59,3 +59,5 @@ export default function Stage1({ responses }) {
     </div>
   );
 }
+
+export default memo(Stage1);
