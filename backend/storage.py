@@ -485,6 +485,8 @@ def get_conversation_mode_from_messages(
     """
     for message in reversed(messages):
         if message.get("role") == "assistant":
+            if message.get("type") == "workflow":
+                return "custom_workflows"
             if message.get("type") == "agent":
                 return "agentic"
             if message.get("stage4") is not None or (
@@ -827,3 +829,68 @@ def update_conversation_mode(
     conversation["mode"] = mode
     save_conversation(conversation)
     return conversation
+
+
+def add_workflow_message(
+    conversation_id: str,
+    user_input: str,
+    workflow_id: str,
+    workflow_name: str,
+    nodes: List[Dict[str, Any]],
+    edges: List[Dict[str, Any]],
+    final_output: str,
+    status: str = "completed",
+    error: Optional[str] = None,
+    token_usage: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Append a custom workflow execution record to a conversation.
+
+    Args:
+        conversation_id (str): Conversation identifier.
+        user_input (str): Original user prompt submitted to the workflow.
+        workflow_id (str): Unique identifier of the executed workflow.
+        workflow_name (str): Display name of the workflow.
+        nodes (List[Dict[str, Any]]): List of node execution states and outputs.
+        edges (List[Dict[str, Any]]): Graph edge definitions connecting the nodes.
+        final_output (str): Consolidated final output text produced by the graph.
+        status (str): Workflow status ('completed', 'failed', or 'cancelled').
+        error (Optional[str]): Error description if workflow failed.
+        token_usage (Optional[Dict[str, Any]]): Aggregated token counts and costs.
+
+    Raises:
+        ValueError: If the conversation is not found in storage.
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    turn_tokens = token_usage or {
+        "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "tokens_saved": 0,
+        "total_cost": 0.0,
+        "total_cost_saved": 0.0,
+        "by_model": {},
+    }
+
+    message: Dict[str, Any] = {
+        "role": "assistant",
+        "type": "workflow",
+        "workflow_id": workflow_id,
+        "workflow_name": workflow_name,
+        "action_request": user_input,
+        "input": user_input,
+        "nodes": nodes,
+        "edges": edges,
+        "final_output": final_output,
+        "summary": final_output,
+        "error": error,
+        "status": status,
+        "token_usage": turn_tokens,
+    }
+
+    conversation["messages"].append(message)
+    conversation["mode"] = "custom_workflows"
+    reconcile_conversation_tokens(conversation)
+    save_conversation(conversation)

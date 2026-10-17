@@ -15,6 +15,8 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatInterface from "./components/ChatInterface";
+import WorkflowSelectorModal from "./components/WorkflowSelectorModal";
+import WorkflowEditorModal from "./components/WorkflowEditorModal";
 import { api } from "./api";
 import "./App.css";
 
@@ -166,6 +168,29 @@ function App() {
   const [agentLoading, setAgentLoading] = useState(false);
   // Error string from agent execution failure
   const [agentError, setAgentError] = useState(null);
+
+  // Custom Workflows state
+  const [activeWorkflow, setActiveWorkflow] = useState(null);
+  const [showWorkflowSelector, setShowWorkflowSelector] = useState(false);
+  const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState(null);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+
+  // Load workflows on mount and select default template
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .getWorkflows()
+      .then((wfs) => {
+        if (isMounted && wfs && wfs.length > 0) {
+          setActiveWorkflow((prev) => (prev ? prev : wfs[0]));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Sync display preferences to localStorage whenever changed
   useEffect(() => {
@@ -1306,6 +1331,166 @@ function App() {
     }
   };
 
+  /**
+   * Run a custom workflow graph on user input with live SSE streaming.
+   *
+   * @param {string} inputText - User prompt to execute through the graph.
+   * @returns {Promise<void>}
+   */
+  const handleRunWorkflow = async (inputText) => {
+    if (!inputText.trim()) return;
+
+    setWorkflowLoading(true);
+
+    let activeId = currentConversationId;
+    if (!activeId || !currentConversation) {
+      try {
+        activeId = await ensureActiveConversation();
+      } catch (error) {
+        console.error("Failed to create conversation for workflow:", error);
+        setWorkflowLoading(false);
+        return;
+      }
+    }
+
+    let currentWf = activeWorkflow;
+    if (!currentWf) {
+      const allWfs = await api.getWorkflows();
+      if (allWfs && allWfs.length > 0) {
+        currentWf = allWfs[0];
+        setActiveWorkflow(currentWf);
+      }
+    }
+
+    if (!currentWf) {
+      alert("No workflow available. Please select or create a workflow first.");
+      setWorkflowLoading(false);
+      return;
+    }
+
+    const userMessage = { role: "user", content: inputText };
+    const workflowAssistantMessage = {
+      role: "assistant",
+      type: "workflow",
+      workflow_id: currentWf.id,
+      workflow_name: currentWf.name,
+      status: "running",
+      nodes: (currentWf.nodes || []).map((n) => ({
+        ...n,
+        status: "pending",
+        output: "",
+      })),
+      edges: currentWf.edges || [],
+      final_output: "",
+      token_usage: {
+        total_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        tokens_saved: 0,
+        total_cost: 0,
+      },
+    };
+
+    setCurrentConversation((prev) => {
+      const prevMessages = prev?.messages || [];
+      return {
+        ...prev,
+        messages: [...prevMessages, userMessage, workflowAssistantMessage],
+      };
+    });
+
+    const updateLastWorkflowMessage = (updater) => {
+      setCurrentConversation((prev) => {
+        if (!prev?.messages?.length) return prev;
+        const messages = [...prev.messages];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "assistant" && messages[i].type === "workflow") {
+            messages[i] = updater(messages[i]);
+            break;
+          }
+        }
+        return { ...prev, messages };
+      });
+    };
+
+    try {
+      await api.runWorkflowStream({
+        workflowId: currentWf.id,
+        workflow: currentWf,
+        input: inputText,
+        conversationId: activeId,
+        onEvent: (eventType, event) => {
+          const eventData = event.data || event;
+          switch (eventType) {
+            case "workflow_start":
+              updateLastWorkflowMessage((msg) => ({
+                ...msg,
+                status: "running",
+              }));
+              break;
+            case "node_start":
+              updateLastWorkflowMessage((msg) => {
+                const updatedNodes = (msg.nodes || []).map((n) =>
+                  n.id === eventData.node_id ? { ...n, status: "running" } : n
+                );
+                return { ...msg, nodes: updatedNodes };
+              });
+              break;
+            case "node_complete":
+              updateLastWorkflowMessage((msg) => {
+                const updatedNodes = (msg.nodes || []).map((n) =>
+                  n.id === eventData.id ? { ...n, ...eventData, status: "completed" } : n
+                );
+                return { ...msg, nodes: updatedNodes };
+              });
+              break;
+            case "workflow_complete":
+              updateLastWorkflowMessage((msg) => ({
+                ...msg,
+                status: eventData.status || "completed",
+                final_output: eventData.final_output || "",
+                nodes: eventData.nodes || msg.nodes,
+                token_usage: eventData.token_usage || msg.token_usage,
+              }));
+              break;
+            case "title_complete":
+              if (eventData.title) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === activeId ? { ...c, title: eventData.title } : c
+                  )
+                );
+              }
+              break;
+            case "complete":
+              if (event.token_usage) {
+                setCurrentConversation((prev) =>
+                  prev ? { ...prev, token_usage: event.token_usage } : prev
+                );
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.id === activeId ? { ...c, token_usage: event.token_usage } : c
+                  )
+                );
+              }
+              break;
+            default:
+              break;
+          }
+        },
+      });
+    } catch (err) {
+      console.error("Workflow streaming failed:", err);
+      updateLastWorkflowMessage((msg) => ({
+        ...msg,
+        status: "failed",
+        error: err.message,
+      }));
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
   return (
     <div className="app">
       <Sidebar
@@ -1350,6 +1535,37 @@ function App() {
         actionError={actionError}
         actionPlanRequest={actionPlanRequest}
         isLoading={isLoading}
+        activeWorkflow={activeWorkflow}
+        onOpenWorkflowSelector={() => setShowWorkflowSelector(true)}
+        onRunWorkflow={handleRunWorkflow}
+        workflowLoading={workflowLoading}
+      />
+
+      <WorkflowSelectorModal
+        isOpen={showWorkflowSelector}
+        onClose={() => setShowWorkflowSelector(false)}
+        selectedWorkflowId={activeWorkflow?.id}
+        onSelectWorkflow={(wf) => {
+          setActiveWorkflow(wf);
+          handleModeChange("custom_workflows");
+        }}
+        onOpenEditor={(wfToEdit) => {
+          setEditingWorkflow(wfToEdit);
+          setShowWorkflowEditor(true);
+        }}
+      />
+
+      <WorkflowEditorModal
+        isOpen={showWorkflowEditor}
+        onClose={() => {
+          setShowWorkflowEditor(false);
+          setEditingWorkflow(null);
+        }}
+        initialWorkflow={editingWorkflow}
+        onWorkflowSaved={(savedWf) => {
+          setActiveWorkflow(savedWf);
+          setEditingWorkflow(null);
+        }}
       />
     </div>
   );

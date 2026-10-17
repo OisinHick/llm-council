@@ -46,6 +46,9 @@ DATA_DIR: str = str(BASE_DIR / "data" / "conversations")
 # Path to the runtime user settings file (data/settings.json)
 SETTINGS_FILE: Path = BASE_DIR / "data" / "settings.json"
 
+# Path to persistent custom workflows JSON file (data/workflows.json)
+WORKFLOWS_FILE: Path = BASE_DIR / "data" / "workflows.json"
+
 # ==============================================================================
 # Model Defaults & OpenRouter Endpoints
 # ==============================================================================

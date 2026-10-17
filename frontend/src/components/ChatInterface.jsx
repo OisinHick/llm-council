@@ -16,11 +16,11 @@
  * - Connected MCP Tools Drawer:
  *     - Displays discovered MCP tools, JSON input schemas, and real-time server connection status.
  *     - Allows enabling/disabling individual MCP servers.
- * - Execution Mode Slider:
- *     - Accessible 3-position glider: "Informational" (Stages 1-3), "One Shot" (Stage 4), "Agentic" (ReAct loop).
+ * - Execution Mode Controls:
+ *     - Dropdown: "Informational" (Stages 1-3), "One Shot Execution" (Stage 4), "Agentic" (ReAct loop).
  * - Prompt Input Box:
  *     - Auto-resizing textarea with Enter to submit and Shift+Enter for newlines.
- *     - Quick launcher for the Council Deliberation Sensitivity configuration modal.
+ *     - Quick launcher for the Agentic Loop & Council Settings modal.
  */
 
 import { useState, useEffect, useRef, useMemo, memo } from "react";
@@ -30,6 +30,7 @@ import Stage1 from "./Stage1";
 import Stage2 from "./Stage2";
 import Stage3 from "./Stage3";
 import AgentTimeline from "./AgentTimeline";
+import WorkflowTimeline from "./WorkflowTimeline";
 import CouncilSensitivityModal from "./CouncilSensitivityModal";
 import { api } from "../api";
 import { formatSpend, formatExactSpend, formatShortNumber } from "../formatters";
@@ -332,6 +333,10 @@ export default function ChatInterface({
   showTokensPerModel = false,
   showSpendValue = true,
   showSavedTokens = true,
+  activeWorkflow = null,
+  onOpenWorkflowSelector = null,
+  onRunWorkflow = null,
+  workflowLoading = false,
 }) {
   const [input, setInput] = useState("");
   // Derive mode from props (with fallback for legacy toggle props)
@@ -514,12 +519,15 @@ export default function ChatInterface({
   };
 
   /**
-   * Switch the execution mode across Informational, One Shot, and Agentic.
+   * Switch the execution mode across Informational, One Shot Execution, Agentic, and Custom Workflows.
    *
-   * @param {string} newMode - "informational" | "one_shot" | "agentic".
+   * @param {string} newMode - "informational" | "one_shot" | "agentic" | "custom_workflows".
    */
   const handleSelectMode = (newMode) => {
-    if (isLoading || actionLoading || agentLoading) return;
+    if (isLoading || actionLoading || agentLoading || workflowLoading) return;
+    if (newMode === "informational") {
+      setShowToolsList(false);
+    }
     if (onModeChange) {
       onModeChange(newMode);
     }
@@ -530,19 +538,29 @@ export default function ChatInterface({
   };
 
   useEffect(() => {
+    if (currentMode === "informational") {
+      setShowToolsList(false);
+    }
+  }, [currentMode]);
+
+  useEffect(() => {
     scrollToBottom();
   }, [conversation]);
 
   /**
-   * Form submission handler: dispatches to onRunAgent, onGenerateActionPlan, or onSendMessage.
+   * Form submission handler: dispatches to onRunWorkflow, onRunAgent, onGenerateActionPlan, or onSendMessage.
    *
    * @param {React.FormEvent} e - Form submission event.
    */
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading || actionLoading || agentLoading) return;
+    if (!input.trim() || isLoading || actionLoading || agentLoading || workflowLoading) return;
 
-    if (isAgentic) {
+    if (currentMode === "custom_workflows") {
+      if (onRunWorkflow) {
+        onRunWorkflow(input);
+      }
+    } else if (isAgentic) {
       if (onRunAgent) {
         onRunAgent(input, sensitivityConfig);
       }
@@ -605,8 +623,10 @@ export default function ChatInterface({
             {currentMode === "agentic"
               ? "🤖 Agentic"
               : currentMode === "one_shot"
-                ? "⚡ One Shot"
-                : "💬 Informational"}
+                ? "⚡ One Shot Execution"
+                : currentMode === "custom_workflows"
+                  ? "🔀 Custom Workflows"
+                  : "💬 Informational"}
           </span>
         </div>
 
@@ -692,7 +712,7 @@ export default function ChatInterface({
           <div className="empty-state">
             <h2>Welcome to LLM Council</h2>
             <p>
-              Choose Informational, One Shot, or Agentic using the slider below
+              Choose Informational, One Shot Execution, or Agentic using the mode controls below
               to begin.
             </p>
           </div>
@@ -700,7 +720,7 @@ export default function ChatInterface({
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>
-              Choose Informational, One Shot, or Agentic using the slider below
+              Choose Informational, One Shot Execution, or Agentic using the mode controls below
               to begin.
             </p>
           </div>
@@ -786,7 +806,17 @@ export default function ChatInterface({
                         </div>
                       )}
 
-                    {msg.type === "agent" || msg.steps ? (
+                    {msg.type === "workflow" ? (
+                      <WorkflowTimeline
+                        workflowName={msg.workflow_name}
+                        status={msg.status}
+                        nodes={msg.nodes}
+                        finalOutput={msg.final_output}
+                        tokenUsage={msg.token_usage}
+                        showTokenCount={showTokenCount}
+                        showSpendValue={showSpendValue}
+                      />
+                    ) : msg.type === "agent" || msg.steps ? (
                       <AgentTimeline
                         agentData={msg}
                         isRunning={msg.isRunning || (msg.status === "running")}
@@ -1541,138 +1571,155 @@ export default function ChatInterface({
       )}
 
       <form className="input-form" onSubmit={handleSubmit}>
-        <div className="mode-slider-container">
-          <div className="mode-slider-header">
-            <span className="mode-slider-label">Execution Mode</span>
-            <span className="mode-slider-hint">
-              {currentMode === "informational" &&
-                "Standard council deliberation & synthesis (Stage 1-3)"}
-              {currentMode === "one_shot" &&
-                "Generate & execute MCP tool action plan in one shot (Stage 1-4)"}
-              {isAgentic &&
-                "Autonomous Chairperson ReAct loop with multi-step tool execution"}
-            </span>
+        <div className="mode-controls-container">
+          <div className="mode-controls-bar">
+            <div className="mode-dropdown-group">
+              <label htmlFor="execution-mode-select" className="mode-dropdown-label">
+                Execution Mode
+              </label>
+              <div className="mode-select-wrapper">
+                <select
+                  id="execution-mode-select"
+                  className="mode-dropdown-select"
+                  value={
+                    currentMode === "custom_workflows"
+                      ? "custom_workflows"
+                      : isAgentic
+                        ? "agentic"
+                        : currentMode === "one_shot"
+                          ? "one_shot"
+                          : "informational"
+                  }
+                  onChange={(e) => {
+                    const selected = e.target.value;
+                    if (selected) {
+                      handleSelectMode(selected);
+                    }
+                  }}
+                  disabled={isLoading || actionLoading || agentLoading || workflowLoading}
+                  aria-label="Execution Mode Selection"
+                >
+                  <option value="informational">💬 Informational</option>
+                  <option value="one_shot">⚡ One Shot Execution</option>
+                  <option value="agentic">🤖 Agentic</option>
+                  <option value="custom_workflows">🔀 Custom Workflows</option>
+                </select>
+                <span className="mode-select-chevron" aria-hidden="true">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            {currentMode === "custom_workflows" && (
+              <div className="mode-workflows-library-group">
+                <button
+                  type="button"
+                  className="workflows-library-btn"
+                  onClick={onOpenWorkflowSelector}
+                  disabled={isLoading || actionLoading || agentLoading || workflowLoading}
+                  title="Browse and select workflows from the library"
+                >
+                  <span className="workflows-library-btn-icon">📚</span>
+                  <span className="workflows-library-btn-text">Workflows Library</span>
+                </button>
+              </div>
+            )}
+
+            {isAgentic && (
+              <div className="mode-agent-settings-group">
+                <button
+                  type="button"
+                  className="agent-settings-btn"
+                  onClick={() => setShowSensitivityModal(true)}
+                  disabled={isLoading || actionLoading || agentLoading || workflowLoading}
+                  title="Agentic Loop & Council Settings"
+                  aria-label="Open Agentic Loop & Council Settings"
+                >
+                  <span className="agent-settings-btn-icon">🧠</span>
+                  <span className="agent-settings-btn-text">Agentic Settings</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          <div
-            className="mode-slider-track"
-            role="radiogroup"
-            aria-label="Execution mode selection"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                e.preventDefault();
-                if (currentMode === "informational") handleSelectMode("one_shot");
-                else if (currentMode === "one_shot") handleSelectMode("agentic");
-              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                e.preventDefault();
-                if (isAgentic) handleSelectMode("one_shot");
-                else if (currentMode === "one_shot") handleSelectMode("informational");
-              }
-            }}
-          >
-            <div
-              className={`mode-slider-glider pos-${
-                currentMode === "one_shot"
-                  ? "1"
-                  : isAgentic
-                    ? "2"
-                    : "0"
-              }`}
-            />
-            <button
-              type="button"
-              className={`mode-slider-btn ${
-                currentMode === "informational" ? "active" : ""
-              }`}
-              onClick={() => handleSelectMode("informational")}
-              disabled={isLoading || actionLoading || agentLoading}
-              title="Informational: Standard council deliberation (Stages 1-3)"
-              role="radio"
-              aria-checked={currentMode === "informational"}
-            >
-              <span className="mode-slider-icon">💬</span>
-              <span className="mode-slider-text">Informational</span>
-            </button>
-            <button
-              type="button"
-              className={`mode-slider-btn ${
-                currentMode === "one_shot" ? "active" : ""
-              }`}
-              onClick={() => handleSelectMode("one_shot")}
-              disabled={isLoading || actionLoading || agentLoading}
-              title="One Shot: Generate and execute action plan once (Stage 4)"
-              role="radio"
-              aria-checked={currentMode === "one_shot"}
-            >
-              <span className="mode-slider-icon">⚡</span>
-              <span className="mode-slider-text">One Shot</span>
-            </button>
-            <button
-              type="button"
-              className={`mode-slider-btn ${
-                isAgentic ? "active" : ""
-              }`}
-              onClick={() => handleSelectMode("agentic")}
-              disabled={isLoading || actionLoading || agentLoading}
-              title="Agentic: Autonomous multi-step ReAct agent loop"
-              role="radio"
-              aria-checked={isAgentic}
-            >
-              <span className="mode-slider-icon">🤖</span>
-              <span className="mode-slider-text">Agentic</span>
-            </button>
+          <div className="mode-controls-hint">
+            {currentMode === "informational" &&
+              "Standard council deliberation & synthesis (Stage 1-3)"}
+            {currentMode === "one_shot" &&
+              "Generate & execute action plan with one shot execution, compatiable with MCP (Stage 1-4)"}
+            {isAgentic &&
+              "Autonomous Chairperson ReAct loop with multi-step tool execution"}
+            {currentMode === "custom_workflows" &&
+              `Active graph pipeline: ${activeWorkflow?.name || "Sequential Chain Refinement"}`}
           </div>
         </div>
+
 
         <div className="input-row">
           <textarea
             className="message-input"
             placeholder={
-              isAgentic
-                ? "Describe the goal for the Council Chairperson Agent (e.g. write code, generate documentation, run tests)..."
-                : currentMode === "one_shot"
-                  ? "Describe a task to plan and execute with MCP tools (Shift+Enter for new line, Enter to send)..."
-                  : "Ask your question... (Shift+Enter for new line, Enter to send)"
+              currentMode === "custom_workflows"
+                ? `Enter input for "${activeWorkflow?.name || "Custom Workflow"}" pipeline... (Shift+Enter for new line, Enter to send)`
+                : isAgentic
+                  ? "Describe the goal for the Council Chairperson Agent (e.g. write code, generate documentation, run tests)..."
+                  : currentMode === "one_shot"
+                    ? "Describe a task to plan and execute with MCP tools (Shift+Enter for new line, Enter to send)..."
+                    : "Ask your question... (Shift+Enter for new line, Enter to send)"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isLoading || actionLoading || agentLoading}
+            disabled={isLoading || actionLoading || agentLoading || workflowLoading}
             rows={3}
           />
 
-          <div className="input-actions">
-            <div
-              className="mcp-status"
-              onClick={() => setShowToolsList(!showToolsList)}
-              title={
-                unavailableServersCount > 0
-                  ? `Click to view all MCP tools (${unavailableServersCount} server(s) offline)`
-                  : disabledServersCount > 0
-                    ? `Click to view all MCP tools (${disabledServersCount} server(s) disabled)`
-                    : "Click to view all active MCP tools"
-              }
-            >
-              <span
-                className={`status-dot ${
+          <div
+            className={`input-actions ${currentMode === "informational" ? "mode-informational" : ""}`}
+          >
+            {currentMode !== "informational" && (
+              <div
+                className="mcp-status"
+                onClick={() => setShowToolsList(!showToolsList)}
+                title={
                   unavailableServersCount > 0
-                    ? "warning"
-                    : mcpTools.length > 0
-                      ? "connected"
-                      : ""
-                }`}
-              ></span>
-              <span>
-                {mcpTools.length} Active MCP{" "}
-                {mcpTools.length === 1 ? "Tool" : "Tools"}
-                {unavailableServersCount > 0 &&
-                  ` (${unavailableServersCount} offline)`}
-                {unavailableServersCount === 0 &&
-                  disabledServersCount > 0 &&
-                  ` (${disabledServersCount} off)`}
-              </span>
-            </div>
+                    ? `Click to view all MCP tools (${unavailableServersCount} server(s) offline)`
+                    : disabledServersCount > 0
+                      ? `Click to view all MCP tools (${disabledServersCount} server(s) disabled)`
+                      : "Click to view all active MCP tools"
+                }
+              >
+                <span
+                  className={`status-dot ${
+                    unavailableServersCount > 0
+                      ? "warning"
+                      : mcpTools.length > 0
+                        ? "connected"
+                        : ""
+                  }`}
+                ></span>
+                <span>
+                  {mcpTools.length} Active MCP{" "}
+                  {mcpTools.length === 1 ? "Tool" : "Tools"}
+                  {unavailableServersCount > 0 &&
+                    ` (${unavailableServersCount} offline)`}
+                  {unavailableServersCount === 0 &&
+                    disabledServersCount > 0 &&
+                    ` (${disabledServersCount} off)`}
+                </span>
+              </div>
+            )}
 
             {agentLoading && onCancelAgent ? (
               <button
@@ -1685,29 +1732,22 @@ export default function ChatInterface({
               </button>
             ) : (
               <div className="action-buttons-group">
-                {isAgentic && (
-                  <button
-                    type="button"
-                    className={`agent-sensitivity-btn level-${sensitivityConfig?.level || "medium"}`}
-                    onClick={() => setShowSensitivityModal(true)}
-                    title={`Council Deliberation Sensitivity: ${(sensitivityConfig?.level || "medium").toUpperCase()}`}
-                    aria-label="Open Council Deliberation Sensitivity settings"
-                  >
-                    <span className="sensitivity-icon">🧠</span>
-                  </button>
-                )}
                 <button
                   type="submit"
                   className="send-button"
                   disabled={
-                    !input.trim() || isLoading || actionLoading || agentLoading
+                    !input.trim() || isLoading || actionLoading || agentLoading || workflowLoading
                   }
                 >
-                  {isAgentic
-                    ? "Run Agent"
-                    : currentMode === "one_shot"
-                      ? "Generate Plan"
-                      : "Send"}
+                  {currentMode === "custom_workflows"
+                    ? workflowLoading
+                      ? "Running..."
+                      : "Run Workflow"
+                    : isAgentic
+                      ? "Run Agent"
+                      : currentMode === "one_shot"
+                        ? "Generate Plan"
+                        : "Send"}
                 </button>
               </div>
             )}

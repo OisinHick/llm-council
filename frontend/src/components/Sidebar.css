@@ -299,6 +299,12 @@
   border: 1px solid #ddd6fe;
 }
 
+.conv-mode-tag.mode-custom_workflows {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
 .conv-message-count {
   white-space: nowrap;
   flex-shrink: 0;

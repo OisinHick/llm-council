@@ -534,4 +534,95 @@ export const api = {
       "Failed to reset compression stats",
     );
   },
+
+  /**
+   * Fetch all custom workflows and built-in templates.
+   *
+   * @returns {Promise<Array<Object>>} List of workflow definitions.
+   */
+  async getWorkflows() {
+    const data = await requestJson(
+      "/api/workflows",
+      {},
+      "Failed to fetch workflows",
+    );
+    return data.workflows || [];
+  },
+
+  /**
+   * Fetch a specific workflow by its ID.
+   *
+   * @param {string} id - Unique workflow identifier.
+   * @returns {Promise<Object>} Workflow definition object.
+   */
+  async getWorkflow(id) {
+    return requestJson(
+      `/api/workflows/${encodeURIComponent(id)}`,
+      {},
+      "Failed to fetch workflow",
+    );
+  },
+
+  /**
+   * Create or update a custom workflow definition.
+   *
+   * @param {Object} workflow - Workflow graph definition with nodes and edges.
+   * @returns {Promise<Object>} Saved workflow object.
+   */
+  async saveWorkflow(workflow) {
+    return requestJson(
+      "/api/workflows",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workflow),
+      },
+      "Failed to save workflow",
+    );
+  },
+
+  /**
+   * Delete a custom workflow by ID.
+   *
+   * @param {string} id - Workflow identifier to delete.
+   * @returns {Promise<{success: boolean, message: string}>} Deletion confirmation.
+   */
+  async deleteWorkflow(id) {
+    return requestJson(
+      `/api/workflows/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+      "Failed to delete workflow",
+    );
+  },
+
+  /**
+   * Run a workflow on user input and stream real-time node execution events via SSE.
+   *
+   * @param {Object} params - Execution parameters.
+   * @param {string} [params.workflowId] - ID of the saved workflow to execute.
+   * @param {Object} [params.workflow] - Inline workflow definition (optional).
+   * @param {string} params.input - User input prompt.
+   * @param {string} [params.conversationId] - Target conversation ID.
+   * @param {function(string, Object): void} params.onEvent - SSE event callback.
+   * @returns {Promise<void>} Resolves when stream finishes.
+   */
+  async runWorkflowStream({ workflowId, workflow, input, conversationId, onEvent }) {
+    const response = await fetch(`${API_BASE}/api/workflows/run/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow_id: workflowId,
+        workflow,
+        input,
+        conversation_id: conversationId,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to start workflow stream");
+    }
+
+    return consumeSSEStream(response, onEvent);
+  },
 };

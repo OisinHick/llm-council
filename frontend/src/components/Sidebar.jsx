@@ -185,8 +185,10 @@ export default function Sidebar({
                   {conv.mode === "agentic"
                     ? "🤖 Agentic"
                     : conv.mode === "one_shot"
-                      ? "⚡ One Shot"
-                      : "💬 Info"}
+                      ? "⚡ One Shot Execution"
+                      : conv.mode === "custom_workflows"
+                        ? "🔀 Workflow"
+                        : "💬 Info"}
                 </span>
                 <span className="conv-message-count">{conv.message_count} msgs</span>
                 {showTokenCount && conv.token_usage?.total_tokens > 0 && (

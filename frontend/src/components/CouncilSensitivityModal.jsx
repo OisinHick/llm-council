@@ -1,14 +1,8 @@
 /**
- * CouncilSensitivityModal Component: Deliberation Sensitivity Configuration.
+ * CouncilSensitivityModal Component: Agentic Loop & Council Settings.
  *
- * This modal configures the operational autonomy and oversight level of the
- * Council Chairperson Agent during ReAct loop execution:
- * - 4 Sensitivity Presets:
- *     1. Low (Minimal): Autonomous execution; only consults Council when deadlocked.
- *     2. Medium (Balanced): Default mode; consults Council on design forks and complex bugs.
- *     3. High (Proactive): Automatically triggers Council deliberations on errors and test failures.
- *     4. Extreme (Continuous): Triggers Council diagnostic on every failure + mandates
- *        pre-completion Council review.
+ * This modal configures execution loop steps and AI Council guidance
+ * for the Council Chairperson Agent during ReAct loop execution:
  * - Granular automated triggers (error auto-trigger, pre-completion review).
  * - Deliberation consultation caps (1, 3, 5, 10, 20, 50, 100, Unlimited).
  * - Maximum execution loop steps (5, 10, 20, 30, 50, 100, Unlimited).
@@ -18,75 +12,13 @@ import React, { useState } from "react";
 import "./CouncilSensitivityModal.css";
 
 /**
- * Predefined sensitivity configurations mapping level IDs to UI themes and default behaviors.
- */
-const SENSITIVITY_PRESETS = [
-  {
-    id: "low",
-    value: 1,
-    title: "Low (Minimal)",
-    badgeColor: "#16a34a",
-    badgeBg: "#dcfce7",
-    summary: "High autonomy. Only consults the Council on unrecoverable blockers.",
-    description:
-      "The Chairperson operates independently, exhausting local tools and self-debugging before consulting the AI council.",
-    defaults: {
-      auto_trigger_on_error: false,
-      review_before_completion: false,
-    },
-  },
-  {
-    id: "medium",
-    value: 2,
-    title: "Medium (Balanced)",
-    badgeColor: "#2563eb",
-    badgeBg: "#dbeafe",
-    summary: "Standard collaboration on design forks, complex bugs, and dilemmas.",
-    description:
-      "Default balanced mode. The Chairperson seeks multi-model consensus on key architectural forks and difficult bugs.",
-    defaults: {
-      auto_trigger_on_error: false,
-      review_before_completion: false,
-    },
-  },
-  {
-    id: "high",
-    value: 3,
-    title: "High (Proactive)",
-    badgeColor: "#d97706",
-    badgeBg: "#fef3c7",
-    summary: "Frequent guidance. Consults council on errors, test failures, and design.",
-    description:
-      "The Chairperson proactively requests peer consensus when commands fail or when evaluating alternative implementations.",
-    defaults: {
-      auto_trigger_on_error: true,
-      review_before_completion: false,
-    },
-  },
-  {
-    id: "extreme",
-    value: 4,
-    title: "Extreme (Continuous)",
-    badgeColor: "#dc2626",
-    badgeBg: "#fee2e2",
-    summary: "Continuous oversight with automated diagnostics and pre-completion review.",
-    description:
-      "Every tool error triggers an automated sub-council diagnostic, and deliverables must receive Council sign-off before completion.",
-    defaults: {
-      auto_trigger_on_error: true,
-      review_before_completion: true,
-    },
-  },
-];
-
-/**
- * Modal wrapper that conditionally renders the sensitivity configuration dialog.
+ * Modal wrapper that conditionally renders the settings dialog.
  *
  * @param {Object} props - Component properties.
  * @param {boolean} props.isOpen - Whether the modal dialog is rendered.
  * @param {function(): void} props.onClose - Callback when modal is dismissed.
- * @param {Object} [props.sensitivityConfig] - Current sensitivity configuration object.
- * @param {function(Object): void} props.onSave - Callback receiving updated sensitivity configuration.
+ * @param {Object} [props.sensitivityConfig] - Current configuration object.
+ * @param {function(Object): void} props.onSave - Callback receiving updated configuration.
  * @returns {JSX.Element|null} Rendered dialog or null when closed.
  */
 export default function CouncilSensitivityModal({
@@ -107,26 +39,20 @@ export default function CouncilSensitivityModal({
 }
 
 /**
- * Inner dialog component holding form state for sensitivity options.
+ * Inner dialog component holding form state for agent loop options.
  *
  * @param {Object} props - Dialog properties.
  * @param {function(): void} props.onClose - Callback to dismiss the dialog.
- * @param {Object} [props.sensitivityConfig] - Initial sensitivity settings.
+ * @param {Object} [props.sensitivityConfig] - Initial settings.
  * @param {function(Object): void} props.onSave - Callback when settings are saved.
  * @returns {JSX.Element} Rendered dialog content.
  */
 function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
-  const initialLevel = sensitivityConfig?.level || "medium";
-  const [level, setLevel] = useState(initialLevel);
   const [autoTriggerOnError, setAutoTriggerOnError] = useState(
-    () =>
-      sensitivityConfig?.auto_trigger_on_error ??
-      (initialLevel === "high" || initialLevel === "extreme")
+    () => sensitivityConfig?.auto_trigger_on_error ?? false
   );
   const [reviewBeforeCompletion, setReviewBeforeCompletion] = useState(
-    () =>
-      sensitivityConfig?.review_before_completion ??
-      (initialLevel === "extreme")
+    () => sensitivityConfig?.review_before_completion ?? false
   );
   const [maxConsultations, setMaxConsultations] = useState(
     () => sensitivityConfig?.max_consultations ?? 5
@@ -136,38 +62,22 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
   );
   const [saveFeedback, setSaveFeedback] = useState(false);
 
-  const currentPreset =
-    SENSITIVITY_PRESETS.find((p) => p.id === level) || SENSITIVITY_PRESETS[1];
-
   /**
-   * Switch the sensitivity preset level and apply its default automated trigger policies.
-   *
-   * @param {string} newLevel - "low" | "medium" | "high" | "extreme".
-   */
-  const handleSelectLevel = (newLevel) => {
-    setLevel(newLevel);
-    const preset = SENSITIVITY_PRESETS.find((p) => p.id === newLevel);
-    if (preset) {
-      setAutoTriggerOnError(preset.defaults.auto_trigger_on_error);
-      setReviewBeforeCompletion(preset.defaults.review_before_completion);
-    }
-  };
-
-  /**
-   * Reset all settings to Medium (Balanced) preset defaults.
+   * Reset all settings to default values.
    */
   const handleResetDefaults = () => {
-    handleSelectLevel("medium");
+    setAutoTriggerOnError(false);
+    setReviewBeforeCompletion(false);
     setMaxConsultations(5);
     setMaxSteps(20);
   };
 
   /**
-   * Compile and validate sensitivity configuration and invoke the onSave callback.
+   * Compile and validate configuration and invoke the onSave callback.
    */
   const handleSave = () => {
     const newConfig = {
-      level,
+      ...(sensitivityConfig || {}),
       auto_trigger_on_error: autoTriggerOnError,
       review_before_completion: reviewBeforeCompletion,
       max_consultations: parseInt(maxConsultations, 10),
@@ -208,62 +118,6 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
         </div>
 
         <div className="sensitivity-modal-body">
-          {/* Preset Segmented Selector */}
-          <div className="sensitivity-control-section">
-            <div className="section-label-row">
-              <span className="section-title">Deliberation Sensitivity</span>
-              <span
-                className="sensitivity-badge"
-                style={{
-                  color: currentPreset.badgeColor,
-                  backgroundColor: currentPreset.badgeBg,
-                }}
-              >
-                {currentPreset.title}
-              </span>
-            </div>
-
-            <div
-              className="sensitivity-segmented-bar"
-              role="tablist"
-              aria-label="Deliberation sensitivity"
-            >
-              {SENSITIVITY_PRESETS.map((p) => {
-                const isSelected = level === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={isSelected}
-                    className={`segmented-btn ${isSelected ? "active" : ""}`}
-                    onClick={() => handleSelectLevel(p.id)}
-                    style={
-                      isSelected
-                        ? {
-                            borderColor: p.badgeColor,
-                            color: p.badgeColor,
-                          }
-                        : {}
-                    }
-                  >
-                    <span
-                      className="segmented-dot"
-                      style={{
-                        backgroundColor: isSelected ? p.badgeColor : "#cbd5e1",
-                      }}
-                    />
-                    {p.id.charAt(0).toUpperCase() + p.id.slice(1)}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="policy-hint">
-              <span className="policy-hint-icon">💡</span>
-              <span className="policy-hint-text">{currentPreset.description}</span>
-            </div>
-          </div>
 
           {/* Granular Triggers & Safeguards */}
           <div className="sensitivity-control-section">

@@ -61,6 +61,14 @@ from .compression import (
     get_compression_stats,
     reset_compression_stats,
 )
+from .workflows import (
+    load_workflows,
+    get_workflow,
+    save_workflow,
+    delete_workflow,
+    execute_workflow_stream,
+    validate_workflow,
+)
 
 
 @asynccontextmanager
@@ -221,6 +229,26 @@ class ToggleMcpServerRequest(BaseModel):
     """Request payload to toggle or explicitly set the enabled status for an MCP server."""
 
     enabled: Optional[bool] = None
+
+
+class SaveWorkflowRequest(BaseModel):
+    """Request payload to create or update a custom workflow."""
+
+    id: Optional[str] = None
+    name: str
+    description: Optional[str] = ""
+    is_template: Optional[bool] = False
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+
+
+class RunWorkflowRequest(BaseModel):
+    """Request payload to run a custom workflow via streaming."""
+
+    workflow_id: Optional[str] = None
+    workflow: Optional[Dict[str, Any]] = None
+    input: str
+    conversation_id: Optional[str] = None
 
 
 class ConversationMetadata(BaseModel):
@@ -1093,6 +1121,182 @@ async def run_agent_stream(request: AgentRunRequest):
         finally:
             if conv_id and conv_id in active_agents:
                 active_agents.pop(conv_id, None)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==============================================================================
+# Custom Workflows Endpoints
+# ==============================================================================
+
+@app.get("/api/workflows")
+async def list_workflows_endpoint():
+    """List all available workflows including built-in templates and custom saved graphs.
+
+    Returns:
+        Dict[str, Any]: List of workflow objects under 'workflows'.
+    """
+    workflows = load_workflows()
+    return {"workflows": workflows}
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow_endpoint(workflow_id: str):
+    """Retrieve details for a specific workflow.
+
+    Args:
+        workflow_id: Unique workflow identifier.
+
+    Returns:
+        Dict[str, Any]: Workflow graph definition.
+    """
+    workflow = get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
+@app.post("/api/workflows")
+async def save_workflow_endpoint(request: SaveWorkflowRequest):
+    """Create or update a custom workflow graph.
+
+    Args:
+        request: Workflow definition containing nodes and directed edges.
+
+    Returns:
+        Dict[str, Any]: Saved workflow object.
+    """
+    try:
+        wf_data = request.model_dump()
+        saved = save_workflow(wf_data)
+        return saved
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.exception("Failed to save workflow: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow_endpoint(workflow_id: str):
+    """Delete a custom workflow. Built-in template workflows are protected from deletion.
+
+    Args:
+        workflow_id: Workflow identifier to delete.
+
+    Returns:
+        Dict[str, Any]: Success status indicator.
+    """
+    success = delete_workflow(workflow_id)
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete workflow: it is either a protected template or does not exist.",
+        )
+    return {"success": True, "message": f"Workflow {workflow_id} deleted."}
+
+
+@app.post("/api/workflows/run/stream")
+async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
+    """Execute a custom workflow graph on user input and stream live progress via SSE.
+
+    Args:
+        request: Payload with either workflow_id or inline workflow definition, user input,
+                 and optional target conversation_id.
+
+    Returns:
+        StreamingResponse: Real-time SSE stream with node_start, node_complete,
+                           and workflow_complete events.
+    """
+    workflow = None
+    if request.workflow:
+        workflow = request.workflow
+    elif request.workflow_id:
+        workflow = get_workflow(request.workflow_id)
+
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    is_valid, error_msg = validate_workflow(workflow)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid workflow graph: {error_msg}")
+
+    conv_id = request.conversation_id
+    is_first_message = False
+    if conv_id:
+        conv = storage.get_conversation(conv_id)
+        if conv:
+            is_first_message = len(conv.get("messages", [])) == 0
+        else:
+            conv = storage.create_conversation(conversation_id=conv_id, mode="custom_workflows")
+            is_first_message = True
+    else:
+        conv = storage.create_conversation(mode="custom_workflows")
+        conv_id = conv["id"]
+        is_first_message = True
+
+    async def event_generator():
+        try:
+            storage.add_user_message(conv_id, request.input)
+
+            title_task = None
+            if is_first_message:
+                title_task = asyncio.create_task(
+                    generate_conversation_title(request.input, conversation_id=conv_id)
+                )
+
+            final_wf_event = None
+            async for event_packet in execute_workflow_stream(workflow, request.input):
+                evt_type = event_packet["event"]
+                evt_data = event_packet["data"]
+                if evt_type == "workflow_complete":
+                    final_wf_event = evt_data
+                yield _sse_event(evt_type, evt_data)
+
+            if title_task:
+                try:
+                    title = await title_task
+                    storage.update_conversation_title(conv_id, title)
+                    yield _sse_event("title_complete", {"title": title})
+                except Exception as ex:
+                    logger.warning("Failed to generate title for workflow run: %s", ex)
+
+            if final_wf_event:
+                storage.add_workflow_message(
+                    conversation_id=conv_id,
+                    user_input=request.input,
+                    workflow_id=final_wf_event.get("workflow_id", workflow.get("id", "workflow")),
+                    workflow_name=final_wf_event.get("workflow_name", workflow.get("name", "Custom Workflow")),
+                    nodes=final_wf_event.get("nodes", []),
+                    edges=final_wf_event.get("edges", []),
+                    final_output=final_wf_event.get("final_output", ""),
+                    status=final_wf_event.get("status", "completed"),
+                    token_usage=final_wf_event.get("token_usage"),
+                )
+
+            conv_updated = storage.get_conversation(conv_id)
+            conv_tokens = conv_updated.get("token_usage") if conv_updated else None
+
+            yield _sse_event(
+                "complete",
+                {
+                    "conversation_id": conv_id,
+                    "status": final_wf_event.get("status", "completed") if final_wf_event else "completed",
+                    "final_output": final_wf_event.get("final_output", "") if final_wf_event else "",
+                },
+                token_usage=conv_tokens,
+            )
+
+        except Exception as e:
+            logger.exception("Error during workflow execution stream: %s", e)
+            yield _sse_event("error", message=str(e))
 
     return StreamingResponse(
         event_generator(),
