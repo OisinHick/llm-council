@@ -996,13 +996,10 @@
 /* Modal Backdrop & Content Container */
 .mcp-tools-modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(15, 23, 42, 0.5); /* Slate backdrop with blur */
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65); /* Slate backdrop with blur */
   backdrop-filter: blur(4px);
-  z-index: 1000;
+  z-index: 1050;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1013,19 +1010,18 @@
 .mcp-tools-modal-content {
   background: #ffffff;
   border-radius: 16px;
-  box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.15),
-    0 10px 10px -5px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
   width: 95vw;
-  height: 90vh;
   max-width: 1400px;
-  max-height: 95vh;
+  height: 90vh;
+  max-height: 950px;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 24px 28px;
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
   transform: translate3d(0, 0, 0);
+  box-sizing: border-box;
 }
 
 .mcp-tools-header {
@@ -1798,5 +1794,13 @@
   .input-actions.mode-informational {
     justify-content: flex-end;
   }
+
+  .mcp-tools-modal-content {
+    width: 98vw;
+    height: 96vh;
+    padding: 16px;
+    border-radius: 12px;
+  }
 }
+
 

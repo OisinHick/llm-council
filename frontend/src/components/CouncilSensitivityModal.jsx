@@ -118,85 +118,156 @@ function CouncilSensitivityDialog({ onClose, sensitivityConfig, onSave }) {
         </div>
 
         <div className="sensitivity-modal-body">
-
-          {/* Granular Triggers & Safeguards */}
-          <div className="sensitivity-control-section">
-            <span className="section-title">Automated Triggers</span>
-
-            <div className="compact-triggers-card">
-              <label className="compact-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={autoTriggerOnError}
-                  onChange={(e) => setAutoTriggerOnError(e.target.checked)}
-                />
-                <div className="toggle-text">
-                  <span className="toggle-title">Auto-deliberate on tool failure</span>
-                  <span className="toggle-description">
-                    Spins up a council diagnostic when a bash command or edit errors
-                  </span>
+          <div className="sensitivity-grid-layout">
+            {/* Left Card: Automated Triggers & Safeguards */}
+            <div className="sensitivity-card">
+              <div className="sensitivity-card-header">
+                <span className="card-badge-icon">⚡</span>
+                <div>
+                  <h4 className="card-title">Automated Deliberation Triggers</h4>
+                  <p className="card-subtitle">
+                    Control when the Chairperson invokes the AI Council during execution
+                  </p>
                 </div>
-              </label>
-
-              <label className="compact-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={reviewBeforeCompletion}
-                  onChange={(e) => setReviewBeforeCompletion(e.target.checked)}
-                />
-                <div className="toggle-text">
-                  <span className="toggle-title">Pre-completion Council review</span>
-                  <span className="toggle-description">
-                    Verifies all deliverables with Council before task completion
-                  </span>
-                </div>
-              </label>
-
-              <div className="inline-limit-row">
-                <div className="toggle-text">
-                  <span className="toggle-title">Deliberation limit</span>
-                  <span className="toggle-description">
-                    Cap total council consultations per run
-                  </span>
-                </div>
-                <select
-                  value={maxConsultations}
-                  onChange={(e) => setMaxConsultations(e.target.value)}
-                  className="consultation-select"
-                  aria-label="Deliberation limit"
-                >
-                  <option value="1">1 max</option>
-                  <option value="3">3 max</option>
-                  <option value="5">5 max (Default)</option>
-                  <option value="10">10 max</option>
-                  <option value="20">20 max</option>
-                  <option value="50">50 max</option>
-                  <option value="100">100 max</option>
-                  <option value="0">Unlimited</option>
-                </select>
               </div>
 
-              <div className="inline-limit-row">
-                <div className="toggle-text">
-                  <span className="toggle-title">Agentic Loop steps</span>
-                  <span className="toggle-description">
-                    Cap total tool execution actions before agent stops
-                  </span>
+              <div className="triggers-group">
+                <label className="sensitivity-toggle-card">
+                  <input
+                    type="checkbox"
+                    checked={autoTriggerOnError}
+                    onChange={(e) => setAutoTriggerOnError(e.target.checked)}
+                  />
+                  <div className="toggle-card-content">
+                    <div className="toggle-card-header">
+                      <span className="toggle-title">Auto-deliberate on tool failure</span>
+                      <span className={`toggle-status-badge ${autoTriggerOnError ? "active" : ""}`}>
+                        {autoTriggerOnError ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    <span className="toggle-description">
+                      Spins up a multi-model council diagnostic session when a tool call, bash command, or file edit encounters an error.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="sensitivity-toggle-card">
+                  <input
+                    type="checkbox"
+                    checked={reviewBeforeCompletion}
+                    onChange={(e) => setReviewBeforeCompletion(e.target.checked)}
+                  />
+                  <div className="toggle-card-content">
+                    <div className="toggle-card-header">
+                      <span className="toggle-title">Pre-completion Council review</span>
+                      <span className={`toggle-status-badge ${reviewBeforeCompletion ? "active" : ""}`}>
+                        {reviewBeforeCompletion ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    <span className="toggle-description">
+                      Requires the Chairperson to submit the final output to the AI Council for thorough multi-perspective review and consensus before completing the goal.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Right Card: Resource Budgets & Limits */}
+            <div className="sensitivity-card">
+              <div className="sensitivity-card-header">
+                <span className="card-badge-icon">🛡️</span>
+                <div>
+                  <h4 className="card-title">Loop Limits & Resource Budgets</h4>
+                  <p className="card-subtitle">
+                    Set safety boundaries for autonomous execution steps and council calls
+                  </p>
                 </div>
-                <select
-                  value={maxSteps}
-                  onChange={(e) => setMaxSteps(e.target.value)}
-                  className="consultation-select"
-                  aria-label="Agentic Loop steps"
-                >
-                  <option value="5">5 steps</option>
-                  <option value="10">10 steps</option>
-                  <option value="20">20 steps (Default)</option>
-                  <option value="30">30 steps</option>
-                  <option value="50">50 steps</option>
-                  <option value="100">100 steps</option>
-                  <option value="0">Unlimited</option>
-                </select>
+              </div>
+
+              <div className="limits-group">
+                <div className="limit-setting-row">
+                  <div className="limit-info">
+                    <span className="limit-title">Deliberation Limit</span>
+                    <span className="limit-description">
+                      Maximum number of full multi-model Council consultations permitted in a single agent run.
+                    </span>
+                  </div>
+                  <select
+                    value={maxConsultations}
+                    onChange={(e) => setMaxConsultations(e.target.value)}
+                    className="consultation-select large"
+                    aria-label="Deliberation limit"
+                  >
+                    <option value="1">1 consultation max</option>
+                    <option value="3">3 consultations max</option>
+                    <option value="5">5 consultations max (Default)</option>
+                    <option value="10">10 consultations max</option>
+                    <option value="20">20 consultations max</option>
+                    <option value="50">50 consultations max</option>
+                    <option value="100">100 consultations max</option>
+                    <option value="0">Unlimited consultations</option>
+                  </select>
+                </div>
+
+                <div className="limit-setting-row">
+                  <div className="limit-info">
+                    <span className="limit-title">Agentic Loop Step Cap</span>
+                    <span className="limit-description">
+                      Maximum number of tool action cycles (Thought → Action → Observation) before execution terminates.
+                    </span>
+                  </div>
+                  <select
+                    value={maxSteps}
+                    onChange={(e) => setMaxSteps(e.target.value)}
+                    className="consultation-select large"
+                    aria-label="Agentic Loop steps"
+                  >
+                    <option value="5">5 steps</option>
+                    <option value="10">10 steps</option>
+                    <option value="20">20 steps (Default)</option>
+                    <option value="30">30 steps</option>
+                    <option value="50">50 steps</option>
+                    <option value="100">100 steps</option>
+                    <option value="0">Unlimited steps</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Full Width Architecture Guide */}
+          <div className="agentic-guide-card">
+            <h4 className="guide-title">
+              <span>💡</span> Understanding the Autonomous Agentic Architecture
+            </h4>
+            <div className="guide-steps-grid">
+              <div className="guide-step">
+                <div className="guide-step-number">1</div>
+                <div className="guide-step-content">
+                  <h5>Chairperson Planning</h5>
+                  <p>The Chairperson agent breaks down your goal into actionable tasks using structured ReAct reasoning.</p>
+                </div>
+              </div>
+              <div className="guide-step">
+                <div className="guide-step-number">2</div>
+                <div className="guide-step-content">
+                  <h5>Tool Execution</h5>
+                  <p>Executes workspace actions: runs shell commands, edits files, and invokes active MCP servers.</p>
+                </div>
+              </div>
+              <div className="guide-step">
+                <div className="guide-step-number">3</div>
+                <div className="guide-step-content">
+                  <h5>Council Deliberation</h5>
+                  <p>When triggers fire or critical decisions arise, the full multi-LLM council convenes to guide next steps.</p>
+                </div>
+              </div>
+              <div className="guide-step">
+                <div className="guide-step-number">4</div>
+                <div className="guide-step-content">
+                  <h5>Synthesis & Delivery</h5>
+                  <p>Consolidates peer findings into the final result with full audit logs and artifact generation.</p>
+                </div>
               </div>
             </div>
           </div>

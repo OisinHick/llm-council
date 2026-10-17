@@ -25,7 +25,7 @@
   background: #ffffff;
   width: 95vw;
   max-width: 1400px;
-  height: 92vh;
+  height: 90vh;
   max-height: 950px;
   border-radius: 16px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -412,3 +412,20 @@
   font-size: 0.9rem;
   color: #64748b;
 }
+
+@media (max-width: 768px) {
+  .workflow-selector-modal {
+    width: 98vw;
+    height: 96vh;
+    border-radius: 12px;
+  }
+
+  .workflow-selector-header,
+  .workflow-selector-toolbar,
+  .workflow-list-container,
+  .workflow-selector-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
