@@ -231,6 +231,17 @@ class ToggleMcpServerRequest(BaseModel):
     enabled: Optional[bool] = None
 
 
+class AddMcpServerRequest(BaseModel):
+    """Request payload to add or configure a new MCP server."""
+
+    name: str
+    command: str
+    args: Optional[List[str]] = []
+    env: Optional[Dict[str, str]] = None
+    enabled: bool = True
+    overwrite: bool = False
+
+
 class SaveWorkflowRequest(BaseModel):
     """Request payload to create or update a custom workflow."""
 
@@ -466,6 +477,43 @@ async def toggle_mcp_server(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers")
+async def add_mcp_server(request: AddMcpServerRequest):
+    """Add and optionally connect to a new MCP server.
+
+    Validates parameters, saves configuration to mcp_servers.json, and starts
+    the server subprocess if enabled.
+    """
+    try:
+        result = await mcp_manager.add_server(
+            name=request.name,
+            command=request.command,
+            args=request.args,
+            env=request.env,
+            enabled=request.enabled,
+            overwrite=request.overwrite,
+        )
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to add MCP server: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/mcp/servers/{server_name}")
+async def delete_mcp_server(server_name: str):
+    """Delete an MCP server, terminate its subprocess, and remove from configuration."""
+    try:
+        result = await mcp_manager.remove_server(server_name)
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to delete MCP server: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

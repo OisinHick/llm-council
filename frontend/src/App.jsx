@@ -1520,6 +1520,7 @@ function App() {
         showTokensPerModel={showTokensPerModel}
         showSpendValue={showSpendValue}
         showSavedTokens={showSavedTokens}
+        enableTokenCompression={enableTokenCompression}
         onSendMessage={handleSendMessage}
         onGenerateActionPlan={handleGenerateActionPlan}
         onExecuteActionPlan={handleExecuteActionPlan}

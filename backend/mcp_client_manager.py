@@ -31,6 +31,7 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 import urllib.request
 from contextlib import AsyncExitStack
@@ -389,10 +390,126 @@ for line in iter(proc.stdout.readline, b''):
                     "status": status,
                     "command": cfg.get("command", ""),
                     "args": cfg.get("args", []),
+                    "env": cfg.get("env"),
                     "tools_count": tool_count,
                 }
             )
         return metadata
+
+    async def add_server(
+        self,
+        name: str,
+        command: str,
+        args: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
+        enabled: bool = True,
+        overwrite: bool = False,
+    ) -> Dict[str, Any]:
+        """Add a new MCP server configuration and optionally start its process.
+
+        Args:
+            name: Identifier name for the server (letters, numbers, hyphens, underscores, dots).
+            command: Executable command (e.g. 'npx', 'uvx', 'python').
+            args: Command line arguments list.
+            env: Environment variables dict.
+            enabled: Whether to enable and start the server immediately.
+            overwrite: Whether to allow overwriting an existing server configuration.
+
+        Returns:
+            Dict[str, Any]: Result dictionary containing name, enabled, status, servers, and tools.
+
+        Raises:
+            ValueError: If name or command is invalid, or server already exists and overwrite is False.
+        """
+        clean_name = name.strip() if name else ""
+        if not clean_name:
+            raise ValueError("Server name cannot be empty.")
+        if not re.match(r"^[a-zA-Z0-9_\-\.]+$", clean_name):
+            raise ValueError(
+                "Server name can only contain letters, numbers, hyphens, underscores, and dots."
+            )
+
+        clean_cmd = command.strip() if command else ""
+        if not clean_cmd:
+            raise ValueError("Command cannot be empty.")
+
+        config_data = self._read_config()
+        servers = config_data.setdefault("mcpServers", {})
+
+        if clean_name in servers and not overwrite:
+            raise ValueError(f"MCP server '{clean_name}' already exists.")
+
+        clean_args = [str(a) for a in (args or [])]
+        clean_env = (
+            {str(k).strip(): str(v) for k, v in env.items() if str(k).strip()}
+            if env
+            else None
+        )
+
+        server_entry: Dict[str, Any] = {
+            "command": clean_cmd,
+            "args": clean_args,
+            "enabled": bool(enabled),
+        }
+        if clean_env:
+            server_entry["env"] = clean_env
+
+        servers[clean_name] = server_entry
+        self._write_config(config_data)
+        self.configured_servers = list(servers.keys())
+
+        if enabled:
+            await self.start_server(clean_name, server_entry)
+        else:
+            await self.stop_server(clean_name)
+            self.server_statuses[clean_name] = "disabled"
+
+        # Refresh tools cache
+        await self.get_available_tools(bypass_cache=True)
+
+        return {
+            "name": clean_name,
+            "enabled": bool(enabled),
+            "status": self.server_statuses.get(clean_name, "unknown"),
+            "servers": self.get_servers_metadata(),
+            "tools": self.cached_tools,
+        }
+
+    async def remove_server(self, name: str) -> Dict[str, Any]:
+        """Remove an MCP server from configuration and terminate its session.
+
+        Args:
+            name: Identifier name of server to remove.
+
+        Returns:
+            Dict[str, Any]: Result dictionary with deleted flag, servers metadata, and tools list.
+
+        Raises:
+            ValueError: If server is not found in configuration.
+        """
+        config_data = self._read_config()
+        servers = config_data.get("mcpServers", {})
+
+        if name not in servers:
+            raise ValueError(f"MCP server '{name}' not found.")
+
+        # Stop server process and clear exit stack/session/cache
+        await self.stop_server(name)
+        self.server_statuses.pop(name, None)
+
+        del servers[name]
+        self._write_config(config_data)
+        self.configured_servers = list(servers.keys())
+
+        # Refresh tools cache
+        await self.get_available_tools(bypass_cache=True)
+
+        return {
+            "name": name,
+            "deleted": True,
+            "servers": self.get_servers_metadata(),
+            "tools": self.cached_tools,
+        }
 
     async def _poll_servers_loop(self) -> None:
         """Background coroutine that periodically refreshes tools and connection statuses.

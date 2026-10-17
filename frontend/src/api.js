@@ -408,6 +408,59 @@ export const api = {
   },
 
   /**
+   * Add a new MCP server configuration and optionally start it.
+   *
+   * @param {Object} serverConfig - Server options:
+   *   - `name`: string
+   *   - `command`: string
+   *   - `args`: Array<string>
+   *   - `env`: Object<string, string>
+   *   - `enabled`: boolean
+   *   - `overwrite`: boolean
+   * @returns {Promise<{
+   *   success: boolean,
+   *   name: string,
+   *   enabled: boolean,
+   *   status: string,
+   *   tools: Array<Object>,
+   *   servers: Array<Object>
+   * }>} Added server outcome.
+   */
+  async addMcpServer(serverConfig) {
+    return requestJson(
+      "/api/mcp/servers",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(serverConfig),
+      },
+      "Failed to add MCP server",
+    );
+  },
+
+  /**
+   * Delete an MCP server configuration and terminate its session.
+   *
+   * @param {string} serverName - Identifier name of the MCP server to remove.
+   * @returns {Promise<{
+   *   success: boolean,
+   *   name: string,
+   *   deleted: boolean,
+   *   tools: Array<Object>,
+   *   servers: Array<Object>
+   * }>} Delete confirmation outcome.
+   */
+  async deleteMcpServer(serverName) {
+    return requestJson(
+      `/api/mcp/servers/${encodeURIComponent(serverName)}`,
+      {
+        method: "DELETE",
+      },
+      "Failed to delete MCP server",
+    );
+  },
+
+  /**
    * Fetch available models catalog from OpenRouter.
    *
    * @param {string} [apiKey] - Optional OpenRouter API key override. If omitted, uses server-stored key.

@@ -803,9 +803,14 @@ export default function SettingsModal({
                         <span className="display-card-title">Show saved tokens</span>
                       </div>
                       <p className="display-card-desc">
-                        Display badges and indicators highlighting tokens and cost saved by Headroom Labs compression.
-                        {!localShowTokenCount && " (Requires token count toggle to be on)"}
+                        Display green "🌱 Saved: ..." badges in the chat header, assistant messages, and sidebar highlighting prompt tokens and cost saved by Headroom compression.
+                        {!localShowTokenCount && " (Requires 'Show conversation token count' toggle above to be on)"}
                       </p>
+                      {!localEnableTokenCompression && localShowSavedTokens && (
+                        <div className="setting-hint-callout">
+                          💡 <strong>Note:</strong> Prompt compression is currently disabled below. Turn on <em>"Enable Headroom Labs compression"</em> to start compressing prompts and saving tokens!
+                        </div>
+                      )}
                     </div>
 
                     <div
@@ -864,7 +869,7 @@ export default function SettingsModal({
                     <div className="compression-savings-info">
                       <div className="compression-savings-title">
                         <span className="pricing-icon">📉</span>
-                        <strong>Headroom Compression Savings</strong>
+                        <strong>Global Session Compression Savings (All Conversations)</strong>
                         {compressionStats?.headroom_available ? (
                           <span className="savings-badge active">Headroom Active</span>
                         ) : (

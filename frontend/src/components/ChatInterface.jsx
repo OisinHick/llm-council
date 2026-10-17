@@ -89,6 +89,146 @@ const mergeExtractedFields = (source, out) => {
 };
 
 /**
+ * Preconfigured templates for popular Model Context Protocol (MCP) servers.
+ */
+const MCP_SERVER_PRESETS = [
+  {
+    id: "custom",
+    label: "Custom Command (Manual)",
+    name: "",
+    command: "",
+    args: "",
+    env: "",
+  },
+  {
+    id: "filesystem",
+    label: "Filesystem (Node/npx)",
+    name: "filesystem",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-filesystem /tmp",
+    env: "",
+  },
+  {
+    id: "memory",
+    label: "Knowledge Graph Memory (Node/npx)",
+    name: "memory",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-memory",
+    env: "",
+  },
+  {
+    id: "fetch",
+    label: "Fetch & Web Scraping (Python/uvx)",
+    name: "fetch",
+    command: "uvx",
+    args: "mcp-server-fetch",
+    env: "",
+  },
+  {
+    id: "git",
+    label: "Git Repository Tools (Python/uvx)",
+    name: "git",
+    command: "uvx",
+    args: "mcp-server-git --repository .",
+    env: "",
+  },
+  {
+    id: "sqlite",
+    label: "SQLite Database (Python/uvx)",
+    name: "sqlite",
+    command: "uvx",
+    args: "mcp-server-sqlite --db-path ./data.db",
+    env: "",
+  },
+  {
+    id: "brave-search",
+    label: "Brave Web Search (Node/npx)",
+    name: "brave-search",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-brave-search",
+    env: "BRAVE_API_KEY=",
+  },
+  {
+    id: "github",
+    label: "GitHub Operations (Node/npx)",
+    name: "github",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-github",
+    env: "GITHUB_PERSONAL_ACCESS_TOKEN=",
+  },
+];
+
+/**
+ * Robustly parses a space-delimited string (with quotes) or a JSON array into a list of argument strings.
+ *
+ * @param {string} str - Raw arguments string.
+ * @returns {Array<string>} Parsed array of command argument tokens.
+ */
+const parseArgsString = (str) => {
+  if (!str || !str.trim()) return [];
+  const trimmed = str.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+    } catch {
+      // Fall through to regex tokenization
+    }
+  }
+  const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+  const matches = [];
+  let match;
+  while ((match = regex.exec(trimmed)) !== null) {
+    matches.push(
+      match[1] !== undefined
+        ? match[1]
+        : match[2] !== undefined
+          ? match[2]
+          : match[0]
+    );
+  }
+  return matches;
+};
+
+/**
+ * Robustly parses environment variables from JSON object or newline-separated KEY=VALUE pairs.
+ *
+ * @param {string} str - Raw environment variables string.
+ * @returns {Object<string, string>|null} Key-value map of environment variables or null.
+ */
+const parseEnvString = (str) => {
+  if (!str || !str.trim()) return null;
+  const trimmed = str.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return Object.fromEntries(
+          Object.entries(parsed).map(([k, v]) => [String(k).trim(), String(v)])
+        );
+      }
+    } catch {
+      // Fall through to line-based parsing
+    }
+  }
+  const envObj = {};
+  const lines = trimmed.split(/\r?\n/);
+  for (const line of lines) {
+    const cleanLine = line.trim();
+    if (!cleanLine || cleanLine.startsWith("#")) continue;
+    const eqIdx = cleanLine.indexOf("=");
+    if (eqIdx !== -1) {
+      const key = cleanLine.slice(0, eqIdx).trim();
+      const val = cleanLine.slice(eqIdx + 1).trim();
+      if (key) {
+        envObj[key] = val;
+      }
+    }
+  }
+  return Object.keys(envObj).length > 0 ? envObj : null;
+};
+
+/**
  * Render structured tool observation results with styled stdout, stderr, JSON, and metadata cards.
  *
  * @param {Object|null} result - Raw tool result object.
@@ -316,7 +456,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
                 title={`Turn Tokens: ${msg.token_usage.total_tokens.toLocaleString()} (Input: ${(msg.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(msg.token_usage.completion_tokens || 0).toLocaleString()})${
                   msg.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(msg.token_usage.total_cost)}` : ""
                 }${
-                  showSavedTokens && msg.token_usage?.tokens_saved ? ` · Saved: ${msg.token_usage.tokens_saved.toLocaleString()} tokens` : ""
+                  showSavedTokens ? ` · Saved: ${(msg.token_usage?.tokens_saved || 0).toLocaleString()} tokens` : ""
                 }${
                   showSavedTokens && msg.token_usage?.total_cost_saved ? ` (${formatExactSpend(msg.token_usage.total_cost_saved)})` : ""
                 }`}
@@ -687,6 +827,7 @@ export default function ChatInterface({
   showTokensPerModel = false,
   showSpendValue = true,
   showSavedTokens = true,
+  enableTokenCompression = false,
   activeWorkflow = null,
   onOpenWorkflowSelector = null,
   onRunWorkflow = null,
@@ -708,6 +849,8 @@ export default function ChatInterface({
   const [showToolsList, setShowToolsList] = useState(false);
   const [selectedServer, setSelectedServer] = useState(null);
   const [showSensitivityModal, setShowSensitivityModal] = useState(false);
+  const [showTokenDetailsModal, setShowTokenDetailsModal] = useState(false);
+  const [compressionStats, setCompressionStats] = useState(null);
   const [sensitivityConfig, setSensitivityConfig] = useState(() => {
     try {
       const saved = localStorage.getItem(
@@ -751,6 +894,20 @@ export default function ChatInterface({
       })
       .catch(() => {});
   }, []);
+
+  // Fetch cumulative compression statistics when token details modal is opened
+  useEffect(() => {
+    if (showTokenDetailsModal) {
+      api
+        .getCompressionStats()
+        .then((res) => {
+          if (res?.stats) setCompressionStats(res.stats);
+        })
+        .catch((err) => {
+          console.warn("Failed to load compression stats:", err);
+        });
+    }
+  }, [showTokenDetailsModal]);
 
   /**
    * Persist updated council deliberation sensitivity preferences to state, localStorage, and backend.
@@ -841,6 +998,135 @@ export default function ChatInterface({
       console.error("Failed to toggle MCP server:", err);
     } finally {
       setTogglingServer(null);
+    }
+  };
+
+  const [showAddServerModal, setShowAddServerModal] = useState(false);
+  const [addServerPreset, setAddServerPreset] = useState("custom");
+  const [addServerName, setAddServerName] = useState("");
+  const [addServerCommand, setAddServerCommand] = useState("");
+  const [addServerArgs, setAddServerArgs] = useState("");
+  const [addServerEnv, setAddServerEnv] = useState("");
+  const [addServerEnabled, setAddServerEnabled] = useState(true);
+  const [addServerError, setAddServerError] = useState("");
+  const [isAddingServer, setIsAddingServer] = useState(false);
+  const [serverToDelete, setServerToDelete] = useState(null);
+  const [isDeletingServer, setIsDeletingServer] = useState(false);
+
+  const handleSelectPreset = (presetId) => {
+    setAddServerPreset(presetId);
+    const preset = MCP_SERVER_PRESETS.find((p) => p.id === presetId);
+    if (preset && preset.id !== "custom") {
+      setAddServerName(preset.name);
+      setAddServerCommand(preset.command);
+      setAddServerArgs(preset.args);
+      setAddServerEnv(preset.env);
+    }
+  };
+
+  const handleResetAddServerForm = () => {
+    setAddServerPreset("custom");
+    setAddServerName("");
+    setAddServerCommand("");
+    setAddServerArgs("");
+    setAddServerEnv("");
+    setAddServerEnabled(true);
+    setAddServerError("");
+    setIsAddingServer(false);
+  };
+
+  const handleAddServerSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setAddServerError("");
+
+    const name = addServerName.trim();
+    const command = addServerCommand.trim();
+
+    if (!name) {
+      setAddServerError("Server name is required.");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+      setAddServerError(
+        "Server name can only contain letters, numbers, underscores, hyphens, and dots."
+      );
+      return;
+    }
+    if (!command) {
+      setAddServerError("Executable command is required.");
+      return;
+    }
+
+    let parsedArgs = [];
+    try {
+      parsedArgs = parseArgsString(addServerArgs);
+    } catch (err) {
+      setAddServerError("Failed to parse arguments: " + err.message);
+      return;
+    }
+
+    let parsedEnv = null;
+    try {
+      parsedEnv = parseEnvString(addServerEnv);
+    } catch (err) {
+      setAddServerError("Failed to parse environment variables: " + err.message);
+      return;
+    }
+
+    setIsAddingServer(true);
+    try {
+      const payload = {
+        name,
+        command,
+        args: parsedArgs,
+        env: parsedEnv,
+        enabled: addServerEnabled,
+      };
+      const res = await api.addMcpServer(payload);
+      if (res.success) {
+        if (res.servers) setMcpServers(res.servers);
+        if (res.tools) setMcpTools(res.tools);
+        if (res.status) {
+          setMcpStatuses((prev) => ({ ...prev, [name]: res.status }));
+        }
+        setSelectedServer(name);
+        handleResetAddServerForm();
+        setShowAddServerModal(false);
+      }
+    } catch (err) {
+      console.error("Failed to add MCP server:", err);
+      setAddServerError(err.message || "Failed to add MCP server");
+    } finally {
+      setIsAddingServer(false);
+    }
+  };
+
+  const handleDeleteServerConfirm = async () => {
+    if (!serverToDelete) return;
+    setIsDeletingServer(true);
+    try {
+      const res = await api.deleteMcpServer(serverToDelete);
+      if (res.success) {
+        if (res.servers) setMcpServers(res.servers);
+        if (res.tools) setMcpTools(res.tools);
+        setMcpStatuses((prev) => {
+          const next = { ...prev };
+          delete next[serverToDelete];
+          return next;
+        });
+        if (selectedServer === serverToDelete) {
+          const remaining = (res.servers || []).filter(
+            (s) => s.name !== serverToDelete
+          );
+          setSelectedServer(remaining.length > 0 ? remaining[0].name : null);
+        }
+        setServerToDelete(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete MCP server:", err);
+      alert("Failed to delete MCP server: " + (err.message || String(err)));
+    } finally {
+      setIsDeletingServer(false);
     }
   };
 
@@ -1005,10 +1291,13 @@ export default function ChatInterface({
           <div className="chat-header-tokens">
             <div
               className="token-counter-widget"
-              title={`Total tokens spent: ${conversationTokens.total_tokens.toLocaleString()} (Input: ${conversationTokens.prompt_tokens.toLocaleString()}, Output: ${conversationTokens.completion_tokens.toLocaleString()})${
+              onClick={() => setShowTokenDetailsModal(true)}
+              role="button"
+              tabIndex={0}
+              title={`Click to view full token metrics and compression savings\nTotal tokens: ${conversationTokens.total_tokens.toLocaleString()} (Input: ${conversationTokens.prompt_tokens.toLocaleString()}, Output: ${conversationTokens.completion_tokens.toLocaleString()})${
                 conversationTokens.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conversationTokens.total_cost)}` : ""
               }${
-                showSavedTokens && conversationTokens.tokens_saved ? ` · Saved: ${conversationTokens.tokens_saved.toLocaleString()} tokens` : ""
+                showSavedTokens ? ` · Saved: ${(conversationTokens.tokens_saved || 0).toLocaleString()} tokens` : ""
               }${
                 showSavedTokens && conversationTokens.total_cost_saved ? ` (${formatExactSpend(conversationTokens.total_cost_saved)})` : ""
               }`}
@@ -1027,14 +1316,20 @@ export default function ChatInterface({
                     💵 {formatSpend(conversationTokens.total_cost)}
                   </span>
                 )}
-                {showSavedTokens && conversationTokens.tokens_saved > 0 && (
+                {showSavedTokens && (
                   <span
-                    className="token-saved-pill"
-                    title={`Tokens saved by compression: ${conversationTokens.tokens_saved.toLocaleString()}${
-                      conversationTokens.total_cost_saved ? ` · Est. Saved: ${formatExactSpend(conversationTokens.total_cost_saved)}` : ""
-                    }`}
+                    className={`token-saved-pill ${(conversationTokens.tokens_saved || 0) === 0 ? "zero" : ""}`}
+                    title={
+                      (conversationTokens.tokens_saved || 0) > 0
+                        ? `Tokens saved by compression: ${conversationTokens.tokens_saved.toLocaleString()}${
+                            conversationTokens.total_cost_saved ? ` · Est. Saved: ${formatExactSpend(conversationTokens.total_cost_saved)}` : ""
+                          }`
+                        : enableTokenCompression
+                          ? "Tokens saved: 0 (Headroom compression is active; prompt savings will appear here after model requests)"
+                          : "Tokens saved: 0 (Token compression is disabled; enable it in Settings to compress prompts and save tokens)"
+                    }
                   >
-                    🌱 Saved: {formatShortNumber(conversationTokens.tokens_saved)}
+                    🌱 Saved: {formatShortNumber(conversationTokens.tokens_saved || 0)}
                     {showSpendValue && conversationTokens.total_cost_saved > 0 && (
                       <span className="token-saved-spend"> ({formatSpend(conversationTokens.total_cost_saved)})</span>
                     )}
@@ -1052,12 +1347,17 @@ export default function ChatInterface({
                       const mPrompt = mData.prompt_tokens || 0;
                       const mComp = mData.completion_tokens || 0;
                       const mCost = mData.cost;
+                      const mSaved = mData.tokens_saved || 0;
                       return (
                         <span
                           key={modelName}
                           className="token-model-chip"
                           title={`${modelName}: ${mTotal.toLocaleString()} tokens (Input: ${mPrompt.toLocaleString()} | Output: ${mComp.toLocaleString()})${
                             mCost !== undefined ? ` · Est. Spend: ${formatExactSpend(mCost)}` : ""
+                          }${
+                            showSavedTokens && mSaved > 0
+                              ? ` · Saved: ${mSaved.toLocaleString()} tokens`
+                              : ""
                           }`}
                         >
                           <span className="model-chip-name">{shortModel}</span>
@@ -1065,6 +1365,11 @@ export default function ChatInterface({
                             {mTotal.toLocaleString()}
                             {showSpendValue && mCost !== undefined && (
                               <span className="model-chip-spend"> ({formatSpend(mCost)})</span>
+                            )}
+                            {showSavedTokens && mSaved > 0 && (
+                              <span className="model-chip-saved">
+                                {" "}· 🌱 {formatShortNumber(mSaved)}
+                              </span>
                             )}
                           </span>
                         </span>
@@ -1449,17 +1754,43 @@ export default function ChatInterface({
                   </span>
                 )}
               </h4>
-              <button
-                type="button"
-                onClick={() => setShowToolsList(false)}
-                className="close-overlay-btn"
-              >
-                ×
-              </button>
+              <div className="mcp-tools-header-actions">
+                <button
+                  type="button"
+                  className="mcp-header-add-btn"
+                  onClick={() => {
+                    handleResetAddServerForm();
+                    setShowAddServerModal(true);
+                  }}
+                  title="Add new MCP Server"
+                >
+                  + Add Server
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowToolsList(false)}
+                  className="close-overlay-btn"
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="mcp-modal-layout">
               <div className="mcp-modal-sidebar">
-                <h5>Servers</h5>
+                <div className="mcp-sidebar-header-row">
+                  <h5>Servers</h5>
+                  <button
+                    type="button"
+                    className="mcp-sidebar-add-btn"
+                    onClick={() => {
+                      handleResetAddServerForm();
+                      setShowAddServerModal(true);
+                    }}
+                    title="Add new MCP Server"
+                  >
+                    + Add
+                  </button>
+                </div>
                 <div className="mcp-sidebar-list">
                   {servers.map((server) => {
                     const count = mcpTools.filter(
@@ -1525,13 +1856,31 @@ export default function ChatInterface({
                   <>
                     <div className="mcp-panel-header">
                       <div className="mcp-panel-header-info">
-                        <h5 className="mcp-panel-title">
-                          Server: <span>{activeServer}</span>
-                        </h5>
+                        <div className="mcp-panel-title-row">
+                          <h5 className="mcp-panel-title">
+                            Server: <span>{activeServer}</span>
+                          </h5>
+                          <button
+                            type="button"
+                            className="mcp-remove-server-btn"
+                            title={`Remove server '${activeServer}'`}
+                            onClick={() => setServerToDelete(activeServer)}
+                          >
+                            🗑️ Remove
+                          </button>
+                        </div>
                         {activeServerObj?.command && (
                           <code className="mcp-panel-cmd">
                             {activeServerObj.command} {activeServerObj.args?.join(" ")}
                           </code>
+                        )}
+                        {activeServerObj?.env && Object.keys(activeServerObj.env).length > 0 && (
+                          <div className="mcp-panel-env-row">
+                            <span className="mcp-panel-env-label">Env:</span>
+                            <span className="mcp-panel-env-keys">
+                              {Object.keys(activeServerObj.env).join(", ")}
+                            </span>
+                          </div>
                         )}
                       </div>
                       <div className="mcp-panel-toggle-wrapper">
@@ -1614,6 +1963,211 @@ export default function ChatInterface({
                 )}
               </div>
             </div>
+
+            {/* Add MCP Server Modal Dialog */}
+            {showAddServerModal && (
+              <div
+                className="mcp-add-modal-backdrop"
+                onClick={() => !isAddingServer && setShowAddServerModal(false)}
+              >
+                <div
+                  className="mcp-add-modal-dialog"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mcp-add-modal-header">
+                    <h4>Add MCP Server</h4>
+                    <button
+                      type="button"
+                      className="close-overlay-btn"
+                      onClick={() => !isAddingServer && setShowAddServerModal(false)}
+                      disabled={isAddingServer}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddServerSubmit} className="mcp-add-form">
+                    {addServerError && (
+                      <div className="mcp-add-error-banner">
+                        <span className="error-icon">⚠️</span>
+                        <span>{addServerError}</span>
+                      </div>
+                    )}
+
+                    <div className="mcp-form-group">
+                      <label htmlFor="mcp-preset-select">Preset Template</label>
+                      <select
+                        id="mcp-preset-select"
+                        className="mcp-input"
+                        value={addServerPreset}
+                        onChange={(e) => handleSelectPreset(e.target.value)}
+                        disabled={isAddingServer}
+                      >
+                        {MCP_SERVER_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="mcp-field-hint">
+                        Select a preconfigured server or customize below.
+                      </span>
+                    </div>
+
+                    <div className="mcp-form-group">
+                      <label htmlFor="mcp-server-name">
+                        Server Name <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="mcp-server-name"
+                        type="text"
+                        className="mcp-input"
+                        placeholder="e.g. filesystem, memory, sqlite"
+                        value={addServerName}
+                        onChange={(e) => setAddServerName(e.target.value)}
+                        disabled={isAddingServer}
+                        required
+                      />
+                      <span className="mcp-field-hint">
+                        Unique identifier (letters, numbers, hyphens, underscores, dots).
+                      </span>
+                    </div>
+
+                    <div className="mcp-form-group">
+                      <label htmlFor="mcp-server-command">
+                        Executable Command <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="mcp-server-command"
+                        type="text"
+                        className="mcp-input"
+                        placeholder="e.g. npx, uvx, python, node, /path/to/binary"
+                        value={addServerCommand}
+                        onChange={(e) => setAddServerCommand(e.target.value)}
+                        disabled={isAddingServer}
+                        required
+                      />
+                      <span className="mcp-field-hint">
+                        Executable name on system PATH or runner command.
+                      </span>
+                    </div>
+
+                    <div className="mcp-form-group">
+                      <label htmlFor="mcp-server-args">Command Arguments</label>
+                      <input
+                        id="mcp-server-args"
+                        type="text"
+                        className="mcp-input"
+                        placeholder='e.g. -y @modelcontextprotocol/server-memory or ["arg1", "arg2"]'
+                        value={addServerArgs}
+                        onChange={(e) => setAddServerArgs(e.target.value)}
+                        disabled={isAddingServer}
+                      />
+                      <span className="mcp-field-hint">
+                        Arguments separated by spaces (quotes supported) or JSON array.
+                      </span>
+                    </div>
+
+                    <div className="mcp-form-group">
+                      <label htmlFor="mcp-server-env">Environment Variables (Optional)</label>
+                      <textarea
+                        id="mcp-server-env"
+                        className="mcp-textarea"
+                        rows={2}
+                        placeholder={"KEY=VALUE\nANOTHER_KEY=VALUE\nor {\"KEY\": \"VALUE\"}"}
+                        value={addServerEnv}
+                        onChange={(e) => setAddServerEnv(e.target.value)}
+                        disabled={isAddingServer}
+                      />
+                      <span className="mcp-field-hint">
+                        One KEY=VALUE per line or JSON key-value map.
+                      </span>
+                    </div>
+
+                    <div className="mcp-form-checkbox-group">
+                      <label className="mcp-checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={addServerEnabled}
+                          onChange={(e) => setAddServerEnabled(e.target.checked)}
+                          disabled={isAddingServer}
+                        />
+                        <span>Start and connect server immediately</span>
+                      </label>
+                    </div>
+
+                    <div className="mcp-add-modal-footer">
+                      <button
+                        type="button"
+                        className="mcp-cancel-btn"
+                        onClick={() => setShowAddServerModal(false)}
+                        disabled={isAddingServer}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="mcp-submit-btn"
+                        disabled={isAddingServer}
+                      >
+                        {isAddingServer ? "Connecting..." : "Add Server"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Delete MCP Server Confirmation Modal */}
+            {serverToDelete && (
+              <div
+                className="mcp-confirm-modal-backdrop"
+                onClick={() => !isDeletingServer && setServerToDelete(null)}
+              >
+                <div
+                  className="mcp-confirm-modal-dialog"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mcp-confirm-modal-header">
+                    <h4>Remove MCP Server</h4>
+                    <button
+                      type="button"
+                      className="close-overlay-btn"
+                      onClick={() => !isDeletingServer && setServerToDelete(null)}
+                      disabled={isDeletingServer}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="mcp-confirm-modal-body">
+                    <p>
+                      Are you sure you want to remove MCP server <strong>{serverToDelete}</strong>?
+                    </p>
+                    <p className="mcp-confirm-modal-subtext">
+                      This will terminate its running process and delete it from <code>mcp_servers.json</code>.
+                    </p>
+                  </div>
+                  <div className="mcp-confirm-modal-footer">
+                    <button
+                      type="button"
+                      className="mcp-cancel-btn"
+                      onClick={() => setServerToDelete(null)}
+                      disabled={isDeletingServer}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="mcp-delete-confirm-btn"
+                      onClick={handleDeleteServerConfirm}
+                      disabled={isDeletingServer}
+                    >
+                      {isDeletingServer ? "Removing..." : "Remove Server"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1809,6 +2363,203 @@ export default function ChatInterface({
         sensitivityConfig={sensitivityConfig}
         onSave={handleSaveSensitivity}
       />
+
+      {/* Token Details & Compression Savings Modal */}
+      {showTokenDetailsModal && (
+        <div
+          className="token-details-modal-backdrop"
+          onClick={() => setShowTokenDetailsModal(false)}
+        >
+          <div
+            className="token-details-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="token-details-header">
+              <h4>
+                <span>🪙 Token Usage & Savings</span>
+                <span className="token-details-conv-title">
+                  {conversation?.title || "Conversation"}
+                </span>
+              </h4>
+              <button
+                type="button"
+                className="close-overlay-btn"
+                onClick={() => setShowTokenDetailsModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="token-details-body">
+              {/* Stat Cards Grid */}
+              <div className="token-details-cards-grid">
+                <div className="token-metric-card">
+                  <span className="metric-card-label">Total Tokens Spent</span>
+                  <span className="metric-card-value">
+                    {conversationTokens.total_tokens.toLocaleString()}
+                  </span>
+                  <span className="metric-card-subtext">
+                    Input: {(conversationTokens.prompt_tokens || 0).toLocaleString()} · Output: {(conversationTokens.completion_tokens || 0).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="token-metric-card">
+                  <span className="metric-card-label">Estimated Spend</span>
+                  <span className="metric-card-value cost">
+                    {formatSpend(conversationTokens.total_cost || 0)}
+                  </span>
+                  <span className="metric-card-subtext">
+                    {formatExactSpend(conversationTokens.total_cost || 0)} USD
+                  </span>
+                </div>
+
+                <div className="token-metric-card highlight-saved">
+                  <span className="metric-card-label">Tokens Saved (This Conv)</span>
+                  <span className="metric-card-value saved">
+                    🌱 {(conversationTokens.tokens_saved || 0).toLocaleString()}
+                  </span>
+                  <span className="metric-card-subtext">
+                    {conversationTokens.total_cost_saved > 0
+                      ? `Est. Saved: ${formatExactSpend(conversationTokens.total_cost_saved)} USD`
+                      : enableTokenCompression
+                        ? "Headroom compression active"
+                        : "Compression is disabled in Settings"}
+                  </span>
+                </div>
+
+                <div className="token-metric-card">
+                  <span className="metric-card-label">Compression Engine</span>
+                  <span className="metric-card-value status">
+                    {enableTokenCompression ? "Active ⚡" : "Disabled 🔒"}
+                  </span>
+                  <span className="metric-card-subtext">
+                    {enableTokenCompression
+                      ? "Optimizing prompts via Headroom Labs"
+                      : "Enable in Settings > Display & Appearance"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Model Breakdown Section */}
+              {hasModelBreakdown && (
+                <div className="token-details-section">
+                  <h5>Tokens by Model (Deliberation Breakdown)</h5>
+                  <div className="token-details-table-wrapper">
+                    <table className="token-details-table">
+                      <thead>
+                        <tr>
+                          <th>Model</th>
+                          <th>Prompt</th>
+                          <th>Completion</th>
+                          <th>Total</th>
+                          {showSavedTokens && <th>Tokens Saved</th>}
+                          {showSpendValue && <th>Cost</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(conversationTokens.by_model).map(([modelId, mData]) => (
+                          <tr key={modelId}>
+                            <td className="model-id-cell">{modelId}</td>
+                            <td>{(mData.prompt_tokens || 0).toLocaleString()}</td>
+                            <td>{(mData.completion_tokens || 0).toLocaleString()}</td>
+                            <td className="total-cell">{(mData.total_tokens || 0).toLocaleString()}</td>
+                            {showSavedTokens && (
+                              <td className="saved-cell">
+                                {(mData.tokens_saved || 0) > 0 ? (
+                                  <span className="saved-green">
+                                    🌱 {(mData.tokens_saved || 0).toLocaleString()}
+                                  </span>
+                                ) : (
+                                  <span className="saved-zero">0</span>
+                                )}
+                              </td>
+                            )}
+                            {showSpendValue && (
+                              <td className="cost-cell">
+                                {formatSpend(mData.cost || 0)}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Global Session Compression Analytics */}
+              <div className="token-details-section">
+                <div className="section-title-with-badge">
+                  <h5>Global Headroom Analytics (All Conversations)</h5>
+                  {compressionStats?.headroom_available ? (
+                    <span className="analytics-badge headroom">Headroom AI Active</span>
+                  ) : (
+                    <span className="analytics-badge fallback">Fallback Heuristics</span>
+                  )}
+                </div>
+                <div className="global-stats-row">
+                  <div className="global-stat-box">
+                    <span className="global-stat-number">
+                      {(compressionStats?.tokens_saved || 0).toLocaleString()}
+                    </span>
+                    <span className="global-stat-title">Total Tokens Saved</span>
+                  </div>
+                  <div className="global-stat-box">
+                    <span className="global-stat-number green">
+                      {formatSpend(compressionStats?.estimated_dollars_saved || 0)}
+                    </span>
+                    <span className="global-stat-title">Total Dollars Saved</span>
+                  </div>
+                  <div className="global-stat-box">
+                    <span className="global-stat-number">
+                      {((compressionStats?.compression_ratio || 0) * 100).toFixed(1)}%
+                    </span>
+                    <span className="global-stat-title">Average Reduction</span>
+                  </div>
+                  <div className="global-stat-box">
+                    <span className="global-stat-number">
+                      {compressionStats?.total_queries || 0}
+                    </span>
+                    <span className="global-stat-title">Queries Processed</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Where do tokens saved stats show up Guide */}
+              <div className="token-guide-box">
+                <div className="token-guide-header">
+                  <span className="guide-icon">💡</span>
+                  <strong>Where do tokens saved stats show up?</strong>
+                </div>
+                <ul className="token-guide-list">
+                  <li>
+                    <strong>Chat Header (Top-Right):</strong> The green <code>🌱 Saved: X</code> badge displays conversation-level prompt tokens avoided and dollars saved.
+                  </li>
+                  <li>
+                    <strong>Assistant Messages:</strong> Each council or agent turn displays a <code>🌱 Saved X</code> pill beside the turn token count.
+                  </li>
+                  <li>
+                    <strong>Conversation Sidebar:</strong> Conversation history items display a <code>🌱 X</code> count next to the message count.
+                  </li>
+                  <li>
+                    <strong>Settings Modal:</strong> In <em>Display & Appearance</em> under <em>Conversation Token Counter</em> and the <em>Global Session Compression Savings</em> card.
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="token-details-footer">
+              <button
+                type="button"
+                className="close-details-btn"
+                onClick={() => setShowTokenDetailsModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

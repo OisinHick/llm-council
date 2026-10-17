@@ -54,7 +54,7 @@ const ConversationItem = memo(function ConversationItem({
             title={`Total tokens: ${conv.token_usage.total_tokens.toLocaleString()} (Input: ${(conv.token_usage.prompt_tokens || 0).toLocaleString()} | Output: ${(conv.token_usage.completion_tokens || 0).toLocaleString()})${
               conv.token_usage?.total_cost !== undefined ? ` · Est. Spend: ${formatExactSpend(conv.token_usage.total_cost)}` : ""
             }${
-              showSavedTokens && conv.token_usage?.tokens_saved ? ` · Saved: ${conv.token_usage.tokens_saved.toLocaleString()} tokens` : ""
+              showSavedTokens ? ` · Saved: ${(conv.token_usage?.tokens_saved || 0).toLocaleString()} tokens` : ""
             }${
               showSavedTokens && conv.token_usage?.total_cost_saved ? ` (${formatExactSpend(conv.token_usage.total_cost_saved)})` : ""
             }`}
