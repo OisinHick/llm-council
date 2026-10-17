@@ -77,8 +77,12 @@ export default function SettingsModal({
   const [showApiKey, setShowApiKey] = useState(false);
   // List of selected council model IDs
   const [councilModels, setCouncilModels] = useState([]);
+  // Input for adding arbitrary custom council models (e.g. gemini argon 4)
+  const [customCouncilModel, setCustomCouncilModel] = useState("");
   // Selected Chairman model ID
   const [chairmanModel, setChairmanModel] = useState("");
+  // Active compression algorithm (headroom, heuristic, or adaptive)
+  const [compressionAlgorithm, setCompressionAlgorithm] = useState("headroom");
   // All available models fetched from OpenRouter
   const [availableModels, setAvailableModels] = useState([]);
   // Local staged toggle states before saving
@@ -125,6 +129,18 @@ export default function SettingsModal({
       setApiKey(settings.openrouter_api_key || "");
       setCouncilModels(settings.council_models || []);
       setChairmanModel(settings.chairman_model || "");
+      if (settings.compression_algorithm) {
+        setCompressionAlgorithm(settings.compression_algorithm);
+      }
+      if (settings.show_all_deliberation_steps !== undefined && setShowAllDeliberationSteps) {
+        setShowAllDeliberationSteps(Boolean(settings.show_all_deliberation_steps));
+      }
+      if (settings.assistant_color && setAssistantColor) {
+        setAssistantColor(settings.assistant_color);
+      }
+      if (settings.user_color && setUserColor) {
+        setUserColor(settings.user_color);
+      }
       if (settings.show_token_count !== undefined) {
         setLocalShowTokenCount(Boolean(settings.show_token_count));
         if (setShowTokenCount) setShowTokenCount(Boolean(settings.show_token_count));
@@ -243,6 +259,27 @@ export default function SettingsModal({
   }
 
   /**
+   * Add an arbitrary custom model to the Council member list (e.g. gemini argon 4).
+   */
+  const handleAddCustomCouncilModel = () => {
+    const trimmed = customCouncilModel.trim();
+    if (!trimmed) return;
+    if (!councilModels.includes(trimmed)) {
+      setCouncilModels((prev) => [...prev, trimmed]);
+      setStatusMessage({
+        type: "success",
+        text: `Added "${trimmed}" to Council Members.`,
+      });
+    } else {
+      setStatusMessage({
+        type: "error",
+        text: `"${trimmed}" is already in Council Members.`,
+      });
+    }
+    setCustomCouncilModel("");
+  };
+
+  /**
    * Toggle a model's inclusion in the Council member list.
    *
    * @param {string} modelId - Model identifier string.
@@ -290,7 +327,10 @@ export default function SettingsModal({
         show_spend_value: localShowSpendValue,
         show_saved_tokens: localShowSavedTokens,
         enable_token_compression: localEnableTokenCompression,
-        compression_algorithm: "headroom",
+        compression_algorithm: compressionAlgorithm || "headroom",
+        show_all_deliberation_steps: showAllDeliberationSteps,
+        assistant_color: assistantColor,
+        user_color: userColor,
       });
 
       if (setShowTokenCount) setShowTokenCount(localShowTokenCount);
@@ -320,6 +360,12 @@ export default function SettingsModal({
           "llmCouncilEnableTokenCompression",
           JSON.stringify(localEnableTokenCompression)
         );
+        localStorage.setItem(
+          "llmCouncilShowAllSteps",
+          JSON.stringify(showAllDeliberationSteps)
+        );
+        localStorage.setItem("llmCouncilColor", assistantColor);
+        localStorage.setItem("userColor", userColor);
       } catch (e) {
         console.error("Failed to save token preferences to localStorage:", e);
       }
@@ -438,16 +484,55 @@ export default function SettingsModal({
                     onChange={(e) => setChairmanModel(e.target.value)}
                     className="select-input"
                   >
-                    {availableModels.length > 0 ? (
-                      availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} ({m.id})
+                    {/* Active custom chairman option if not in catalog or council */}
+                    {chairmanModel &&
+                      !availableModels.some((m) => m.id === chairmanModel) &&
+                      !councilModels.includes(chairmanModel) && (
+                        <option value={chairmanModel}>
+                          {chairmanModel} (Active Chairman / Custom)
                         </option>
-                      ))
-                    ) : (
+                      )}
+
+                    {/* Council Models */}
+                    {councilModels.length > 0 && (
+                      <optgroup label="Council Members">
+                        {councilModels.map((mId) => {
+                          const matched = availableModels.find((m) => m.id === mId);
+                          return (
+                            <option key={`council-${mId}`} value={mId}>
+                              {matched ? `${matched.name} (${matched.id})` : `${mId} (Council Member)`}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
+
+                    {/* Catalog Models */}
+                    {availableModels.length > 0 && (
+                      <optgroup label="OpenRouter Catalog">
+                        {availableModels
+                          .filter((m) => !councilModels.includes(m.id))
+                          .map((m) => (
+                            <option key={`catalog-${m.id}`} value={m.id}>
+                              {m.name} ({m.id})
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+
+                    {availableModels.length === 0 && councilModels.length === 0 && (
                       <option value={chairmanModel}>{chairmanModel}</option>
                     )}
                   </select>
+                  <div className="custom-chairman-input-row">
+                    <input
+                      type="text"
+                      placeholder="Or enter custom Chairman model ID (e.g. gemini argon 4)..."
+                      value={chairmanModel}
+                      onChange={(e) => setChairmanModel(e.target.value)}
+                      className="text-input custom-chairman-input"
+                    />
+                  </div>
                 </div>
 
                 {/* Selected Council Models Badges */}
@@ -482,6 +567,31 @@ export default function SettingsModal({
                         );
                       })
                     )}
+                  </div>
+
+                  {/* Add Custom Council Model Input */}
+                  <div className="add-custom-model-row">
+                    <input
+                      type="text"
+                      placeholder="Add custom model to council (e.g. gemini argon 4)..."
+                      value={customCouncilModel}
+                      onChange={(e) => setCustomCouncilModel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddCustomCouncilModel();
+                        }
+                      }}
+                      className="text-input"
+                    />
+                    <button
+                      type="button"
+                      className="add-custom-btn"
+                      onClick={handleAddCustomCouncilModel}
+                      disabled={!customCouncilModel.trim()}
+                    >
+                      + Add to Council
+                    </button>
                   </div>
                 </div>
 

@@ -515,6 +515,9 @@ function App() {
     api
       .getSettings()
       .then((settings) => {
+        if (settings?.show_all_deliberation_steps !== undefined) {
+          setShowAllDeliberationSteps(Boolean(settings.show_all_deliberation_steps));
+        }
         if (settings?.show_token_count !== undefined) {
           setShowTokenCount(Boolean(settings.show_token_count));
         }
@@ -529,6 +532,41 @@ function App() {
         }
         if (settings?.enable_token_compression !== undefined) {
           setEnableTokenCompression(Boolean(settings.enable_token_compression));
+        }
+        if (settings?.default_mode) {
+          setPendingMode(settings.default_mode);
+        }
+        if (settings?.assistant_color) {
+          document.documentElement.style.setProperty(
+            "--assistant-bg",
+            settings.assistant_color
+          );
+          try {
+            localStorage.setItem("llmCouncilColor", settings.assistant_color);
+          } catch {
+            // ignore
+          }
+        }
+        if (settings?.user_color) {
+          document.documentElement.style.setProperty(
+            "--user-bg",
+            settings.user_color
+          );
+          try {
+            localStorage.setItem("userColor", settings.user_color);
+          } catch {
+            // ignore
+          }
+        }
+        if (settings?.sensitivity_config) {
+          try {
+            localStorage.setItem(
+              "llm_council_deliberation_sensitivity",
+              JSON.stringify(settings.sensitivity_config)
+            );
+          } catch {
+            // ignore
+          }
         }
       })
       .catch((err) => {

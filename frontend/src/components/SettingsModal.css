@@ -615,3 +615,37 @@
   cursor: not-allowed;
 }
 
+.add-custom-model-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.add-custom-btn {
+  padding: 8px 14px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.add-custom-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.add-custom-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.custom-chairman-input {
+  margin-top: 6px;
+}
+
+

@@ -86,6 +86,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "show_saved_tokens": True,
     "enable_token_compression": False,
     "compression_algorithm": "headroom",
+    "show_all_deliberation_steps": True,
+    "assistant_color": "#f6f9ff",
+    "user_color": "#f0f7ff",
+    "sensitivity_config": {
+        "level": "medium",
+        "auto_trigger_on_error": False,
+        "review_before_completion": False,
+        "max_consultations": 5,
+        "max_steps": 20,
+    },
+    "default_mode": "informational",
 }
 
 
@@ -111,9 +122,16 @@ def get_settings() -> Dict[str, Any]:
             - "show_saved_tokens" (bool): Whether saved compression tokens are highlighted.
             - "enable_token_compression" (bool): Whether context compression is active.
             - "compression_algorithm" (str): Active algorithm ('headroom', 'heuristic', 'adaptive').
+            - "show_all_deliberation_steps" (bool): Whether all council stages are shown in UI.
+            - "assistant_color" (str): Hex color code for assistant response background.
+            - "user_color" (str): Hex color code for user message background.
+            - "sensitivity_config" (dict): Deliberation sensitivity options for autonomous agent.
+            - "default_mode" (str): Initial conversation mode ('informational', 'one_shot', 'agentic').
     """
     env_key = os.getenv("OPENROUTER_API_KEY", "")
     settings = dict(DEFAULT_SETTINGS)
+    settings["sensitivity_config"] = dict(DEFAULT_SETTINGS["sensitivity_config"])
+    settings["council_models"] = list(DEFAULT_COUNCIL_MODELS)
     settings["openrouter_api_key"] = env_key
 
     # If settings file does not exist yet, return baseline defaults
@@ -129,9 +147,18 @@ def get_settings() -> Dict[str, Any]:
             return settings
 
         # Merge persisted values with defaults, prioritizing persisted non-empty values
-        settings["openrouter_api_key"] = data.get("openrouter_api_key") or env_key
-        settings["council_models"] = data.get("council_models") or DEFAULT_COUNCIL_MODELS
-        settings["chairman_model"] = data.get("chairman_model") or DEFAULT_CHAIRMAN_MODEL
+        if "openrouter_api_key" in data and isinstance(data["openrouter_api_key"], str):
+            settings["openrouter_api_key"] = data["openrouter_api_key"] or env_key
+
+        if "council_models" in data and isinstance(data["council_models"], list):
+            valid_models = [m.strip() for m in data["council_models"] if isinstance(m, str) and m.strip()]
+            if valid_models:
+                settings["council_models"] = valid_models
+
+        if "chairman_model" in data and isinstance(data["chairman_model"], str):
+            cm = data["chairman_model"].strip()
+            if cm:
+                settings["chairman_model"] = cm
 
         # Boolean flags with fallback defaults
         for flag in (
@@ -140,12 +167,35 @@ def get_settings() -> Dict[str, Any]:
             "show_spend_value",
             "show_saved_tokens",
             "enable_token_compression",
+            "show_all_deliberation_steps",
         ):
-            if flag in data:
+            if flag in data and data[flag] is not None:
                 settings[flag] = bool(data[flag])
 
         if "compression_algorithm" in data and isinstance(data["compression_algorithm"], str):
-            settings["compression_algorithm"] = data["compression_algorithm"].strip()
+            ca = data["compression_algorithm"].strip()
+            if ca:
+                settings["compression_algorithm"] = ca
+
+        if "assistant_color" in data and isinstance(data["assistant_color"], str):
+            ac = data["assistant_color"].strip()
+            if ac:
+                settings["assistant_color"] = ac
+
+        if "user_color" in data and isinstance(data["user_color"], str):
+            uc = data["user_color"].strip()
+            if uc:
+                settings["user_color"] = uc
+
+        if "sensitivity_config" in data and isinstance(data["sensitivity_config"], dict):
+            merged_sens = dict(settings["sensitivity_config"])
+            merged_sens.update(data["sensitivity_config"])
+            settings["sensitivity_config"] = merged_sens
+
+        if "default_mode" in data and isinstance(data["default_mode"], str):
+            dm = data["default_mode"].strip()
+            if dm in ("informational", "one_shot", "agentic"):
+                settings["default_mode"] = dm
 
         return settings
     except Exception as e:
@@ -173,6 +223,11 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
                 - "show_saved_tokens" (bool): UI display flag.
                 - "enable_token_compression" (bool): Compression toggle.
                 - "compression_algorithm" (str): Compression algorithm name.
+                - "show_all_deliberation_steps" (bool): UI deliberation stages display flag.
+                - "assistant_color" (str): Custom assistant message background color.
+                - "user_color" (str): Custom user message background color.
+                - "sensitivity_config" (dict): ReAct agent deliberation sensitivity options.
+                - "default_mode" (str): Default conversation mode.
 
     Returns:
         Dict[str, Any]: The complete, merged settings dictionary after updates are applied.
@@ -205,6 +260,7 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         "show_spend_value",
         "show_saved_tokens",
         "enable_token_compression",
+        "show_all_deliberation_steps",
     ):
         if flag in new_settings and new_settings[flag] is not None:
             current[flag] = bool(new_settings[flag])
@@ -214,6 +270,29 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         ca = new_settings["compression_algorithm"].strip()
         if ca:
             current["compression_algorithm"] = ca
+
+    # Update styling colors
+    if "assistant_color" in new_settings and isinstance(new_settings["assistant_color"], str):
+        ac = new_settings["assistant_color"].strip()
+        if ac:
+            current["assistant_color"] = ac
+
+    if "user_color" in new_settings and isinstance(new_settings["user_color"], str):
+        uc = new_settings["user_color"].strip()
+        if uc:
+            current["user_color"] = uc
+
+    # Update sensitivity config
+    if "sensitivity_config" in new_settings and isinstance(new_settings["sensitivity_config"], dict):
+        current_cfg = dict(current.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"])
+        current_cfg.update(new_settings["sensitivity_config"])
+        current["sensitivity_config"] = current_cfg
+
+    # Update default conversation mode
+    if "default_mode" in new_settings and isinstance(new_settings["default_mode"], str):
+        dm = new_settings["default_mode"].strip()
+        if dm in ("informational", "one_shot", "agentic"):
+            current["default_mode"] = dm
 
     # Atomic write to prevent file corruption on abrupt shutdowns:
     # 1. Create a temporary file in the same directory (same filesystem).
@@ -335,4 +414,60 @@ def get_compression_algorithm() -> str:
     """
     settings = get_settings()
     return str(settings.get("compression_algorithm", "headroom"))
+
+
+def get_show_all_deliberation_steps() -> bool:
+    """Check whether all council deliberation stages should be shown in UI.
+
+    Returns:
+        bool: True to show all stages (Stage 1, 2, 3), False to show only final answer.
+    """
+    settings = get_settings()
+    return bool(settings.get("show_all_deliberation_steps", True))
+
+
+def get_assistant_color() -> str:
+    """Get the configured background color hex string for assistant messages.
+
+    Returns:
+        str: Hex color code (e.g., '#f6f9ff').
+    """
+    settings = get_settings()
+    return str(settings.get("assistant_color", "#f6f9ff"))
+
+
+def get_user_color() -> str:
+    """Get the configured background color hex string for user messages.
+
+    Returns:
+        str: Hex color code (e.g., '#f0f7ff').
+    """
+    settings = get_settings()
+    return str(settings.get("user_color", "#f0f7ff"))
+
+
+def get_sensitivity_config() -> Dict[str, Any]:
+    """Get the active deliberation sensitivity configuration dictionary for autonomous agents.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing sensitivity flags and limits:
+            - level: 'low' | 'medium' | 'high' | 'extreme'
+            - auto_trigger_on_error: bool
+            - review_before_completion: bool
+            - max_consultations: int
+            - max_steps: int
+    """
+    settings = get_settings()
+    return dict(settings.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"])
+
+
+def get_default_mode() -> str:
+    """Get the default conversation operational mode.
+
+    Returns:
+        str: Operational mode name ('informational', 'one_shot', or 'agentic').
+    """
+    settings = get_settings()
+    return str(settings.get("default_mode", "informational"))
+
 

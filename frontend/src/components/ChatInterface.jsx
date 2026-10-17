@@ -373,8 +373,28 @@ export default function ChatInterface({
     };
   });
 
+  // Hydrate sensitivity config from backend settings on mount
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((settings) => {
+        if (settings?.sensitivity_config) {
+          setSensitivityConfig(settings.sensitivity_config);
+          try {
+            localStorage.setItem(
+              "llm_council_deliberation_sensitivity",
+              JSON.stringify(settings.sensitivity_config)
+            );
+          } catch (e) {
+            console.warn("Failed to sync sensitivity config to localStorage:", e);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   /**
-   * Persist updated council deliberation sensitivity preferences to state and localStorage.
+   * Persist updated council deliberation sensitivity preferences to state, localStorage, and backend.
    *
    * @param {Object} newConfig - New sensitivity config object.
    */
@@ -386,8 +406,13 @@ export default function ChatInterface({
         JSON.stringify(newConfig)
       );
     } catch (e) {
-      console.warn("Failed to persist sensitivity config:", e);
+      console.warn("Failed to persist sensitivity config to localStorage:", e);
     }
+    api
+      .updateSettings({ sensitivity_config: newConfig })
+      .catch((err) => {
+        console.warn("Failed to persist sensitivity config to backend:", err);
+      });
   };
 
   const [mcpServers, setMcpServers] = useState([]);

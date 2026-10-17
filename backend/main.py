@@ -33,7 +33,12 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
 from . import storage
-from .config import get_settings, save_settings
+from .config import (
+    get_default_mode,
+    get_sensitivity_config,
+    get_settings,
+    save_settings,
+)
 from .openrouter import (
     fetch_openrouter_models,
     fetch_dynamic_pricing,
@@ -197,6 +202,11 @@ class UpdateSettingsRequest(BaseModel):
     show_saved_tokens: Optional[bool] = None
     enable_token_compression: Optional[bool] = None
     compression_algorithm: Optional[str] = None
+    show_all_deliberation_steps: Optional[bool] = None
+    assistant_color: Optional[str] = None
+    user_color: Optional[str] = None
+    sensitivity_config: Optional[Dict[str, Any]] = None
+    default_mode: Optional[str] = None
 
 
 class CompressionPreviewRequest(BaseModel):
@@ -455,7 +465,7 @@ async def create_conversation(request: Optional[CreateConversationRequest] = Non
     Returns:
         Conversation: Newly initialized conversation object.
     """
-    mode = request.mode if request and request.mode else "informational"
+    mode = request.mode if request and request.mode else get_default_mode()
     conversation_id = str(uuid.uuid4())
     conversation = storage.create_conversation(conversation_id, mode=mode)
     return conversation
@@ -1001,20 +1011,32 @@ async def run_agent_stream(request: AgentRunRequest):
             }
 
             # --- PHASE 2: CHAIRPERSON AUTONOMOUS AGENT LOOP ---
+            saved_sensitivity = get_sensitivity_config()
+            effective_sensitivity_config = (
+                request.sensitivity_config
+                if request.sensitivity_config is not None
+                else saved_sensitivity
+            )
             max_steps_val = (
-                request.sensitivity_config.get("max_steps")
-                if request.sensitivity_config and "max_steps" in request.sensitivity_config
+                effective_sensitivity_config.get("max_steps")
+                if "max_steps" in effective_sensitivity_config
                 else request.max_steps
             )
             if max_steps_val is None:
                 max_steps_val = 20
 
+            delib_sensitivity = (
+                request.deliberation_sensitivity
+                or effective_sensitivity_config.get("level")
+                or "medium"
+            )
+
             agent = CouncilAgent(
                 user_request=request.request,
                 initial_council=initial_council,
                 max_steps=max_steps_val,
-                deliberation_sensitivity=request.deliberation_sensitivity or "medium",
-                sensitivity_config=request.sensitivity_config,
+                deliberation_sensitivity=delib_sensitivity,
+                sensitivity_config=effective_sensitivity_config,
             )
 
             if conv_id:

@@ -435,7 +435,12 @@ export const api = {
    *   show_spend_value: boolean,
    *   show_saved_tokens: boolean,
    *   enable_token_compression: boolean,
-   *   compression_algorithm: string
+   *   compression_algorithm: string,
+   *   show_all_deliberation_steps: boolean,
+   *   assistant_color: string,
+   *   user_color: string,
+   *   sensitivity_config: Object,
+   *   default_mode: string
    * }>} Application configuration dictionary.
    */
   async getSettings() {

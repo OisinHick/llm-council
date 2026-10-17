@@ -12,6 +12,7 @@
 
 import { useState, useEffect } from "react";
 import SettingsModal from "./SettingsModal";
+import { api } from "../api";
 import { formatShortNumber, formatSpend, formatExactSpend } from "../formatters";
 import "./Sidebar.css";
 
@@ -66,6 +67,21 @@ export default function Sidebar({
     return localStorage.getItem("userColor") || "#f0f7ff";
   });
 
+  // Fetch persisted colors from backend settings on mount
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((settings) => {
+        if (settings?.assistant_color) {
+          setAssistantColor(settings.assistant_color);
+        }
+        if (settings?.user_color) {
+          setUserColor(settings.user_color);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Apply colors on mount and state changes to CSS custom properties
   useEffect(() => {
     document.documentElement.style.setProperty(
@@ -84,8 +100,18 @@ export default function Sidebar({
    * Reset message background colors to default pastel blue/slate hues.
    */
   const handleResetColors = () => {
-    setAssistantColor("#f6f9ff");
-    setUserColor("#f0f7ff");
+    const defaultAssistant = "#f6f9ff";
+    const defaultUser = "#f0f7ff";
+    setAssistantColor(defaultAssistant);
+    setUserColor(defaultUser);
+    api
+      .updateSettings({
+        assistant_color: defaultAssistant,
+        user_color: defaultUser,
+      })
+      .catch((err) => {
+        console.warn("Failed to persist reset colors to backend:", err);
+      });
   };
 
   return (
