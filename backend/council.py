@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
 from .mcp_tools import executor
-from .openrouter import query_model, query_models_parallel
+from .openrouter import get_last_model_error, query_model, query_models_parallel
 
 logger = logging.getLogger("llm_council.council")
 
@@ -268,9 +268,15 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     if response is None:
         # Fallback if chairman query times out or fails
+        err = get_last_model_error(chairman)
+        err_msg = (
+            f"Error: Unable to generate final synthesis from Chairman model ({chairman}). Reason: {err}"
+            if err
+            else "Error: Unable to generate final synthesis."
+        )
         return {
             "model": chairman,
-            "response": "Error: Unable to generate final synthesis.",
+            "response": err_msg,
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
 

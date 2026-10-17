@@ -414,8 +414,18 @@ async def fetch_openrouter_models(
         return formatted_models
 
 
+_last_model_errors: Dict[str, str] = {}
+
+
+def get_last_model_error(model: str) -> Optional[str]:
+    """Get the most recent error message for an OpenRouter model query, if any."""
+    return _last_model_errors.get(model)
+
+
 async def query_model(
-    model: str, messages: List[Dict[str, str]], timeout: float = 120.0
+    model: str,
+    messages: List[Dict[str, str]],
+    timeout: float = 120.0,
 ) -> Optional[Dict[str, Any]]:
     """Query a single LLM model via OpenRouter API with error isolation and token accounting.
 
@@ -470,7 +480,7 @@ async def query_model(
         effective_messages = comp_res.messages
         tokens_saved = comp_res.tokens_saved
 
-    payload = {
+    payload: Dict[str, Any] = {
         "model": model,
         "messages": effective_messages,
     }
@@ -501,6 +511,7 @@ async def query_model(
             if total_tokens is None or total_tokens <= 0:
                 total_tokens = prompt_tokens + completion_tokens
 
+            _last_model_errors.pop(model, None)
             return {
                 "content": content,
                 "reasoning_details": message.get("reasoning_details"),
@@ -515,6 +526,12 @@ async def query_model(
     except httpx.HTTPStatusError as e:
         status_code = e.response.status_code if e.response else "unknown"
         error_preview = e.response.text[:200] if e.response else str(e)
+        try:
+            err_json = e.response.json()
+            error_msg = err_json.get("error", {}).get("message") or error_preview
+        except Exception:
+            error_msg = error_preview
+        _last_model_errors[model] = f"HTTP {status_code}: {error_msg}"
         logger.error(
             "HTTP error %s querying model %s via OpenRouter: %s",
             status_code,
@@ -523,15 +540,19 @@ async def query_model(
         )
         return None
     except httpx.TimeoutException:
+        _last_model_errors[model] = f"Timeout ({timeout}s) querying OpenRouter"
         logger.warning("Timeout (%ss) while querying model %s via OpenRouter", timeout, model)
         return None
     except Exception as e:
+        _last_model_errors[model] = f"Unexpected error: {e}"
         logger.exception("Unexpected error querying model %s: %s", model, e)
         return None
 
 
 async def query_models_parallel(
-    models: List[str], messages: List[Dict[str, str]], timeout: float = 180.0
+    models: List[str],
+    messages: List[Dict[str, str]],
+    timeout: float = 180.0,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """Query multiple models concurrently using asyncio.gather with timeout and cancellation safety.
 
@@ -552,7 +573,10 @@ async def query_models_parallel(
             (or None if that specific model failed or timed out).
     """
     # Create concurrent query tasks for all models
-    tasks = [asyncio.create_task(query_model(model, messages, timeout=timeout)) for model in models]
+    tasks = [
+        asyncio.create_task(query_model(model, messages, timeout=timeout))
+        for model in models
+    ]
 
     try:
         responses = await asyncio.wait_for(
