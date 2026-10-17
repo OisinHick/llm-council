@@ -1,8 +1,11 @@
 .settings-modal-content.large {
-  max-width: 650px;
-  max-height: 85vh;
+  width: 90vw;
+  max-width: 920px;
+  height: 88vh;
+  max-height: 860px;
   display: flex;
   flex-direction: column;
+  padding: 24px 28px;
 }
 
 .settings-tab-nav {
@@ -211,7 +214,7 @@
 .models-catalog-list {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  max-height: 180px;
+  max-height: 300px;
   overflow-y: auto;
   background: #ffffff;
   margin-top: 4px;
@@ -298,10 +301,16 @@
 }
 
 .deliberation-display-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
   margin-top: 4px;
+}
+
+@media (max-width: 680px) {
+  .deliberation-display-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 .deliberation-display-card {
