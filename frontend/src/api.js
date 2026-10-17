@@ -169,6 +169,33 @@ export const api = {
   },
 
   /**
+   * Delete a single conversation from storage.
+   *
+   * @param {string} conversationId - Conversation identifier to delete.
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async deleteConversation(conversationId) {
+    return requestJson(
+      `/api/conversations/${conversationId}`,
+      { method: "DELETE" },
+      "Failed to delete conversation",
+    );
+  },
+
+  /**
+   * Clear all historical conversations from storage.
+   *
+   * @returns {Promise<{success: boolean, deleted_count: number, message: string}>}
+   */
+  async clearAllConversations() {
+    return requestJson(
+      "/api/conversations",
+      { method: "DELETE" },
+      "Failed to clear conversations",
+    );
+  },
+
+  /**
    * Send a user query to an informational conversation and consume streaming deliberation events.
    *
    * Events emitted:

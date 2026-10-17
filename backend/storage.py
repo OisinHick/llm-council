@@ -607,6 +607,47 @@ def list_conversations() -> List[Dict[str, Any]]:
     return conversations
 
 
+def delete_conversation(conversation_id: str) -> bool:
+    """Delete a single conversation by its ID.
+
+    Args:
+        conversation_id (str): Conversation UUID identifier.
+
+    Returns:
+        bool: True if file was found and removed, False otherwise.
+    """
+    path = get_conversation_path(conversation_id)
+    if os.path.exists(path):
+        try:
+            os.unlink(path)
+            logger.info("Deleted conversation %s", conversation_id)
+            return True
+        except Exception as e:
+            logger.error("Failed to delete conversation %s: %s", conversation_id, e)
+            raise
+    return False
+
+
+def clear_all_conversations() -> int:
+    """Delete all stored conversation JSON files.
+
+    Returns:
+        int: Number of conversation files deleted.
+    """
+    ensure_data_dir()
+    deleted_count = 0
+    for filename in os.listdir(DATA_DIR):
+        if filename.endswith(".json"):
+            path = os.path.join(DATA_DIR, filename)
+            try:
+                os.unlink(path)
+                deleted_count += 1
+            except Exception as e:
+                logger.error("Failed to delete conversation file %s: %s", filename, e)
+    logger.info("Cleared %d conversations from storage", deleted_count)
+    return deleted_count
+
+
 def add_user_message(conversation_id: str, content: str) -> None:
     """Append a user prompt message to a conversation and persist the change.
 

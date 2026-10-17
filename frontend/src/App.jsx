@@ -709,6 +709,40 @@ function App() {
   }, [currentConversationId]);
 
   /**
+   * Delete an individual conversation and remove it from local state.
+   *
+   * @param {string} id - Conversation ID to delete.
+   */
+  const handleDeleteConversation = useCallback(async (id) => {
+    try {
+      await api.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (currentConversationId === id) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+        resetActionState();
+      }
+    } catch (error) {
+      console.error("Failed to delete conversation:", error);
+    }
+  }, [currentConversationId]);
+
+  /**
+   * Clear all historical conversations from backend storage and reset active chat.
+   */
+  const handleClearAllConversations = useCallback(async () => {
+    try {
+      await api.clearAllConversations();
+      setConversations([]);
+      setCurrentConversationId(null);
+      setCurrentConversation(null);
+      resetActionState();
+    } catch (error) {
+      console.error("Failed to clear all conversations:", error);
+    }
+  }, []);
+
+  /**
    * Ensure that an active conversation exists before sending a message or running an action/agent.
    * Creates a new conversation automatically if none is currently active.
    *
@@ -1510,6 +1544,8 @@ function App() {
         setShowSavedTokens={setShowSavedTokens}
         enableTokenCompression={enableTokenCompression}
         setEnableTokenCompression={setEnableTokenCompression}
+        onDeleteConversation={handleDeleteConversation}
+        onClearAllConversations={handleClearAllConversations}
       />
       <ChatInterface
         conversation={currentConversation}

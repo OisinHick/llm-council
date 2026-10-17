@@ -23,6 +23,7 @@ const ConversationItem = memo(function ConversationItem({
   conv,
   isActive,
   onSelect,
+  onDelete,
   showTokenCount,
   showSpendValue,
   showSavedTokens,
@@ -32,8 +33,24 @@ const ConversationItem = memo(function ConversationItem({
       className={`conversation-item ${isActive ? "active" : ""}`}
       onClick={() => onSelect(conv.id)}
     >
-      <div className="conversation-title">
-        {conv.title || "New Conversation"}
+      <div className="conversation-header-row">
+        <div className="conversation-title" title={conv.title || "New Conversation"}>
+          {conv.title || "New Conversation"}
+        </div>
+        {onDelete && (
+          <button
+            type="button"
+            className="conv-delete-btn"
+            title="Delete conversation"
+            aria-label="Delete conversation"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete({ id: conv.id, title: conv.title || "New Conversation" });
+            }}
+          >
+            ×
+          </button>
+        )}
       </div>
       <div className="conversation-meta">
         <span
@@ -83,6 +100,8 @@ const ConversationItem = memo(function ConversationItem({
  * @param {string|null} props.currentConversationId - Active conversation ID.
  * @param {function(string): void} props.onSelectConversation - Callback when a conversation is clicked.
  * @param {function(): void} props.onNewConversation - Callback to initialize a new conversation.
+ * @param {function(string): void} [props.onDeleteConversation] - Callback to delete an individual conversation.
+ * @param {function(): void} [props.onClearAllConversations] - Callback to clear all historical conversations.
  * @param {boolean} props.showAllDeliberationSteps - Toggle to display all deliberation stages vs only final answer.
  * @param {function(boolean): void} props.setShowAllDeliberationSteps - Setter for deliberation display preference.
  * @param {boolean} props.showTokenCount - Toggle to display token counters.
@@ -102,6 +121,8 @@ function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  onDeleteConversation,
+  onClearAllConversations,
   showAllDeliberationSteps,
   setShowAllDeliberationSteps,
   showTokenCount,
@@ -117,6 +138,10 @@ function Sidebar({
 }) {
   // Modal visibility flag for SettingsModal
   const [showSettings, setShowSettings] = useState(false);
+  // Target conversation pending delete confirmation
+  const [convToDelete, setConvToDelete] = useState(null);
+  // Flag indicating whether clear all confirmation modal is open
+  const [showConfirmClearAll, setShowConfirmClearAll] = useState(false);
   // Custom response background color for assistant messages
   const [assistantColor, setAssistantColor] = useState(() => {
     return localStorage.getItem("llmCouncilColor") || "#f6f9ff";
@@ -232,6 +257,7 @@ function Sidebar({
               conv={conv}
               isActive={conv.id === currentConversationId}
               onSelect={onSelectConversation}
+              onDelete={setConvToDelete}
               showTokenCount={showTokenCount}
               showSpendValue={showSpendValue}
               showSavedTokens={showSavedTokens}
@@ -239,6 +265,126 @@ function Sidebar({
           ))
         )}
       </div>
+
+      {conversations.length > 0 && onClearAllConversations && (
+        <div className="sidebar-footer">
+          <button
+            type="button"
+            className="clear-all-conversations-btn"
+            onClick={() => setShowConfirmClearAll(true)}
+            title="Clear all historical chats"
+          >
+            🗑️ Clear All ({conversations.length})
+          </button>
+        </div>
+      )}
+
+      {/* Delete Single Conversation Confirmation Modal */}
+      {convToDelete && (
+        <div
+          className="confirm-delete-modal-backdrop"
+          onClick={() => setConvToDelete(null)}
+        >
+          <div
+            className="confirm-delete-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="confirm-delete-header">
+              <h4>Delete Conversation</h4>
+              <button
+                type="button"
+                className="close-confirm-btn"
+                onClick={() => setConvToDelete(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="confirm-delete-body">
+              <p>
+                Are you sure you want to delete <strong>"{convToDelete.title}"</strong>?
+              </p>
+              <p className="confirm-delete-warning">
+                This will permanently delete this conversation and its token accounting data from storage.
+              </p>
+            </div>
+            <div className="confirm-delete-footer">
+              <button
+                type="button"
+                className="btn-confirm-cancel"
+                onClick={() => setConvToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-delete"
+                onClick={async () => {
+                  const id = convToDelete.id;
+                  setConvToDelete(null);
+                  if (onDeleteConversation) {
+                    await onDeleteConversation(id);
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Historical Chats Confirmation Modal */}
+      {showConfirmClearAll && (
+        <div
+          className="confirm-delete-modal-backdrop"
+          onClick={() => setShowConfirmClearAll(false)}
+        >
+          <div
+            className="confirm-delete-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="confirm-delete-header">
+              <h4>Clear All Historical Chats</h4>
+              <button
+                type="button"
+                className="close-confirm-btn"
+                onClick={() => setShowConfirmClearAll(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="confirm-delete-body">
+              <p>
+                Are you sure you want to clear all <strong>{conversations.length}</strong> historical conversation{conversations.length === 1 ? "" : "s"}?
+              </p>
+              <p className="confirm-delete-warning">
+                This will permanently remove all stored conversation files, message transcripts, deliberation steps, and token history. This action cannot be undone.
+              </p>
+            </div>
+            <div className="confirm-delete-footer">
+              <button
+                type="button"
+                className="btn-confirm-cancel"
+                onClick={() => setShowConfirmClearAll(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-delete danger-all"
+                onClick={async () => {
+                  setShowConfirmClearAll(false);
+                  if (onClearAllConversations) {
+                    await onClearAllConversations();
+                  }
+                }}
+              >
+                Yes, Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

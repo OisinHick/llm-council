@@ -582,6 +582,33 @@ async def get_conversation(conversation_id: str):
     return conversation
 
 
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation_endpoint(conversation_id: str):
+    """Delete a single conversation from storage.
+
+    Args:
+        conversation_id: Unique UUID of the conversation.
+
+    Returns:
+        Dict[str, Any]: Status confirmation.
+    """
+    deleted = storage.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"success": True, "message": f"Conversation {conversation_id} deleted"}
+
+
+@app.delete("/api/conversations")
+async def clear_all_conversations_endpoint():
+    """Clear all historical conversations from storage.
+
+    Returns:
+        Dict[str, Any]: Status confirmation and count of deleted conversations.
+    """
+    count = storage.clear_all_conversations()
+    return {"success": True, "deleted_count": count, "message": f"Cleared {count} conversations"}
+
+
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """Send a user message and synchronously execute the 3-stage council deliberation.
