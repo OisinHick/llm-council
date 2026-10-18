@@ -2381,14 +2381,7 @@ export default function ChatInterface({
 
               {/* Global Session Compression Analytics */}
               <div className="token-details-section">
-                <div className="section-title-with-badge">
-                  <h5>Global Headroom Analytics (All Conversations)</h5>
-                  {compressionStats?.headroom_available ? (
-                    <span className="analytics-badge headroom">Headroom AI Active</span>
-                  ) : (
-                    <span className="analytics-badge fallback">Fallback Heuristics</span>
-                  )}
-                </div>
+                <h5>Global Headroom Analytics (All Conversations)</h5>
                 <div className="global-stats-row">
                   <div className="global-stat-box">
                     <span className="global-stat-number">
@@ -2416,38 +2409,6 @@ export default function ChatInterface({
                   </div>
                 </div>
               </div>
-
-              {/* Where do tokens saved stats show up Guide */}
-              <div className="token-guide-box">
-                <div className="token-guide-header">
-                  <span className="guide-icon">💡</span>
-                  <strong>Where do tokens saved stats show up?</strong>
-                </div>
-                <ul className="token-guide-list">
-                  <li>
-                    <strong>Chat Header (Top-Right):</strong> The green <code>🌱 Saved: X</code> badge displays conversation-level prompt tokens avoided and dollars saved.
-                  </li>
-                  <li>
-                    <strong>Assistant Messages:</strong> Each council or agent turn displays a <code>🌱 Saved X</code> pill beside the turn token count.
-                  </li>
-                  <li>
-                    <strong>Conversation Sidebar:</strong> Conversation history items display a <code>🌱 X</code> count next to the message count.
-                  </li>
-                  <li>
-                    <strong>Settings Modal:</strong> In <em>Display & Appearance</em> under <em>Conversation Token Counter</em> and the <em>Global Session Compression Savings</em> card.
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="token-details-footer">
-              <button
-                type="button"
-                className="close-details-btn"
-                onClick={() => setShowTokenDetailsModal(false)}
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
