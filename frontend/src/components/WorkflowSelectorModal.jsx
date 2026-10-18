@@ -3,7 +3,6 @@
  *
  * Provides a user-friendly directory modal to:
  * - Browse pre-configured workflow templates and custom user-designed workflows.
- * - Inspect high-level node sequence graphs (Input -> Model Steps -> Output).
  * - Select a workflow for active execution in the chat interface.
  * - Launch the interactive drag-and-drop WorkflowEditorModal via the "+ New Workflow" button.
  * - Edit, duplicate, or delete workflows.
@@ -12,26 +11,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { api } from "../api";
 import "./WorkflowSelectorModal.css";
-
-/**
- * Format node type to readable icon and label.
- *
- * @param {string} type - Node type string.
- * @returns {{icon: string, label: string}} Formatted type descriptor.
- */
-function getNodeTypeInfo(type) {
-  switch (type) {
-    case "input":
-      return { icon: "📥", label: "Input" };
-    case "output":
-      return { icon: "📤", label: "Output" };
-    case "synthesis":
-      return { icon: "🧬", label: "Synthesis" };
-    case "model_step":
-    default:
-      return { icon: "🤖", label: "Model Step" };
-  }
-}
 
 /**
  * Workflow Selector Modal component.
@@ -237,7 +216,6 @@ export default function WorkflowSelectorModal({
             !error &&
             filteredWorkflows.map((wf) => {
               const isSelected = selectedWorkflowId === wf.id;
-              const nodes = wf.nodes || [];
 
               return (
                 <div
@@ -303,30 +281,6 @@ export default function WorkflowSelectorModal({
                         </button>
                       )}
                     </div>
-                  </div>
-
-                  {/* Flow summary representation */}
-                  <div className="workflow-graph-summary">
-                    <span className="graph-summary-label">Pipeline:</span>
-                    {nodes.map((n, i) => {
-                      const typeInfo = getNodeTypeInfo(n.type);
-                      const modelShort = n.model ? n.model.split("/")[1] || n.model : "";
-
-                      return (
-                        <span key={n.id} style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                          <span className={`summary-node-chip chip-${n.type}`}>
-                            <span>{typeInfo.icon}</span>
-                            <span>{n.label || typeInfo.label}</span>
-                            {modelShort && (
-                              <span className="summary-node-model">{modelShort}</span>
-                            )}
-                          </span>
-                          {i < nodes.length - 1 && (
-                            <span className="summary-arrow">➔</span>
-                          )}
-                        </span>
-                      );
-                    })}
                   </div>
                 </div>
               );

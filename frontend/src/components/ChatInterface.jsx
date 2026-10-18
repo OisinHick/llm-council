@@ -868,6 +868,8 @@ export default function ChatInterface({
   onOpenWorkflowSelector = null,
   onRunWorkflow = null,
   workflowLoading = false,
+  onNewConversation = null,
+  onDeleteConversation = null,
 }) {
   const [input, setInput] = useState("");
   const currentMode = mode || "informational";
@@ -880,6 +882,56 @@ export default function ChatInterface({
   const [showSensitivityModal, setShowSensitivityModal] = useState(false);
   const [showTokenDetailsModal, setShowTokenDetailsModal] = useState(false);
   const [compressionStats, setCompressionStats] = useState(null);
+  const [headerContextMenu, setHeaderContextMenu] = useState(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const headerContextMenuRef = useRef(null);
+
+  // Close header context menu on outside pointerdown/contextmenu or Escape key
+  useEffect(() => {
+    if (!headerContextMenu) return;
+
+    const handlePointerDown = (e) => {
+      if (headerContextMenuRef.current && headerContextMenuRef.current.contains(e.target)) {
+        return;
+      }
+      setHeaderContextMenu(null);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setHeaderContextMenu(null);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      document.addEventListener("pointerdown", handlePointerDown);
+      document.addEventListener("contextmenu", handlePointerDown);
+    }, 0);
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("contextmenu", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [headerContextMenu]);
+
+  const handleHeaderContextMenu = (e) => {
+    if (e.target.closest(".token-counter-widget") || e.target.closest("button") || e.target.closest("a")) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const menuWidth = 160;
+    const menuHeight = conversation?.id && onDeleteConversation ? 90 : 50;
+    const x = Math.max(10, Math.min(e.clientX, window.innerWidth - menuWidth - 10));
+    const y = Math.max(10, Math.min(e.clientY, window.innerHeight - menuHeight - 10));
+
+    setHeaderContextMenu({ x, y });
+  };
   const [sensitivityConfig, setSensitivityConfig] = useState(() => {
     try {
       const saved = localStorage.getItem(
@@ -1301,7 +1353,7 @@ export default function ChatInterface({
   return (
     <div className="chat-interface">
       {/* Top Header Bar for Conversation & Token Tracker */}
-      <div className="chat-header">
+      <div className="chat-header" onContextMenu={handleHeaderContextMenu}>
         <div className="chat-header-info">
           <h2 className="chat-header-title">
             {conversation?.title || "New Conversation"}
@@ -2365,6 +2417,103 @@ export default function ChatInterface({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header Context Menu */}
+      {headerContextMenu && (
+        <div
+          ref={headerContextMenuRef}
+          className="conv-context-menu"
+          style={{
+            top: `${headerContextMenu.y}px`,
+            left: `${headerContextMenu.x}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <button
+            type="button"
+            className="conv-context-menu-item"
+            onClick={() => {
+              setHeaderContextMenu(null);
+              if (onNewConversation) {
+                onNewConversation();
+              }
+            }}
+          >
+            <span className="context-menu-icon">➕</span>
+            <span>New Chat</span>
+          </button>
+          {conversation?.id && onDeleteConversation && (
+            <>
+              <div className="conv-context-menu-divider" />
+              <button
+                type="button"
+                className="conv-context-menu-item delete"
+                onClick={() => {
+                  setHeaderContextMenu(null);
+                  setShowConfirmDelete(true);
+                }}
+              >
+                <span className="context-menu-icon">🗑️</span>
+                <span>Delete Chat</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Delete Single Conversation Confirmation Modal from Header */}
+      {showConfirmDelete && conversation && (
+        <div
+          className="confirm-delete-modal-backdrop"
+          onClick={() => setShowConfirmDelete(false)}
+        >
+          <div
+            className="confirm-delete-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="confirm-delete-header">
+              <span className="confirm-delete-icon">⚠️</span>
+              <h4>Delete Conversation</h4>
+            </div>
+            <div className="confirm-delete-body">
+              <p>
+                Are you sure you want to delete{" "}
+                <strong>&quot;{conversation.title || "New Conversation"}&quot;</strong>?
+              </p>
+              <p className="confirm-delete-warning">
+                This action cannot be undone. All messages and token usage data
+                will be permanently deleted.
+              </p>
+            </div>
+            <div className="confirm-delete-footer">
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setShowConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-delete"
+                onClick={async () => {
+                  const id = conversation.id;
+                  setShowConfirmDelete(false);
+                  if (onDeleteConversation && id) {
+                    await onDeleteConversation(id);
+                  }
+                }}
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>

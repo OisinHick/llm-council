@@ -1516,6 +1516,8 @@ function App() {
         onOpenWorkflowSelector={() => setShowWorkflowSelector(true)}
         onRunWorkflow={handleRunWorkflow}
         workflowLoading={workflowLoading}
+        onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
       />
 
       <WorkflowSelectorModal

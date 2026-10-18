@@ -343,7 +343,7 @@
 /* Custom Context Menu */
 .conv-context-menu {
   position: fixed;
-  z-index: 1200;
+  z-index: 9999;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -351,6 +351,18 @@
   min-width: 150px;
   padding: 4px;
   animation: fadeIn 0.1s ease-out;
+  user-select: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .conv-context-menu-item {
@@ -383,6 +395,12 @@
 .conv-context-menu-item.delete:hover {
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.conv-context-menu-divider {
+  height: 1px;
+  background-color: #f1f5f9;
+  margin: 4px 0;
 }
 
 .context-menu-icon {

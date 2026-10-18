@@ -6,12 +6,12 @@
  * - Manages conversation switching and creating new conversations.
  * - Renders conversation cards with title, message count, execution mode badge,
  *   token usage indicator, estimated USD spend, and Headroom compression savings.
- * - Supports deleting conversations via hover button or right-click context menu with confirmation.
+ * - Supports quick actions via right-click context menu (New Chat, Delete Chat with confirmation).
  * - Persists and injects user-customizable CSS background color variables
  *   (`--assistant-bg` and `--user-bg`) into the root document style.
  */
 
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import SettingsModal from "./SettingsModal";
 import { api } from "../api";
 import { formatShortNumber, formatSpend, formatExactSpend } from "../formatters";
@@ -151,6 +151,7 @@ function Sidebar({
   const [showConfirmClearAll, setShowConfirmClearAll] = useState(false);
   // Context menu state for right-clicking a conversation: { x, y, conv } | null
   const [contextMenu, setContextMenu] = useState(null);
+  const contextMenuRef = useRef(null);
   // Custom response background color for assistant messages
   const [assistantColor, setAssistantColor] = useState(() => {
     return localStorage.getItem("llmCouncilColor") || "#f6f9ff";
@@ -160,11 +161,15 @@ function Sidebar({
     return localStorage.getItem("userColor") || "#f0f7ff";
   });
 
-  // Close context menu on global click or scroll or escape key
+  // Close context menu on pointerdown outside or escape key
   useEffect(() => {
     if (!contextMenu) return;
 
-    const handleCloseMenu = () => {
+    const handlePointerDown = (e) => {
+      // Don't close if clicking inside the menu itself
+      if (contextMenuRef.current && contextMenuRef.current.contains(e.target)) {
+        return;
+      }
       setContextMenu(null);
     };
 
@@ -174,34 +179,37 @@ function Sidebar({
       }
     };
 
-    window.addEventListener("click", handleCloseMenu);
-    window.addEventListener("contextmenu", handleCloseMenu);
-    window.addEventListener("scroll", handleCloseMenu, true);
+    // Attach listeners on next tick so the opening right-click mouseup/click does not dismiss the menu
+    const timer = setTimeout(() => {
+      document.addEventListener("pointerdown", handlePointerDown);
+      document.addEventListener("contextmenu", handlePointerDown);
+    }, 0);
+
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener("click", handleCloseMenu);
-      window.removeEventListener("contextmenu", handleCloseMenu);
-      window.removeEventListener("scroll", handleCloseMenu, true);
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("contextmenu", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [contextMenu]);
 
   /**
-   * Handle right-click on a conversation card to trigger custom context menu.
+   * Handle right-click on a conversation card or sidebar area to trigger custom context menu.
    *
    * @param {React.MouseEvent} e - Context menu event.
-   * @param {Object} conv - Target conversation summary.
+   * @param {Object|null} [conv] - Target conversation summary or null if clicked on empty sidebar area.
    */
-  const handleContextMenu = (e, conv) => {
+  const handleContextMenu = (e, conv = null) => {
     e.preventDefault();
     e.stopPropagation();
 
     // Prevent overflowing off viewport bounds
     const menuWidth = 160;
-    const menuHeight = 50;
-    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 10);
-    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 10);
+    const menuHeight = conv ? 90 : 50;
+    const x = Math.max(10, Math.min(e.clientX, window.innerWidth - menuWidth - 10));
+    const y = Math.max(10, Math.min(e.clientY, window.innerHeight - menuHeight - 10));
 
     setContextMenu({ x, y, conv });
   };
@@ -289,7 +297,17 @@ function Sidebar({
         setEnableTokenCompression={setEnableTokenCompression}
       />
 
-      <div className="conversation-list">
+      <div
+        className="conversation-list"
+        onScroll={() => {
+          if (contextMenu) setContextMenu(null);
+        }}
+        onContextMenu={(e) => {
+          // If clicked inside an existing item, the item's onContextMenu will handle it
+          if (e.target.closest(".conversation-item")) return;
+          handleContextMenu(e, null);
+        }}
+      >
         <button
           className="new-conversation-btn"
           onClick={onNewConversation}
@@ -304,7 +322,12 @@ function Sidebar({
         </button>
 
         {conversations.length === 0 ? (
-          <div className="no-conversations">No conversations yet</div>
+          <div
+            className="no-conversations"
+            onContextMenu={(e) => handleContextMenu(e, null)}
+          >
+            No conversations yet
+          </div>
         ) : (
           conversations.map((conv) => (
             <ConversationItem
@@ -325,25 +348,48 @@ function Sidebar({
       {/* Context Menu Dropdown */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className="conv-context-menu"
           style={{
             top: `${contextMenu.y}px`,
             left: `${contextMenu.x}px`,
           }}
           onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
           <button
             type="button"
-            className="conv-context-menu-item delete"
+            className="conv-context-menu-item"
             onClick={() => {
-              const target = contextMenu.conv;
               setContextMenu(null);
-              setConvToDelete({ id: target.id, title: target.title || "New Conversation" });
+              if (onNewConversation) {
+                onNewConversation();
+              }
             }}
           >
-            <span className="context-menu-icon">🗑️</span>
-            <span>Delete Chat</span>
+            <span className="context-menu-icon">➕</span>
+            <span>New Chat</span>
           </button>
+          {contextMenu.conv && (
+            <>
+              <div className="conv-context-menu-divider" />
+              <button
+                type="button"
+                className="conv-context-menu-item delete"
+                onClick={() => {
+                  const target = contextMenu.conv;
+                  setContextMenu(null);
+                  setConvToDelete({ id: target.id, title: target.title || "New Conversation" });
+                }}
+              >
+                <span className="context-menu-icon">🗑️</span>
+                <span>Delete Chat</span>
+              </button>
+            </>
+          )}
         </div>
       )}
 
