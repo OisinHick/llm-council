@@ -14,15 +14,19 @@
  *         * Granular per-turn token usage badges and model breakdown tags.
  * - Tool Execution Output Renderer:
  *     - Formats structured tool results (stdout, stderr, JSON content, error banners, metadata key-values).
- * - Connected MCP Tools Drawer:
- *     - Displays discovered MCP tools, JSON input schemas, and real-time server connection status.
- *     - Allows enabling/disabling individual MCP servers.
+ * - Active MCP Tools Modal:
+ *     - Displays a unified count of discovered MCP tools and online servers in the header and input pill.
+ *     - Allows adding/removing MCP servers and enabling/disabling servers directly from the sidebar list.
+ *     - Shows server command, environment keys, and JSON input schemas for each tool.
+ * - Token Usage & Savings Modal:
+ *     - Displays a header `Compression Active: Yes/No` status indicator.
+ *     - Shows conversation token/spend/savings stat cards, per-model breakdown table, and global Headroom analytics.
  * - Execution Mode Controls:
  *     - Dropdown: "Informational" (Stages 1-3), "One Shot Execution" (Stage 4), "Agentic" (ReAct loop),
  *       and "Custom Workflows" (visual DAG pipelines).
  * - Prompt Input Box:
  *     - Auto-resizing textarea with Enter to submit and Shift+Enter for newlines.
- *     - Quick launcher for the Agentic Loop & Council Settings modal.
+ *     - Quick launchers for the Workflows Library and Agentic Loop & Council Settings modals.
  */
 
 import { useState, useEffect, useRef, useMemo, memo } from "react";
@@ -840,15 +844,11 @@ export default function ChatInterface({
   mode = "informational",
   onModeChange,
   showAllDeliberationSteps = true,
-  generateActionPlanToggle,
   onSendMessage,
   onGenerateActionPlan,
   onExecuteActionPlan,
-  onToggleGenerateActionPlan,
   onRunAgent,
   onCancelAgent,
-  agentToggle,
-  onToggleAgent,
   agentLoading = false,
   agentError = null,
   actionPlanResult,
@@ -870,14 +870,7 @@ export default function ChatInterface({
   workflowLoading = false,
 }) {
   const [input, setInput] = useState("");
-  // Derive mode from props (with fallback for legacy toggle props)
-  const currentMode =
-    mode ||
-    (agentToggle
-      ? "agentic"
-      : generateActionPlanToggle
-        ? "one_shot"
-        : "informational");
+  const currentMode = mode || "informational";
   const isAgentic = currentMode === "agentic" || currentMode === "action_mode";
 
   const [mcpTools, setMcpTools] = useState([]);
@@ -996,6 +989,11 @@ export default function ChatInterface({
     if (activeServerObj) return activeServerObj.enabled;
     return mcpStatuses[activeServer] !== "disabled";
   }, [activeServerObj, mcpStatuses, activeServer]);
+
+  const connectedServersCount = useMemo(() => {
+    return Object.values(mcpStatuses).filter((status) => status === "connected")
+      .length;
+  }, [mcpStatuses]);
 
   const unavailableServersCount = useMemo(() => {
     return Object.values(mcpStatuses).filter(
@@ -1222,10 +1220,6 @@ export default function ChatInterface({
     if (onModeChange) {
       onModeChange(newMode);
     }
-    if (onToggleAgent)
-      onToggleAgent(newMode === "agentic" || newMode === "action_mode");
-    if (onToggleGenerateActionPlan)
-      onToggleGenerateActionPlan(newMode === "one_shot");
   };
 
   useEffect(() => {
@@ -1641,11 +1635,7 @@ export default function ChatInterface({
                 <span className="mcp-modal-title">Active MCP Tools</span>
                 <span className="mcp-modal-count">
                   {mcpTools.length} {mcpTools.length === 1 ? "tool" : "tools"} ·{" "}
-                  {
-                    Object.values(mcpStatuses).filter((s) => s === "connected")
-                      .length
-                  }
-                  /{servers.length}{" "}
+                  {connectedServersCount}/{servers.length}{" "}
                   {servers.length === 1 ? "server" : "servers"} online
                 </span>
               </h4>
@@ -2162,8 +2152,8 @@ export default function ChatInterface({
                   unavailableServersCount > 0
                     ? `Click to view all MCP tools (${unavailableServersCount} server(s) offline)`
                     : disabledServersCount > 0
-                      ? `Click to view all MCP tools (${disabledServersCount} server(s) disabled)`
-                      : "Click to view all active MCP tools"
+                       ? `Click to view all MCP tools (${disabledServersCount} server(s) disabled)`
+                       : "Click to view all active MCP tools"
                 }
               >
                 <span
@@ -2178,11 +2168,7 @@ export default function ChatInterface({
                 <span>
                   {mcpTools.length} MCP{" "}
                   {mcpTools.length === 1 ? "Tool" : "Tools"} ·{" "}
-                  {
-                    Object.values(mcpStatuses).filter((s) => s === "connected")
-                      .length
-                  }
-                  /{servers.length} Online
+                  {connectedServersCount}/{servers.length} Online
                 </span>
               </div>
             )}

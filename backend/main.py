@@ -10,11 +10,13 @@ for the LLM Council application, orchestrating:
    - Real-time progress updates for 3-stage council deliberation (`/message/stream`).
    - Real-time 4-stage action planning and tool execution (`/action/stream`).
    - Asynchronous multi-turn autonomous agent execution (`/agent/stream`).
+   - Node-by-node DAG custom workflow execution (`/workflow/stream`).
 3. Core REST Endpoints:
    - Conversation management (CRUD operations, title generation, mode updates).
+   - Custom workflow definitions (CRUD, graph validation, and template persistence).
    - Dynamic pricing queries and model discovery via OpenRouter.
    - Token compression statistics, preview dry-runs, and counter resets.
-   - External MCP tool discovery, status checks, and server toggling.
+   - External MCP tool discovery, status checks, server toggling, and adding/removing servers.
    - System configuration and user preferences persistence.
 """
 

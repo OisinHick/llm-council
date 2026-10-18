@@ -6,6 +6,7 @@
  * - Manages conversation switching and creating new conversations.
  * - Renders conversation cards with title, message count, execution mode badge,
  *   token usage indicator, estimated USD spend, and Headroom compression savings.
+ * - Supports deleting conversations via hover button or right-click context menu with confirmation.
  * - Persists and injects user-customizable CSS background color variables
  *   (`--assistant-bg` and `--user-bg`) into the root document style.
  */
@@ -24,6 +25,7 @@ const ConversationItem = memo(function ConversationItem({
   isActive,
   onSelect,
   onDelete,
+  onContextMenu,
   showTokenCount,
   showSpendValue,
   showSavedTokens,
@@ -32,6 +34,11 @@ const ConversationItem = memo(function ConversationItem({
     <div
       className={`conversation-item ${isActive ? "active" : ""}`}
       onClick={() => onSelect(conv.id)}
+      onContextMenu={(e) => {
+        if (onContextMenu) {
+          onContextMenu(e, conv);
+        }
+      }}
     >
       <div className="conversation-header-row">
         <div className="conversation-title" title={conv.title || "New Conversation"}>
@@ -142,6 +149,8 @@ function Sidebar({
   const [convToDelete, setConvToDelete] = useState(null);
   // Flag indicating whether clear all confirmation modal is open
   const [showConfirmClearAll, setShowConfirmClearAll] = useState(false);
+  // Context menu state for right-clicking a conversation: { x, y, conv } | null
+  const [contextMenu, setContextMenu] = useState(null);
   // Custom response background color for assistant messages
   const [assistantColor, setAssistantColor] = useState(() => {
     return localStorage.getItem("llmCouncilColor") || "#f6f9ff";
@@ -150,6 +159,52 @@ function Sidebar({
   const [userColor, setUserColor] = useState(() => {
     return localStorage.getItem("userColor") || "#f0f7ff";
   });
+
+  // Close context menu on global click or scroll or escape key
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleCloseMenu = () => {
+      setContextMenu(null);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("click", handleCloseMenu);
+    window.addEventListener("contextmenu", handleCloseMenu);
+    window.addEventListener("scroll", handleCloseMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("click", handleCloseMenu);
+      window.removeEventListener("contextmenu", handleCloseMenu);
+      window.removeEventListener("scroll", handleCloseMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
+  /**
+   * Handle right-click on a conversation card to trigger custom context menu.
+   *
+   * @param {React.MouseEvent} e - Context menu event.
+   * @param {Object} conv - Target conversation summary.
+   */
+  const handleContextMenu = (e, conv) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Prevent overflowing off viewport bounds
+    const menuWidth = 160;
+    const menuHeight = 50;
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 10);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 10);
+
+    setContextMenu({ x, y, conv });
+  };
 
   // Fetch persisted colors from backend settings on mount
   useEffect(() => {
@@ -258,6 +313,7 @@ function Sidebar({
               isActive={conv.id === currentConversationId}
               onSelect={onSelectConversation}
               onDelete={setConvToDelete}
+              onContextMenu={handleContextMenu}
               showTokenCount={showTokenCount}
               showSpendValue={showSpendValue}
               showSavedTokens={showSavedTokens}
@@ -265,6 +321,31 @@ function Sidebar({
           ))
         )}
       </div>
+
+      {/* Context Menu Dropdown */}
+      {contextMenu && (
+        <div
+          className="conv-context-menu"
+          style={{
+            top: `${contextMenu.y}px`,
+            left: `${contextMenu.x}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="conv-context-menu-item delete"
+            onClick={() => {
+              const target = contextMenu.conv;
+              setContextMenu(null);
+              setConvToDelete({ id: target.id, title: target.title || "New Conversation" });
+            }}
+          >
+            <span className="context-menu-icon">🗑️</span>
+            <span>Delete Chat</span>
+          </button>
+        </div>
+      )}
 
       {conversations.length > 0 && onClearAllConversations && (
         <div className="sidebar-footer">
