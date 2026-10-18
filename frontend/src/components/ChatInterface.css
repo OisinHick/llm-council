@@ -1071,17 +1071,17 @@
 }
 
 .mcp-modal-count {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   color: #475569;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 12px;
-  min-width: 24px;
   justify-content: center;
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
 }
 
 .close-overlay-btn {
@@ -1606,63 +1606,6 @@
   white-space: nowrap;
 }
 
-.mcp-panel-toggle-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #f8fafc;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-
-.mcp-toggle-status-text {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.mcp-toggle-status-text.enabled {
-  color: #16a34a;
-}
-
-.mcp-toggle-status-text.disabled {
-  color: #64748b;
-}
-
-.mcp-toggle-switch {
-  width: 36px;
-  height: 20px;
-  background: #cbd5e1;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  position: relative;
-  transition: background 0.2s ease;
-  padding: 0;
-  display: flex;
-  align-items: center;
-}
-
-.mcp-toggle-switch.active {
-  background: #16a34a;
-}
-
-.mcp-toggle-switch .mcp-toggle-slider {
-  width: 16px;
-  height: 16px;
-  background: #ffffff;
-  border-radius: 50%;
-  position: absolute;
-  left: 2px;
-  transition: transform 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.mcp-toggle-switch.active .mcp-toggle-slider {
-  transform: translateX(16px);
-}
-
 /* MCP Disabled Container */
 .mcp-server-disabled-container {
   display: flex;
@@ -1862,24 +1805,6 @@
 
 .mcp-sidebar-header-row h5 {
   margin: 0 !important;
-}
-
-.mcp-sidebar-add-btn {
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  color: #3b82f6;
-  font-size: 11.5px;
-  font-weight: 600;
-  border-radius: 4px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.mcp-sidebar-add-btn:hover {
-  background: #e2e8f0;
-  color: #1d4ed8;
-  border-color: #94a3b8;
 }
 
 .mcp-panel-title-row {
@@ -2208,6 +2133,7 @@
   color: #0f172a;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -2222,6 +2148,29 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.compression-active-indicator {
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.compression-active-indicator.is-yes {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.compression-active-indicator.is-no {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
 }
 
 .token-details-body {
@@ -2274,11 +2223,6 @@
 
 .metric-card-value.saved {
   color: #15803d;
-}
-
-.metric-card-value.status {
-  font-size: 16px;
-  font-weight: 600;
 }
 
 .metric-card-subtext {

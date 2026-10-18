@@ -1639,12 +1639,15 @@ export default function ChatInterface({
             <div className="mcp-tools-header">
               <h4>
                 <span className="mcp-modal-title">Active MCP Tools</span>
-                <span className="mcp-modal-count">{mcpTools.length}</span>
-                {unavailableServersCount > 0 && (
-                  <span className="header-warning-text">
-                    {unavailableServersCount} offline
-                  </span>
-                )}
+                <span className="mcp-modal-count">
+                  {mcpTools.length} {mcpTools.length === 1 ? "tool" : "tools"} ·{" "}
+                  {
+                    Object.values(mcpStatuses).filter((s) => s === "connected")
+                      .length
+                  }
+                  /{servers.length}{" "}
+                  {servers.length === 1 ? "server" : "servers"} online
+                </span>
               </h4>
               <div className="mcp-tools-header-actions">
                 <button
@@ -1671,17 +1674,6 @@ export default function ChatInterface({
               <div className="mcp-modal-sidebar">
                 <div className="mcp-sidebar-header-row">
                   <h5>Servers</h5>
-                  <button
-                    type="button"
-                    className="mcp-sidebar-add-btn"
-                    onClick={() => {
-                      handleResetAddServerForm();
-                      setShowAddServerModal(true);
-                    }}
-                    title="Add new MCP Server"
-                  >
-                    + Add
-                  </button>
                 </div>
                 <div className="mcp-sidebar-list">
                   {servers.map((server) => {
@@ -1774,26 +1766,6 @@ export default function ChatInterface({
                             </span>
                           </div>
                         )}
-                      </div>
-                      <div className="mcp-panel-toggle-wrapper">
-                        <span
-                          className={`mcp-toggle-status-text ${isActiveServerEnabled ? "enabled" : "disabled"}`}
-                        >
-                          {isActiveServerEnabled ? "Enabled" : "Disabled"}
-                        </span>
-                        <button
-                          type="button"
-                          className={`mcp-toggle-switch ${isActiveServerEnabled ? "active" : ""}`}
-                          onClick={(e) => handleToggleServer(activeServer, e)}
-                          disabled={togglingServer === activeServer}
-                          title={
-                            isActiveServerEnabled
-                              ? "Click to disable server"
-                              : "Click to enable server"
-                          }
-                        >
-                          <span className="mcp-toggle-slider" />
-                        </button>
                       </div>
                     </div>
 
@@ -2204,13 +2176,13 @@ export default function ChatInterface({
                   }`}
                 ></span>
                 <span>
-                  {mcpTools.length} Active MCP{" "}
-                  {mcpTools.length === 1 ? "Tool" : "Tools"}
-                  {unavailableServersCount > 0 &&
-                    ` (${unavailableServersCount} offline)`}
-                  {unavailableServersCount === 0 &&
-                    disabledServersCount > 0 &&
-                    ` (${disabledServersCount} off)`}
+                  {mcpTools.length} MCP{" "}
+                  {mcpTools.length === 1 ? "Tool" : "Tools"} ·{" "}
+                  {
+                    Object.values(mcpStatuses).filter((s) => s === "connected")
+                      .length
+                  }
+                  /{servers.length} Online
                 </span>
               </div>
             )}
@@ -2272,6 +2244,16 @@ export default function ChatInterface({
                 <span className="token-details-conv-title">
                   {conversation?.title || "Conversation"}
                 </span>
+                <span
+                  className={`compression-active-indicator ${enableTokenCompression ? "is-yes" : "is-no"}`}
+                  title={
+                    enableTokenCompression
+                      ? "Prompt compression is enabled"
+                      : "Enable in Settings > Display & Appearance"
+                  }
+                >
+                  Compression Active: <strong>{enableTokenCompression ? "Yes" : "No"}</strong>
+                </span>
               </h4>
               <button
                 type="button"
@@ -2316,18 +2298,6 @@ export default function ChatInterface({
                       : enableTokenCompression
                         ? "Headroom compression active"
                         : "Compression is disabled in Settings"}
-                  </span>
-                </div>
-
-                <div className="token-metric-card">
-                  <span className="metric-card-label">Compression Engine</span>
-                  <span className="metric-card-value status">
-                    {enableTokenCompression ? "Active ⚡" : "Disabled 🔒"}
-                  </span>
-                  <span className="metric-card-subtext">
-                    {enableTokenCompression
-                      ? "Optimizing prompts via Headroom Labs"
-                      : "Enable in Settings > Display & Appearance"}
                   </span>
                 </div>
               </div>
