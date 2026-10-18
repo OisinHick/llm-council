@@ -719,6 +719,7 @@ async def run_sub_council(
             - stage1 (list): Individual model responses.
             - stage2 (list): Peer rankings.
             - stage3 (dict): Synthesized recommendation.
+            - label_to_model (dict): Mapping from anonymized labels (e.g. 'Response A') to model IDs.
             - aggregate_rankings (list): Aggregate peer rankings.
             - consensus_recommendation (str): Synthesized advice text.
     """
@@ -741,7 +742,11 @@ async def run_sub_council(
     if on_event:
         await on_event(
             "sub_council_stage2_complete",
-            {"data": stage2, "aggregate_rankings": aggregate},
+            {
+                "data": stage2,
+                "label_to_model": label_to_model,
+                "aggregate_rankings": aggregate,
+            },
         )
 
     if on_event:
@@ -757,6 +762,7 @@ async def run_sub_council(
         "stage1": stage1,
         "stage2": stage2,
         "stage3": stage3,
+        "label_to_model": label_to_model,
         "aggregate_rankings": aggregate,
         "consensus_recommendation": stage3.get("response", ""),
     }

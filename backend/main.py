@@ -347,11 +347,14 @@ async def get_compression_stats_endpoint():
 
     Returns:
         Dict[str, Any]: Aggregate statistics including:
-            - total_tokens_before (int): Cumulative uncompressed token count.
-            - total_tokens_after (int): Cumulative compressed token count.
-            - total_tokens_saved (int): Net tokens saved across all compressed prompts.
-            - total_calls (int): Number of compression operations invoked.
-            - by_algorithm (dict): Per-algorithm breakdown of usage and savings.
+            - tokens_before (int): Cumulative uncompressed token count.
+            - tokens_after (int): Cumulative compressed token count.
+            - tokens_saved (int): Net tokens saved across all compressed prompts.
+            - total_queries (int): Number of compression operations invoked.
+            - compression_ratio (float): Overall fraction of tokens saved.
+            - estimated_dollars_saved (float): Estimated USD saved across the session.
+            - algorithm_counts (dict): Per-algorithm breakdown of usage counts.
+            - headroom_available (bool): Whether the Headroom AI SDK is installed and active.
     """
     try:
         stats = get_compression_stats()
@@ -403,11 +406,15 @@ async def reset_compression_stats_endpoint():
     """Reset cumulative in-memory compression metrics back to zero.
 
     Returns:
-        Dict[str, Any]: Confirmation message.
+        Dict[str, Any]: Confirmation message and zeroed compression statistics.
     """
     try:
         reset_compression_stats()
-        return {"success": True, "message": "Compression stats reset successfully"}
+        return {
+            "success": True,
+            "message": "Compression stats reset successfully",
+            "stats": get_compression_stats(),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -536,7 +543,7 @@ async def create_conversation(request: Optional[CreateConversationRequest] = Non
 
     Args:
         request: Optional request specifying the conversation mode ('informational',
-            'one_shot', or 'agentic'). Defaults to 'informational'.
+            'one_shot', 'agentic', or 'custom_workflows'). Defaults to configured default mode.
 
     Returns:
         Conversation: Newly initialized conversation object.
@@ -1313,7 +1320,7 @@ async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
             conv = storage.create_conversation(conversation_id=conv_id, mode="custom_workflows")
             is_first_message = True
     else:
-        conv = storage.create_conversation(mode="custom_workflows")
+        conv = storage.create_conversation(conversation_id=str(uuid.uuid4()), mode="custom_workflows")
         conv_id = conv["id"]
         is_first_message = True
 

@@ -13,5 +13,6 @@ Modules:
     - agent_tools: Tool executor and sandbox utilities designed specifically for the autonomous Chairperson agent.
     - council: Multi-stage deliberation pipeline (Stage 1 responses, Stage 2 peer review, Stage 3 synthesis, Stage 4 action).
     - agent: Autonomous Chairperson ReAct agent loop with on-demand Council peer consultations.
+    - workflows: Custom node-based DAG workflow validation, persistence, and streaming execution.
     - main: FastAPI application defining REST and Server-Sent Event (SSE) endpoints.
 """

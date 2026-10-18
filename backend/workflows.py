@@ -671,6 +671,7 @@ async def execute_workflow_stream(
                 "tokens_saved": 0,
             }
             cost = 0.0
+            cost_saved = 0.0
             status = "completed"
             error = None
             evaluated_prompt = ""
@@ -689,6 +690,7 @@ async def execute_workflow_stream(
                 "tokens_saved": 0,
             }
             cost = 0.0
+            cost_saved = 0.0
             status = "completed"
             error = None
             evaluated_prompt = ""
@@ -732,6 +734,7 @@ async def execute_workflow_stream(
                     }
                     calculate_token_cost(cost_dict)
                     cost = cost_dict.get("total_cost", 0.0)
+                    cost_saved = cost_dict.get("total_cost_saved", 0.0)
                     status = "completed"
                     error = None
                 else:
@@ -743,6 +746,7 @@ async def execute_workflow_stream(
                         "tokens_saved": 0,
                     }
                     cost = 0.0
+                    cost_saved = 0.0
                     status = "failed"
                     error = f"Model '{model}' returned no content"
             except Exception as ex:
@@ -755,6 +759,7 @@ async def execute_workflow_stream(
                     "tokens_saved": 0,
                 }
                 cost = 0.0
+                cost_saved = 0.0
                 status = "failed"
                 error = str(ex)
 
@@ -778,6 +783,7 @@ async def execute_workflow_stream(
                 "total_tokens": usage.get("total_tokens", 0),
                 "tokens_saved": usage.get("tokens_saved", 0),
                 "cost": cost,
+                "cost_saved": cost_saved,
             },
         }
         return record
@@ -813,7 +819,12 @@ async def execute_workflow_stream(
             cumulative_tokens["prompt_tokens"] += t["prompt_tokens"]
             cumulative_tokens["completion_tokens"] += t["completion_tokens"]
             cumulative_tokens["tokens_saved"] += t["tokens_saved"]
-            cumulative_tokens["total_cost"] += t["cost"]
+            cumulative_tokens["total_cost"] = round(
+                cumulative_tokens["total_cost"] + t["cost"], 8
+            )
+            cumulative_tokens["total_cost_saved"] = round(
+                cumulative_tokens["total_cost_saved"] + t.get("cost_saved", 0.0), 8
+            )
 
             m = rec["model"]
             if m:
@@ -823,6 +834,8 @@ async def execute_workflow_stream(
                         "completion_tokens": 0,
                         "total_tokens": 0,
                         "tokens_saved": 0,
+                        "cost": 0.0,
+                        "cost_saved": 0.0,
                         "total_cost": 0.0,
                     }
                 bm = cumulative_tokens["by_model"][m]
@@ -830,7 +843,11 @@ async def execute_workflow_stream(
                 bm["completion_tokens"] += t["completion_tokens"]
                 bm["total_tokens"] += t["total_tokens"]
                 bm["tokens_saved"] += t["tokens_saved"]
-                bm["total_cost"] += t["cost"]
+                bm["cost"] = round(bm["cost"] + t["cost"], 8)
+                bm["cost_saved"] = round(
+                    bm["cost_saved"] + t.get("cost_saved", 0.0), 8
+                )
+                bm["total_cost"] = bm["cost"]
 
             yield {
                 "event": "node_complete",

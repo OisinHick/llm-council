@@ -11,7 +11,7 @@ Storage Architecture:
             "id": "<uuid-string>",
             "created_at": "<iso-8601-utc-timestamp>",
             "title": "Short Descriptive Title",
-            "mode": "informational" | "one_shot" | "agentic",
+            "mode": "informational" | "one_shot" | "agentic" | "custom_workflows",
             "messages": [ ... ],
             "token_usage": {
                 "total_tokens": int,
@@ -34,14 +34,15 @@ Key Features:
       Tracks prompt, completion, total, and compression-saved tokens both per-turn and accumulated
       for the entire conversation, dynamically priced via OpenRouter rate tables.
     - Automatic Mode Detection:
-      Infers conversation mode ('informational', 'one_shot', 'agentic') from message types and
-      assistant execution details to keep metadata consistent.
+      Infers conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows') from
+      message types and assistant execution details to keep metadata consistent.
 """
 
 import json
 import logging
 import os
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -422,7 +423,7 @@ def record_standalone_tokens(
 
 
 def create_conversation(
-    conversation_id: str, mode: str = "informational"
+    conversation_id: Optional[str] = None, mode: str = "informational"
 ) -> Dict[str, Any]:
     """Create a new conversation record and atomically persist it to disk.
 
@@ -430,8 +431,9 @@ def create_conversation(
     and zeroed token usage statistics.
 
     Args:
-        conversation_id (str): Unique UUID string for the conversation.
-        mode (str): Initial conversation mode ('informational', 'one_shot', 'agentic').
+        conversation_id (Optional[str]): Unique UUID string for the conversation.
+            Generated automatically if omitted.
+        mode (str): Initial conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
             Defaults to 'informational'.
 
     Returns:
@@ -445,6 +447,8 @@ def create_conversation(
             - "standalone_token_usage" (dict): Zeroed standalone token stats.
     """
     ensure_data_dir()
+    if not conversation_id:
+        conversation_id = str(uuid.uuid4())
 
     conversation = {
         "id": conversation_id,
@@ -469,6 +473,8 @@ def get_conversation_mode_from_messages(
     """Infer the active conversation mode based on the most recent assistant message.
 
     Iterates backwards through the message list to examine the last assistant response:
+      - If `message.get("type") == "workflow"`:
+        Classified as `"custom_workflows"` (custom node-based DAG execution).
       - If `message.get("type") == "agent"`:
         Classified as `"agentic"` (autonomous Chairperson multi-turn loop).
       - If `message.get("stage4") is not None` or `message.get("action_request")`:
@@ -481,7 +487,7 @@ def get_conversation_mode_from_messages(
         fallback (str): Default mode to return if no assistant message is present.
 
     Returns:
-        str: Resolved mode string ('informational', 'one_shot', or 'agentic').
+        str: Resolved mode string ('informational', 'one_shot', 'agentic', or 'custom_workflows').
     """
     for message in reversed(messages):
         if message.get("role") == "assistant":
@@ -530,9 +536,9 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
         logger.warning("Conversation file %s did not contain a JSON object.", path)
         return None
 
-    # Reconcile dynamic conversation mode from message history
-    data["mode"] = get_conversation_mode_from_messages(
-        data.get("messages", []), fallback=data.get("mode", "informational")
+    # Resolve conversation mode, falling back to message history inference if unset
+    data["mode"] = data.get("mode") or get_conversation_mode_from_messages(
+        data.get("messages", []), fallback="informational"
     )
 
     # Recalculate token costs based on current pricing rates
@@ -570,7 +576,7 @@ def list_conversations() -> List[Dict[str, Any]]:
             - "created_at" (str): ISO-8601 UTC creation timestamp.
             - "title" (str): Conversation title.
             - "message_count" (int): Number of messages in the conversation.
-            - "mode" (str): Inferred conversation mode ('informational', 'one_shot', 'agentic').
+            - "mode" (str): Conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
             - "token_usage" (dict): Total token counts and estimated spend.
     """
     ensure_data_dir()
@@ -585,8 +591,8 @@ def list_conversations() -> List[Dict[str, Any]]:
                 if not isinstance(data, dict) or "id" not in data or "created_at" not in data:
                     continue
                 messages = data.get("messages", [])
-                mode = get_conversation_mode_from_messages(
-                    messages, fallback=data.get("mode", "informational")
+                mode = data.get("mode") or get_conversation_mode_from_messages(
+                    messages, fallback="informational"
                 )
                 conversations.append(
                     {
@@ -757,7 +763,7 @@ def add_agent_message(
         summary (Optional[str]): Executive summary produced upon completion.
         error (Optional[str]): Error description if agent run terminated abnormally.
         status (str): Execution status: 'completed', 'cancelled', or 'failed'.
-        token_usage (Optional[Dict[str, Any]]): Explicit token usage dictionary for the run.
+        token_usage (Optional[Dict[str, Any]]): Explicit token usage dictionary for the agent loop.
 
     Raises:
         ValueError: If the conversation is not found in storage.
@@ -771,10 +777,11 @@ def add_agent_message(
         stage2=initial_council.get("stage2"),
         stage3=initial_council.get("stage3"),
     )
-    step_tokens = compute_turn_token_usage(steps=steps)
-    turn_tokens = merge_token_usages(council_tokens, step_tokens)
     if token_usage:
-        turn_tokens = merge_token_usages(turn_tokens, token_usage)
+        turn_tokens = merge_token_usages(council_tokens, token_usage)
+    else:
+        step_tokens = compute_turn_token_usage(steps=steps)
+        turn_tokens = merge_token_usages(council_tokens, step_tokens)
 
     message: Dict[str, Any] = {
         "role": "assistant",
@@ -858,7 +865,7 @@ def update_conversation_mode(
 
     Args:
         conversation_id (str): Conversation identifier.
-        mode (str): New mode string ('informational', 'one_shot', or 'agentic').
+        mode (str): New mode string ('informational', 'one_shot', 'agentic', or 'custom_workflows').
 
     Returns:
         Optional[Dict[str, Any]]: Updated conversation dictionary, or None if not found.

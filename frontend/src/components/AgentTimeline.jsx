@@ -283,6 +283,9 @@ function AgentTimeline({
                               {councilConsultation.stage2 && (
                                 <Stage2
                                   rankings={councilConsultation.stage2}
+                                  labelToModel={
+                                    councilConsultation.label_to_model
+                                  }
                                   aggregateRankings={
                                     councilConsultation.aggregate_rankings
                                   }

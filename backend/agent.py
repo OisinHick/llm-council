@@ -113,19 +113,20 @@ class CouncilAgent:
             "total_tokens": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "tokens_saved": 0,
             "by_model": {},
         }
 
     def _record_tokens(self, model: str, usage: Optional[Dict[str, Any]]):
         """Record token consumption for a given model into the agent's aggregate metrics.
 
-        Updates cumulative prompt, completion, and total tokens, as well as
-        a model-by-model usage breakdown.
+        Updates cumulative prompt, completion, total, and compression-saved tokens,
+        as well as a model-by-model usage breakdown.
 
         Args:
             model: OpenRouter model identifier.
             usage: Token usage dictionary containing prompt_tokens, completion_tokens,
-                and total_tokens.
+                total_tokens, and optional tokens_saved.
         """
         if not usage or not model:
             return
@@ -136,19 +137,23 @@ class CouncilAgent:
             if usage.get("total_tokens") is not None
             else (p + c)
         )
+        s = int(usage.get("tokens_saved") or 0)
         self.token_usage["prompt_tokens"] += p
         self.token_usage["completion_tokens"] += c
         self.token_usage["total_tokens"] += t
+        self.token_usage["tokens_saved"] = self.token_usage.get("tokens_saved", 0) + s
         by_m = self.token_usage.setdefault("by_model", {})
         if model not in by_m:
             by_m[model] = {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
+                "tokens_saved": 0,
             }
         by_m[model]["prompt_tokens"] += p
         by_m[model]["completion_tokens"] += c
         by_m[model]["total_tokens"] += t
+        by_m[model]["tokens_saved"] = by_m[model].get("tokens_saved", 0) + s
 
     def _record_sub_council_tokens(self, council_data: Dict[str, Any]):
         """Record all token usage consumed during a sub-council deliberation.
@@ -514,6 +519,7 @@ Consensus Synthesis & Strategy:
                         context=f"Created artifacts: {artifacts_cand}\nDeliverable summary: {summary_cand}",
                         on_event=sub_forwarder,
                     )
+                    self._record_sub_council_tokens(review_data)
                     if on_event:
                         await on_event(
                             "consult_council_complete",
@@ -661,6 +667,7 @@ Consensus Synthesis & Strategy:
                 # Auto-deliberation on tool failure if enabled
                 tool_failed = (
                     observation.get("success") is False
+                    or observation.get("returncode", 0) != 0
                     or observation.get("exit_code", 0) != 0
                 )
                 if (

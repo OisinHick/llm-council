@@ -129,7 +129,7 @@ def get_settings() -> Dict[str, Any]:
             - "assistant_color" (str): Hex color code for assistant response background.
             - "user_color" (str): Hex color code for user message background.
             - "sensitivity_config" (dict): Deliberation sensitivity options for autonomous agent.
-            - "default_mode" (str): Initial conversation mode ('informational', 'one_shot', 'agentic').
+            - "default_mode" (str): Initial conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
     """
     env_key = os.getenv("OPENROUTER_API_KEY", "")
     settings = dict(DEFAULT_SETTINGS)
@@ -197,7 +197,7 @@ def get_settings() -> Dict[str, Any]:
 
         if "default_mode" in data and isinstance(data["default_mode"], str):
             dm = data["default_mode"].strip()
-            if dm in ("informational", "one_shot", "agentic"):
+            if dm in ("informational", "one_shot", "agentic", "custom_workflows"):
                 settings["default_mode"] = dm
 
         return settings
@@ -294,7 +294,7 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
     # Update default conversation mode
     if "default_mode" in new_settings and isinstance(new_settings["default_mode"], str):
         dm = new_settings["default_mode"].strip()
-        if dm in ("informational", "one_shot", "agentic"):
+        if dm in ("informational", "one_shot", "agentic", "custom_workflows"):
             current["default_mode"] = dm
 
     # Atomic write to prevent file corruption on abrupt shutdowns:
@@ -468,7 +468,7 @@ def get_default_mode() -> str:
     """Get the default conversation operational mode.
 
     Returns:
-        str: Operational mode name ('informational', 'one_shot', or 'agentic').
+        str: Operational mode name ('informational', 'one_shot', 'agentic', or 'custom_workflows').
     """
     settings = get_settings()
     return str(settings.get("default_mode", "informational"))

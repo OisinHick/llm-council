@@ -10,6 +10,7 @@
  *         * "Just show final answer" mode with clean, unencumbered text.
  *         * One-shot Stage 4 Action Plan review and tool execution blocks.
  *         * Autonomous AgentTimeline with iterative ReAct loops and nested sub-council consultations.
+ *         * Custom WorkflowTimeline with step-by-step DAG node execution and outputs.
  *         * Granular per-turn token usage badges and model breakdown tags.
  * - Tool Execution Output Renderer:
  *     - Formats structured tool results (stdout, stderr, JSON content, error banners, metadata key-values).
@@ -17,7 +18,8 @@
  *     - Displays discovered MCP tools, JSON input schemas, and real-time server connection status.
  *     - Allows enabling/disabling individual MCP servers.
  * - Execution Mode Controls:
- *     - Dropdown: "Informational" (Stages 1-3), "One Shot Execution" (Stage 4), "Agentic" (ReAct loop).
+ *     - Dropdown: "Informational" (Stages 1-3), "One Shot Execution" (Stage 4), "Agentic" (ReAct loop),
+ *       and "Custom Workflows" (visual DAG pipelines).
  * - Prompt Input Box:
  *     - Auto-resizing textarea with Enter to submit and Shift+Enter for newlines.
  *     - Quick launcher for the Agentic Loop & Council Settings modal.

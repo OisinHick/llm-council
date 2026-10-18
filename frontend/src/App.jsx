@@ -3,10 +3,11 @@
  *
  * Architecture and responsibilities:
  * - Conversation Management: Manages active and historical conversations, lazy-loading details on demand.
- * - Mode Routing: Orchestrates three distinct operational modes:
+ * - Mode Routing: Orchestrates four distinct operational modes:
  *     1. `informational`: Standard 3-stage multi-model council deliberation (Proposals -> Peer Review -> Synthesis).
  *     2. `one_shot`: Single-turn action plan generation via Council Chairman with tool execution.
  *     3. `agentic`: Autonomous multi-step ReAct loop with iterative tool execution, observation, and sub-councils.
+ *     4. `custom_workflows`: Visual drag-and-drop multi-step DAG workflow execution.
  * - Real-Time Streaming: Consumes Server-Sent Events (SSE) from the backend, progressively updating UI state.
  * - Preference Persistence: Stores user display preferences (token counters, model spend, deliberation steps)
  *   in `localStorage` and synchronizes with server settings.
@@ -63,7 +64,7 @@ function App() {
   const [actionError, setActionError] = useState(null);
 
   // --- Mode State & Migration ---
-  // Map of conversationId -> mode ("informational" | "one_shot" | "agentic")
+  // Map of conversationId -> mode ("informational" | "one_shot" | "agentic" | "custom_workflows")
   const [councilModeState, setCouncilModeState] = useState(() => {
     try {
       const saved = localStorage.getItem("councilModeState");
@@ -1038,7 +1039,7 @@ function App() {
   /**
    * Switch the active execution mode for the current conversation and UI slider.
    *
-   * @param {string} mode - "informational" | "one_shot" | "agentic".
+   * @param {string} mode - "informational" | "one_shot" | "agentic" | "custom_workflows".
    */
   const handleModeChange = useCallback((mode) => {
     setPendingMode(mode);

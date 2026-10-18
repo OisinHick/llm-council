@@ -113,6 +113,7 @@ export const api = {
    *   - "informational": Standard multi-model council deliberation (Stages 1-3).
    *   - "one_shot": Single-turn action plan generation and execution (Stage 4).
    *   - "agentic": Multi-step autonomous ReAct agent with tool execution.
+   *   - "custom_workflows": Visual multi-step DAG workflow execution.
    * @returns {Promise<{id: string, created_at: string, title: string, mode: string, messages: Array}>}
    *   Newly initialized conversation record.
    */
@@ -132,8 +133,8 @@ export const api = {
    * Update the execution mode of an existing conversation.
    *
    * @param {string} conversationId - Target conversation identifier.
-   * @param {string} mode - New mode ("informational" | "one_shot" | "agentic").
-   * @returns {Promise<{id: string, mode: string, updated_at: string}>} Updated conversation record.
+   * @param {string} mode - New mode ("informational" | "one_shot" | "agentic" | "custom_workflows").
+   * @returns {Promise<{status: string, mode: string}>} Status confirmation and updated mode.
    */
   async updateConversationMode(conversationId, mode) {
     return requestJson(
@@ -585,11 +586,12 @@ export const api = {
    *   success: boolean,
    *   stats: {
    *     tokens_saved: number,
-   *     total_prompt_tokens_original: number,
-   *     total_prompt_tokens_compressed: number,
+   *     tokens_before: number,
+   *     tokens_after: number,
    *     compression_ratio: number,
    *     estimated_dollars_saved: number,
    *     total_queries: number,
+   *     algorithm_counts: Object,
    *     headroom_available: boolean
    *   }
    * }>} Compression metrics object.
