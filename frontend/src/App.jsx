@@ -22,6 +22,35 @@ import { api } from "./api";
 import "./App.css";
 
 /**
+ * Custom hook to manage a boolean preference state backed by localStorage.
+ *
+ * @param {string} key - The localStorage key.
+ * @param {boolean} defaultValue - Default boolean value when not set or on parse error.
+ * @returns {[boolean, function(boolean | function(boolean): boolean): void]} State tuple.
+ */
+function useLocalStorageBoolean(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved !== null) return JSON.parse(saved);
+      return defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error(`Failed to save ${key} preference:`, e);
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
+/**
  * Root Application component.
  *
  * @returns {JSX.Element} The rendered LLM Council application.
@@ -99,71 +128,27 @@ function App() {
   // Default mode for a new unsaved conversation before messages are sent
   const [pendingMode, setPendingMode] = useState("informational");
 
-  // Display preference: Show all 3 deliberation steps vs. only the final Chairman answer
-  const [showAllDeliberationSteps, setShowAllDeliberationSteps] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilShowAllSteps");
-      if (saved !== null) return JSON.parse(saved);
-      return true;
-    } catch {
-      return true;
-    }
-  });
-
-  // Display preference: Show total tokens badge in header and list
-  const [showTokenCount, setShowTokenCount] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilShowTokenCount");
-      if (saved !== null) return JSON.parse(saved);
-      return true;
-    } catch {
-      return true;
-    }
-  });
-
-  // Display preference: Show granular per-model token breakdown
-  const [showTokensPerModel, setShowTokensPerModel] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilShowTokensPerModel");
-      if (saved !== null) return JSON.parse(saved);
-      return false;
-    } catch {
-      return false;
-    }
-  });
-
-  // Display preference: Show estimated USD spend values alongside tokens
-  const [showSpendValue, setShowSpendValue] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilShowSpendValue");
-      if (saved !== null) return JSON.parse(saved);
-      return true;
-    } catch {
-      return true;
-    }
-  });
-
-  // Display preference: Show tokens and cost saved by Headroom compression
-  const [showSavedTokens, setShowSavedTokens] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilShowSavedTokens");
-      if (saved !== null) return JSON.parse(saved);
-      return true;
-    } catch {
-      return true;
-    }
-  });
-
-  // Configuration preference: Enable prompt token compression via Headroom Labs
-  const [enableTokenCompression, setEnableTokenCompression] = useState(() => {
-    try {
-      const saved = localStorage.getItem("llmCouncilEnableTokenCompression");
-      if (saved !== null) return JSON.parse(saved);
-      return false;
-    } catch {
-      return false;
-    }
-  });
+  // Display and compression preferences persisted in localStorage
+  const [showAllDeliberationSteps, setShowAllDeliberationSteps] =
+    useLocalStorageBoolean("llmCouncilShowAllSteps", true);
+  const [showTokenCount, setShowTokenCount] = useLocalStorageBoolean(
+    "llmCouncilShowTokenCount",
+    true,
+  );
+  const [showTokensPerModel, setShowTokensPerModel] = useLocalStorageBoolean(
+    "llmCouncilShowTokensPerModel",
+    false,
+  );
+  const [showSpendValue, setShowSpendValue] = useLocalStorageBoolean(
+    "llmCouncilShowSpendValue",
+    true,
+  );
+  const [showSavedTokens, setShowSavedTokens] = useLocalStorageBoolean(
+    "llmCouncilShowSavedTokens",
+    true,
+  );
+  const [enableTokenCompression, setEnableTokenCompression] =
+    useLocalStorageBoolean("llmCouncilEnableTokenCompression", false);
 
   // Loading flag for autonomous ReAct agent execution
   const [agentLoading, setAgentLoading] = useState(false);
@@ -192,73 +177,6 @@ function App() {
       isMounted = false;
     };
   }, []);
-
-  // Sync display preferences to localStorage whenever changed
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilShowAllSteps",
-        JSON.stringify(showAllDeliberationSteps),
-      );
-    } catch (e) {
-      console.error("Failed to save deliberation steps display preference:", e);
-    }
-  }, [showAllDeliberationSteps]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilShowTokenCount",
-        JSON.stringify(showTokenCount),
-      );
-    } catch (e) {
-      console.error("Failed to save token count preference:", e);
-    }
-  }, [showTokenCount]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilShowTokensPerModel",
-        JSON.stringify(showTokensPerModel),
-      );
-    } catch (e) {
-      console.error("Failed to save tokens per model preference:", e);
-    }
-  }, [showTokensPerModel]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilShowSpendValue",
-        JSON.stringify(showSpendValue),
-      );
-    } catch (e) {
-      console.error("Failed to save spend value preference:", e);
-    }
-  }, [showSpendValue]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilShowSavedTokens",
-        JSON.stringify(showSavedTokens),
-      );
-    } catch (e) {
-      console.error("Failed to save show saved tokens preference:", e);
-    }
-  }, [showSavedTokens]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "llmCouncilEnableTokenCompression",
-        JSON.stringify(enableTokenCompression),
-      );
-    } catch (e) {
-      console.error("Failed to save token compression preference:", e);
-    }
-  }, [enableTokenCompression]);
 
   /**
    * Synchronize local action plan and execution state from an existing conversation record.
@@ -604,6 +522,7 @@ function App() {
       loadConversations();
     }, 600000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load conversation details when selected
@@ -1048,6 +967,15 @@ function App() {
         ...prev,
         [currentConversationId]: mode,
       }));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === currentConversationId ? { ...c, mode } : c)),
+      );
+      setCurrentConversation((prev) =>
+        prev && prev.id === currentConversationId ? { ...prev, mode } : prev,
+      );
+      api.updateConversationMode(currentConversationId, mode).catch((err) => {
+        console.warn("Failed to persist conversation mode update:", err);
+      });
     }
   }, [currentConversationId]);
 
@@ -1498,16 +1426,27 @@ function App() {
               }
               break;
             case "complete":
-              if (event.token_usage) {
-                setCurrentConversation((prev) =>
-                  prev ? { ...prev, token_usage: event.token_usage } : prev
-                );
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === activeId ? { ...c, token_usage: event.token_usage } : c
-                  )
-                );
-              }
+              setCurrentConversation((prev) =>
+                prev && prev.id === activeId
+                  ? {
+                      ...prev,
+                      mode: "custom_workflows",
+                      token_usage: event.token_usage || prev.token_usage,
+                    }
+                  : prev,
+              );
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === activeId
+                    ? {
+                        ...c,
+                        mode: "custom_workflows",
+                        token_usage: event.token_usage || c.token_usage,
+                      }
+                    : c,
+                ),
+              );
+              loadConversations();
               break;
             default:
               break;

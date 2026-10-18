@@ -419,6 +419,177 @@ const McpToolsList = memo(({ mcpTools }) => {
 });
 
 /**
+ * Renders non-empty tool parameters as formatted key-value pairs.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Object} [props.params] - Tool parameters dictionary.
+ * @returns {JSX.Element|null} Rendered parameters or null if empty.
+ */
+function FormattedParams({ params }) {
+  if (!params || typeof params !== "object") return null;
+  const nonEmptyEntries = Object.entries(params).filter(
+    ([, val]) => val !== null && val !== undefined && val !== "",
+  );
+  if (nonEmptyEntries.length === 0) return null;
+
+  return (
+    <div className="formatted-params">
+      {nonEmptyEntries.map(([key, value]) => (
+        <div key={key} className="param-row">
+          <span className="param-key">{key}</span>
+          <span className="param-value">
+            {typeof value === "object"
+              ? JSON.stringify(value, null, 2)
+              : String(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders a Stage 4 Action Plan card with tool calls and an optional Execute button.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Object} props.stage4Data - Stage 4 plan result (`{ success, action_plan, error }`).
+ * @param {boolean} [props.showExecuteButton=false] - Whether to render the Execute Action Plan button.
+ * @param {function(): void} [props.onExecuteActionPlan] - Callback to trigger plan execution.
+ * @param {boolean} [props.disabled=false] - Whether the execute button is disabled.
+ * @param {string} [props.className=""] - Optional extra CSS class on the outer block.
+ * @param {boolean} [props.showToolCallsHeading=false] - Whether to show an h5 "Tool Calls" heading.
+ * @returns {JSX.Element|null} Rendered action plan block.
+ */
+function ActionPlanBlock({
+  stage4Data,
+  showExecuteButton = false,
+  onExecuteActionPlan,
+  disabled = false,
+  className = "",
+  showToolCallsHeading = false,
+}) {
+  if (!stage4Data) return null;
+
+  return (
+    <div className={`action-plan-block ${className}`.trim()}>
+      <h4>Action Plan</h4>
+      {stage4Data.success || stage4Data.action_plan ? (
+        <>
+          <div className="plan-summary">
+            <p>{stage4Data.action_plan?.description}</p>
+            <p>{stage4Data.action_plan?.reasoning}</p>
+          </div>
+          <div className="tool-calls">
+            {showToolCallsHeading && <h5>Tool Calls</h5>}
+            {stage4Data.action_plan?.tool_calls?.map((call, idx) => (
+              <div key={idx} className="tool-call">
+                <div className="tool-call-header">
+                  <strong>
+                    {call.tool}{" "}
+                    {call.server && call.server !== "local" && (
+                      <span className="server-tag">({call.server})</span>
+                    )}
+                  </strong>
+                  <span>{call.description}</span>
+                </div>
+                <FormattedParams params={call.params} />
+              </div>
+            ))}
+          </div>
+
+          {showExecuteButton && stage4Data.action_plan && (
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="execute-action-btn"
+                onClick={onExecuteActionPlan}
+                disabled={disabled}
+              >
+                Execute Action Plan
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="action-error">
+          <strong>Action plan failed:</strong> {stage4Data.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders tool execution results with status badge, parameters, and formatted output.
+ *
+ * @param {Object} props - Component properties.
+ * @param {Object} props.execution - Execution result object (`{ success, action_plan, execution_results }`).
+ * @param {string} [props.className=""] - Optional extra CSS class on the outer block.
+ * @param {boolean} [props.showPlanSummary=false] - Whether to show the executed plan summary.
+ * @returns {JSX.Element|null} Rendered execution results block.
+ */
+function ExecutionResultsBlock({
+  execution,
+  className = "",
+  showPlanSummary = false,
+}) {
+  if (!execution) return null;
+
+  return (
+    <div className={`execution-block ${className}`.trim()}>
+      <h4 className="execution-heading">
+        <span>Execution Results</span>
+        <span
+          className={`execution-status-badge ${
+            execution.success ? "success" : "failure"
+          }`}
+        >
+          {execution.success ? "✅ Success" : "⚠️ Failed"}
+        </span>
+      </h4>
+      {showPlanSummary && execution.action_plan && (
+        <div className="plan-summary">
+          <h5>Executed Plan</h5>
+          <p>{execution.action_plan.description}</p>
+          <p>{execution.action_plan.reasoning}</p>
+        </div>
+      )}
+      {execution.execution_results?.results?.map((toolResult, idx) => {
+        const hasNonEmptyParams =
+          toolResult.params &&
+          Object.values(toolResult.params).some(
+            (val) => val !== null && val !== undefined && val !== "",
+          );
+
+        return (
+          <div key={idx} className="tool-result">
+            <div className="result-header">
+              <strong>
+                {toolResult.tool}
+                {toolResult.server && toolResult.server !== "local" && (
+                  <span className="server-tag">({toolResult.server})</span>
+                )}
+              </strong>
+            </div>
+
+            {hasNonEmptyParams && (
+              <div className="output-section">
+                <h5>Parameters</h5>
+                <FormattedParams params={toolResult.params} />
+              </div>
+            )}
+
+            <div className="result-output">
+              {renderFormattedResult(toolResult.result)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Memoized individual message item (User or Assistant turn) in the chat feed.
  */
 const ChatMessageItem = memo(function ChatMessageItem({
@@ -604,91 +775,12 @@ const ChatMessageItem = memo(function ChatMessageItem({
               )}
 
               {msg.stage4 && (
-                <div className="action-plan-block">
-                  <h4>Action Plan</h4>
-                  {msg.stage4.success || msg.stage4.action_plan ? (
-                    <>
-                      <div className="plan-summary">
-                        <p>{msg.stage4.action_plan?.description}</p>
-                        <p>{msg.stage4.action_plan?.reasoning}</p>
-                      </div>
-                      <div className="tool-calls">
-                        {msg.stage4.action_plan?.tool_calls?.map(
-                          (call, idx) => (
-                            <div key={idx} className="tool-call">
-                              <div className="tool-call-header">
-                                <strong>
-                                  {call.tool}{" "}
-                                  {call.server &&
-                                    call.server !== "local" && (
-                                      <span className="server-tag">
-                                        ({call.server})
-                                      </span>
-                                    )}
-                                </strong>
-                                <span>{call.description}</span>
-                              </div>
-                              {call.params &&
-                                Object.values(call.params).some(
-                                  (val) =>
-                                    val !== null &&
-                                    val !== undefined &&
-                                    val !== "",
-                                ) && (
-                                  <div className="formatted-params">
-                                    {Object.entries(call.params)
-                                      .filter(
-                                        (entry) =>
-                                          entry[1] !== null &&
-                                          entry[1] !== undefined &&
-                                          entry[1] !== "",
-                                      )
-                                      .map(([key, value]) => (
-                                        <div
-                                          key={key}
-                                          className="param-row"
-                                        >
-                                          <span className="param-key">
-                                            {key}
-                                          </span>
-                                          <span className="param-value">
-                                            {typeof value === "object"
-                                              ? JSON.stringify(
-                                                  value,
-                                                  null,
-                                                  2,
-                                                )
-                                              : String(value)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                )}
-                            </div>
-                          ),
-                        )}
-                      </div>
-
-                      {!msg.execution && msg.stage4.action_plan && (
-                        <div className="action-buttons">
-                          <button
-                            type="button"
-                            className="execute-action-btn"
-                            onClick={onExecuteActionPlan}
-                            disabled={actionLoading || msg.loading?.execution}
-                          >
-                            Execute Action Plan
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="action-error">
-                      <strong>Action plan failed:</strong>{" "}
-                      {msg.stage4.error}
-                    </div>
-                  )}
-                </div>
+                <ActionPlanBlock
+                  stage4Data={msg.stage4}
+                  showExecuteButton={!msg.execution}
+                  onExecuteActionPlan={onExecuteActionPlan}
+                  disabled={actionLoading || msg.loading?.execution}
+                />
               )}
 
               {msg.loading?.execution && (
@@ -699,70 +791,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
               )}
 
               {msg.execution && (
-                <div className="execution-block">
-                  <h4 className="execution-heading">
-                    <span>Execution Results</span>
-                    <span
-                      className={`execution-status-badge ${
-                        msg.execution.success ? "success" : "failure"
-                      }`}
-                    >
-                      {msg.execution.success ? "✅ Success" : "⚠️ Failed"}
-                    </span>
-                  </h4>
-                  {msg.execution.execution_results?.results?.map(
-                    (toolResult, idx) => (
-                      <div key={idx} className="tool-result">
-                        <div className="result-header">
-                          <strong>
-                            {toolResult.tool}
-                            {toolResult.server &&
-                              toolResult.server !== "local" && (
-                                <span className="server-tag">
-                                  ({toolResult.server})
-                                </span>
-                              )}
-                          </strong>
-                        </div>
-
-                        {toolResult.params &&
-                          Object.keys(toolResult.params).filter(
-                            (key) =>
-                              toolResult.params[key] !== null &&
-                              toolResult.params[key] !== undefined &&
-                              toolResult.params[key] !== "",
-                          ).length > 0 && (
-                            <div className="output-section">
-                              <h5>Parameters</h5>
-                              <div className="formatted-params">
-                                {Object.entries(toolResult.params)
-                                  .filter(
-                                    (entry) =>
-                                      entry[1] !== null &&
-                                      entry[1] !== undefined &&
-                                      entry[1] !== "",
-                                  )
-                                  .map(([key, value]) => (
-                                    <div key={key} className="param-row">
-                                      <span className="param-key">{key}</span>
-                                      <span className="param-value">
-                                        {typeof value === "object"
-                                          ? JSON.stringify(value, null, 2)
-                                          : String(value)}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            </div>
-                          )}
-
-                        <div className="result-output">
-                          {renderFormattedResult(toolResult.result)}
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
+                <ExecutionResultsBlock execution={msg.execution} />
               )}
             </>
           )}
@@ -777,7 +806,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
  *
  * @param {Object} props - Component properties.
  * @param {Object|null} props.conversation - Active conversation object.
- * @param {string} [props.mode="informational"] - Active execution mode ("informational" | "one_shot" | "agentic").
+ * @param {string} [props.mode="informational"] - Active execution mode ("informational" | "one_shot" | "agentic" | "custom_workflows").
  * @param {function(string): void} props.onModeChange - Mode change callback.
  * @param {boolean} [props.showAllDeliberationSteps=true] - Display all steps vs final answer.
  * @param {function(string): void} props.onSendMessage - Send informational message callback.
@@ -799,6 +828,11 @@ const ChatMessageItem = memo(function ChatMessageItem({
  * @param {boolean} [props.showTokensPerModel=false] - Display tokens per model toggle.
  * @param {boolean} [props.showSpendValue=true] - Display USD spend toggle.
  * @param {boolean} [props.showSavedTokens=true] - Display saved tokens toggle.
+ * @param {boolean} [props.enableTokenCompression=false] - Whether prompt compression is enabled.
+ * @param {Object|null} [props.activeWorkflow=null] - Currently selected custom workflow definition.
+ * @param {function(): void} [props.onOpenWorkflowSelector=null] - Callback to open the Workflows Library modal.
+ * @param {function(string): void} [props.onRunWorkflow=null] - Callback to execute the active custom workflow.
+ * @param {boolean} [props.workflowLoading=false] - Whether a custom workflow is currently running.
  * @returns {JSX.Element} Rendered chat interface.
  */
 export default function ChatInterface({
@@ -1394,7 +1428,7 @@ export default function ChatInterface({
           <div className="empty-state">
             <h2>Welcome to LLM Council</h2>
             <p>
-              Choose Informational, One Shot Execution, or Agentic using the mode controls below
+              Choose Informational, One Shot Execution, Agentic, or Custom Workflows using the mode controls below
               to begin.
             </p>
           </div>
@@ -1402,7 +1436,7 @@ export default function ChatInterface({
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>
-              Choose Informational, One Shot Execution, or Agentic using the mode controls below
+              Choose Informational, One Shot Execution, Agentic, or Custom Workflows using the mode controls below
               to begin.
             </p>
           </div>
@@ -1565,92 +1599,14 @@ export default function ChatInterface({
             )}
 
             {actionPlanResult?.stage4_action_plan ? (
-              <div className="action-plan-block plan-details">
-                <h4>Action Plan</h4>
-                {actionPlanResult.stage4_action_plan.success ||
-                actionPlanResult.stage4_action_plan.action_plan ? (
-                  <>
-                    <div className="plan-summary">
-                      <p>
-                        {
-                          actionPlanResult.stage4_action_plan.action_plan
-                            ?.description
-                        }
-                      </p>
-                      <p>
-                        {
-                          actionPlanResult.stage4_action_plan.action_plan
-                            ?.reasoning
-                        }
-                      </p>
-                    </div>
-
-                    <div className="tool-calls">
-                      <h5>Tool Calls</h5>
-                      {actionPlanResult.stage4_action_plan.action_plan?.tool_calls?.map(
-                        (call, idx) => (
-                          <div key={idx} className="tool-call">
-                            <div className="tool-call-header">
-                              <strong>
-                                {call.tool}{" "}
-                                {call.server && call.server !== "local" && (
-                                  <span className="server-tag">
-                                    ({call.server})
-                                  </span>
-                                )}
-                              </strong>
-                              <span>{call.description}</span>
-                            </div>
-                            {call.params &&
-                              Object.values(call.params).some(
-                                (val) =>
-                                  val !== null &&
-                                  val !== undefined &&
-                                  val !== "",
-                              ) && (
-                                <div className="formatted-params">
-                                  {Object.entries(call.params)
-                                    .filter(
-                                      (entry) =>
-                                        entry[1] !== null &&
-                                        entry[1] !== undefined &&
-                                        entry[1] !== "",
-                                    )
-                                    .map(([key, value]) => (
-                                      <div key={key} className="param-row">
-                                        <span className="param-key">{key}</span>
-                                        <span className="param-value">
-                                          {typeof value === "object"
-                                            ? JSON.stringify(value, null, 2)
-                                            : String(value)}
-                                        </span>
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
-                          </div>
-                        ),
-                      )}
-                    </div>
-
-                    <div className="action-buttons">
-                      <button
-                        type="button"
-                        className="execute-action-btn"
-                        onClick={onExecuteActionPlan}
-                        disabled={actionLoading}
-                      >
-                        Execute Action Plan
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="action-error">
-                    <strong>Action plan failed:</strong>{" "}
-                    {actionPlanResult.stage4_action_plan.error}
-                  </div>
-                )}
-              </div>
+              <ActionPlanBlock
+                stage4Data={actionPlanResult.stage4_action_plan}
+                showExecuteButton={true}
+                onExecuteActionPlan={onExecuteActionPlan}
+                disabled={actionLoading}
+                className="plan-details"
+                showToolCallsHeading={true}
+              />
             ) : actionPlanResult ? (
               <div className="plan-details">
                 <h4>Action Plan Result</h4>
@@ -1659,77 +1615,11 @@ export default function ChatInterface({
             ) : null}
 
             {actionExecutionResult && (
-              <div className="execution-block execution-details">
-                <h4 className="execution-heading">
-                  <span>Execution Results</span>
-                  <span
-                    className={`execution-status-badge ${
-                      actionExecutionResult.success ? "success" : "failure"
-                    }`}
-                  >
-                    {actionExecutionResult.success ? "✅ Success" : "⚠️ Failed"}
-                  </span>
-                </h4>
-                {actionExecutionResult.action_plan && (
-                  <div className="plan-summary">
-                    <h5>Executed Plan</h5>
-                    <p>{actionExecutionResult.action_plan.description}</p>
-                    <p>{actionExecutionResult.action_plan.reasoning}</p>
-                  </div>
-                )}
-                {actionExecutionResult.execution_results?.results?.map(
-                  (toolResult, idx) => (
-                    <div key={idx} className="tool-result">
-                      <div className="result-header">
-                        <strong>
-                          {toolResult.tool}
-                          {toolResult.server &&
-                            toolResult.server !== "local" && (
-                              <span className="server-tag">
-                                ({toolResult.server})
-                              </span>
-                            )}
-                        </strong>
-                      </div>
-
-                      {toolResult.params &&
-                        Object.entries(toolResult.params).filter(
-                          (entry) =>
-                            entry[1] !== null &&
-                            entry[1] !== undefined &&
-                            entry[1] !== "",
-                        ).length > 0 && (
-                          <div className="output-section">
-                            <h5>Parameters</h5>
-                            <div className="formatted-params">
-                              {Object.entries(toolResult.params)
-                                .filter(
-                                  (entry) =>
-                                    entry[1] !== null &&
-                                    entry[1] !== undefined &&
-                                    entry[1] !== "",
-                                )
-                                .map(([key, value]) => (
-                                  <div key={key} className="param-row">
-                                    <span className="param-key">{key}</span>
-                                    <span className="param-value">
-                                      {typeof value === "object"
-                                        ? JSON.stringify(value, null, 2)
-                                        : String(value)}
-                                    </span>
-                                  </div>
-                                ))}
-                            </div>
-                          </div>
-                        )}
-
-                      <div className="result-output">
-                        {renderFormattedResult(toolResult.result)}
-                      </div>
-                    </div>
-                  ),
-                )}
-              </div>
+              <ExecutionResultsBlock
+                execution={actionExecutionResult}
+                className="execution-details"
+                showPlanSummary={true}
+              />
             )}
           </div>
         )}
@@ -2261,7 +2151,7 @@ export default function ChatInterface({
             {currentMode === "informational" &&
               "Standard council deliberation & synthesis (Stage 1-3)"}
             {currentMode === "one_shot" &&
-              "Generate & execute action plan with one shot execution, compatiable with MCP (Stage 1-4)"}
+              "Generate & execute action plan with one shot execution, compatible with MCP (Stage 1-4)"}
             {isAgentic &&
               "Autonomous Chairperson ReAct loop with multi-step tool execution"}
             {currentMode === "custom_workflows" &&

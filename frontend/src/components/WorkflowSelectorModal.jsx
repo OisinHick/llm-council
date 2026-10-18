@@ -52,7 +52,7 @@ export default function WorkflowSelectorModal({
   onOpenEditor,
 }) {
   const [workflows, setWorkflows] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all"); // "all" | "templates" | "custom"
@@ -66,6 +66,7 @@ export default function WorkflowSelectorModal({
       .then((data) => {
         if (isMounted) {
           setWorkflows(data);
+          setError(null);
           setLoading(false);
         }
       })
