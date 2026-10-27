@@ -1,34 +1,38 @@
-"""Configuration and settings management for the LLM Council.
+"""Configuration and runtime settings management for LLM Council.
 
 This module manages application-wide configuration values, environment variables,
-default AI model choices, and user-configurable settings.
+default AI model choices, filesystem paths, and user-configurable settings.
 
 Key Responsibilities:
     1. Directory & File Paths:
-       - Computes absolute paths for base project directory, conversation database
-         directory (`data/conversations/`), and runtime settings file (`data/settings.json`).
+       - Resolves absolute paths for the base project directory, conversation database
+         directory (`data/conversations/`), runtime settings file (`data/settings.json`),
+         and custom workflows file (`data/workflows.json`).
     2. Default Council & Chairman Setup:
-       - Configures default council models for Stage 1/2 deliberations.
+       - Configures default council models for Stage 1/2 multi-perspective deliberations.
        - Configures default chairman model for Stage 3 synthesis and autonomous execution.
     3. Persistent Runtime Settings:
        - Reads user-customized preferences from `data/settings.json`.
-       - Provides atomic file persistence via temporary files and `os.fsync` to eliminate
-         any risk of file corruption or partial writes during sudden process shutdown.
-    4. Configuration Accessors:
-       - Exposes helper getter functions used across backend modules for API keys, model lists,
-         token display options, and compression algorithm settings.
+       - Implements atomic file persistence via temporary files, `flush`, `os.fsync`,
+         and `os.replace` to prevent corrupted configurations on sudden shutdown.
+    4. Accessor Functions:
+       - Provides typed getter functions used across backend modules for API keys, model lists,
+         UI display flags, token compression settings, and deliberation sensitivity options.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from dotenv import load_dotenv
 
-# Load environment variables from .env file located in workspace root
+# Load environment variables from .env file in the workspace root
 load_dotenv()
 
 logger = logging.getLogger("llm_council.config")
@@ -37,16 +41,16 @@ logger = logging.getLogger("llm_council.config")
 # Directory and File System Paths
 # ==============================================================================
 
-# Project root directory resolved relative to this file
+# Project root directory resolved relative to this module
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
-# Directory where conversation history JSON files are stored
+# Directory where conversation history JSON documents are stored
 DATA_DIR: str = str(BASE_DIR / "data" / "conversations")
 
-# Path to the runtime user settings file (data/settings.json)
+# Path to the persistent user settings file (data/settings.json)
 SETTINGS_FILE: Path = BASE_DIR / "data" / "settings.json"
 
-# Path to persistent custom workflows JSON file (data/workflows.json)
+# Path to the persistent custom workflows file (data/workflows.json)
 WORKFLOWS_FILE: Path = BASE_DIR / "data" / "workflows.json"
 
 # ==============================================================================
@@ -54,7 +58,7 @@ WORKFLOWS_FILE: Path = BASE_DIR / "data" / "workflows.json"
 # ==============================================================================
 
 # Default peer council members used for multi-perspective deliberations in Stage 1 & Stage 2
-DEFAULT_COUNCIL_MODELS: List[str] = [
+DEFAULT_COUNCIL_MODELS: list[str] = [
     "openai/gpt-4o-mini",
     "google/gemini-2.5-flash",
     "anthropic/claude-3-haiku",
@@ -66,20 +70,19 @@ DEFAULT_CHAIRMAN_MODEL: str = "google/gemini-2.5-flash"
 
 # Legacy variables kept for backwards compatibility with earlier script versions
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-COUNCIL_MODELS: List[str] = DEFAULT_COUNCIL_MODELS
+COUNCIL_MODELS: list[str] = DEFAULT_COUNCIL_MODELS
 CHAIRMAN_MODEL: str = DEFAULT_CHAIRMAN_MODEL
 
 # OpenRouter REST endpoints
 OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_URL: str = "https://openrouter.ai/api/v1/models"
 
-
 # ==============================================================================
 # Default Settings Schema
 # ==============================================================================
 
 # Default settings dictionary structure used when settings.json is missing or incomplete
-DEFAULT_SETTINGS: Dict[str, Any] = {
+DEFAULT_SETTINGS: dict[str, Any] = {
     "openrouter_api_key": "",
     "council_models": DEFAULT_COUNCIL_MODELS,
     "chairman_model": DEFAULT_CHAIRMAN_MODEL,
@@ -103,7 +106,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 }
 
 
-def get_settings() -> Dict[str, Any]:
+def get_settings() -> dict[str, Any]:
     """Load active configuration settings from disk with fallback to defaults and environment.
 
     The configuration hierarchy is evaluated in the following order:
@@ -115,9 +118,9 @@ def get_settings() -> Dict[str, Any]:
     by logging a warning and falling back to safe default values.
 
     Returns:
-        Dict[str, Any]: A dictionary containing active configuration flags and values:
+        dict[str, Any]: A dictionary containing active configuration flags and values:
             - "openrouter_api_key" (str): OpenRouter authorization bearer key.
-            - "council_models" (List[str]): List of model identifier strings for council.
+            - "council_models" (list[str]): List of model identifier strings for council.
             - "chairman_model" (str): Model identifier string for chairman.
             - "show_token_count" (bool): Whether total token badges are visible in UI.
             - "show_tokens_per_model" (bool): Whether individual per-model breakdowns are shown.
@@ -132,7 +135,7 @@ def get_settings() -> Dict[str, Any]:
             - "default_mode" (str): Initial conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
     """
     env_key = os.getenv("OPENROUTER_API_KEY", "")
-    settings = dict(DEFAULT_SETTINGS)
+    settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
     settings["sensitivity_config"] = dict(DEFAULT_SETTINGS["sensitivity_config"])
     settings["council_models"] = list(DEFAULT_COUNCIL_MODELS)
     settings["openrouter_api_key"] = env_key
@@ -142,7 +145,7 @@ def get_settings() -> Dict[str, Any]:
         return settings
 
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        with open(SETTINGS_FILE, encoding="utf-8") as f:
             data = json.load(f)
 
         if not isinstance(data, dict):
@@ -154,7 +157,11 @@ def get_settings() -> Dict[str, Any]:
             settings["openrouter_api_key"] = data["openrouter_api_key"] or env_key
 
         if "council_models" in data and isinstance(data["council_models"], list):
-            valid_models = [m.strip() for m in data["council_models"] if isinstance(m, str) and m.strip()]
+            valid_models = [
+                m.strip()
+                for m in data["council_models"]
+                if isinstance(m, str) and m.strip()
+            ]
             if valid_models:
                 settings["council_models"] = valid_models
 
@@ -175,7 +182,9 @@ def get_settings() -> Dict[str, Any]:
             if flag in data and data[flag] is not None:
                 settings[flag] = bool(data[flag])
 
-        if "compression_algorithm" in data and isinstance(data["compression_algorithm"], str):
+        if "compression_algorithm" in data and isinstance(
+            data["compression_algorithm"], str
+        ):
             ca = data["compression_algorithm"].strip()
             if ca:
                 settings["compression_algorithm"] = ca
@@ -190,7 +199,9 @@ def get_settings() -> Dict[str, Any]:
             if uc:
                 settings["user_color"] = uc
 
-        if "sensitivity_config" in data and isinstance(data["sensitivity_config"], dict):
+        if "sensitivity_config" in data and isinstance(
+            data["sensitivity_config"], dict
+        ):
             merged_sens = dict(settings["sensitivity_config"])
             merged_sens.update(data["sensitivity_config"])
             settings["sensitivity_config"] = merged_sens
@@ -201,24 +212,28 @@ def get_settings() -> Dict[str, Any]:
                 settings["default_mode"] = dm
 
         return settings
-    except Exception as e:
-        logger.error("Failed to read settings file %s: %s; falling back to defaults.", SETTINGS_FILE, e)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.error(
+            "Failed to read settings file %s: %s; falling back to defaults.",
+            SETTINGS_FILE,
+            e,
+        )
         return settings
 
 
-def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
+def save_settings(new_settings: dict[str, Any]) -> dict[str, Any]:
     """Save updated settings to `data/settings.json` using an atomic file write pattern.
 
     To protect against corrupted configuration files in the event of power failures,
     abrupt terminations, or concurrent writes, this function writes the new settings
-    to a temporary file on the same filesystem, calls `os.fsync` to guarantee data
-    is flushed to physical disk, and then atomically replaces the target file via `os.replace`.
+    to a temporary file on the same filesystem, calls `flush` and `os.fsync` to guarantee
+    data is flushed to physical disk, and then atomically replaces the target file via `os.replace`.
 
     Args:
-        new_settings (Dict[str, Any]): Dictionary containing partial or complete updated settings.
+        new_settings (dict[str, Any]): Dictionary containing partial or complete updated settings.
             Supported keys include:
                 - "openrouter_api_key" (str): API key string.
-                - "council_models" (List[str]): Non-empty list of model identifier strings.
+                - "council_models" (list[str]): Non-empty list of model identifier strings.
                 - "chairman_model" (str): Non-empty chairman model identifier.
                 - "show_token_count" (bool): UI display flag.
                 - "show_tokens_per_model" (bool): UI display flag.
@@ -233,25 +248,36 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
                 - "default_mode" (str): Default conversation mode.
 
     Returns:
-        Dict[str, Any]: The complete, merged settings dictionary after updates are applied.
+        dict[str, Any]: The complete, merged settings dictionary after updates are applied.
 
     Raises:
-        Exception: If writing the temporary file or replacing `SETTINGS_FILE` fails.
+        OSError: If writing the temporary file or replacing `SETTINGS_FILE` fails.
     """
     current = get_settings()
 
     # Update API key if provided
-    if "openrouter_api_key" in new_settings and new_settings["openrouter_api_key"] is not None:
+    if (
+        "openrouter_api_key" in new_settings
+        and new_settings["openrouter_api_key"] is not None
+    ):
         current["openrouter_api_key"] = str(new_settings["openrouter_api_key"]).strip()
 
     # Validate and update council model list
-    if "council_models" in new_settings and isinstance(new_settings["council_models"], list):
-        models = [m.strip() for m in new_settings["council_models"] if isinstance(m, str) and m.strip()]
+    if "council_models" in new_settings and isinstance(
+        new_settings["council_models"], list
+    ):
+        models = [
+            m.strip()
+            for m in new_settings["council_models"]
+            if isinstance(m, str) and m.strip()
+        ]
         if models:
             current["council_models"] = models
 
     # Update chairman model if non-empty string provided
-    if "chairman_model" in new_settings and isinstance(new_settings["chairman_model"], str):
+    if "chairman_model" in new_settings and isinstance(
+        new_settings["chairman_model"], str
+    ):
         cm = new_settings["chairman_model"].strip()
         if cm:
             current["chairman_model"] = cm
@@ -269,13 +295,17 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
             current[flag] = bool(new_settings[flag])
 
     # Update compression algorithm identifier
-    if "compression_algorithm" in new_settings and isinstance(new_settings["compression_algorithm"], str):
+    if "compression_algorithm" in new_settings and isinstance(
+        new_settings["compression_algorithm"], str
+    ):
         ca = new_settings["compression_algorithm"].strip()
         if ca:
             current["compression_algorithm"] = ca
 
     # Update styling colors
-    if "assistant_color" in new_settings and isinstance(new_settings["assistant_color"], str):
+    if "assistant_color" in new_settings and isinstance(
+        new_settings["assistant_color"], str
+    ):
         ac = new_settings["assistant_color"].strip()
         if ac:
             current["assistant_color"] = ac
@@ -286,8 +316,12 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
             current["user_color"] = uc
 
     # Update sensitivity config
-    if "sensitivity_config" in new_settings and isinstance(new_settings["sensitivity_config"], dict):
-        current_cfg = dict(current.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"])
+    if "sensitivity_config" in new_settings and isinstance(
+        new_settings["sensitivity_config"], dict
+    ):
+        current_cfg = dict(
+            current.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"]
+        )
         current_cfg.update(new_settings["sensitivity_config"])
         current["sensitivity_config"] = current_cfg
 
@@ -297,13 +331,9 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         if dm in ("informational", "one_shot", "agentic", "custom_workflows"):
             current["default_mode"] = dm
 
-    # Atomic write to prevent file corruption on abrupt shutdowns:
-    # 1. Create a temporary file in the same directory (same filesystem).
-    # 2. Dump formatted JSON.
-    # 3. Flush and fsync the file descriptor.
-    # 4. Atomically rename/replace the temporary file onto SETTINGS_FILE.
+    # Atomic write pattern to prevent file corruption on abrupt shutdowns
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = None
+    temp_file: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             "w",
@@ -314,16 +344,15 @@ def save_settings(new_settings: Dict[str, Any]) -> Dict[str, Any]:
         ) as f:
             temp_file = Path(f.name)
             json.dump(current, f, indent=2)
+            f.write("\n")
             f.flush()
             os.fsync(f.fileno())
         temp_file.replace(SETTINGS_FILE)
     except Exception as e:
         logger.error("Failed to safely write settings file %s: %s", SETTINGS_FILE, e)
         if temp_file and temp_file.exists():
-            try:
+            with suppress(OSError):
                 temp_file.unlink()
-            except Exception:
-                pass
         raise
 
     return current
@@ -339,11 +368,11 @@ def get_openrouter_api_key() -> str:
     return settings.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY", "")
 
 
-def get_council_models() -> List[str]:
+def get_council_models() -> list[str]:
     """Get the active list of model identifiers participating in Stage 1 & Stage 2 council deliberation.
 
     Returns:
-        List[str]: List of OpenRouter model identifier strings (e.g., ['openai/gpt-4o-mini', ...]).
+        list[str]: List of OpenRouter model identifier strings (e.g., ['openai/gpt-4o-mini', ...]).
     """
     settings = get_settings()
     return settings.get("council_models") or DEFAULT_COUNCIL_MODELS
@@ -449,11 +478,11 @@ def get_user_color() -> str:
     return str(settings.get("user_color", "#f0f7ff"))
 
 
-def get_sensitivity_config() -> Dict[str, Any]:
+def get_sensitivity_config() -> dict[str, Any]:
     """Get the active deliberation sensitivity configuration dictionary for autonomous agents.
 
     Returns:
-        Dict[str, Any]: Dictionary containing sensitivity flags and limits:
+        dict[str, Any]: Dictionary containing sensitivity flags and limits:
             - level: 'low' | 'medium' | 'high' | 'extreme'
             - auto_trigger_on_error: bool
             - review_before_completion: bool
@@ -461,7 +490,9 @@ def get_sensitivity_config() -> Dict[str, Any]:
             - max_steps: int
     """
     settings = get_settings()
-    return dict(settings.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"])
+    return dict(
+        settings.get("sensitivity_config") or DEFAULT_SETTINGS["sensitivity_config"]
+    )
 
 
 def get_default_mode() -> str:
@@ -472,5 +503,3 @@ def get_default_mode() -> str:
     """
     settings = get_settings()
     return str(settings.get("default_mode", "informational"))
-
-

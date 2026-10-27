@@ -6,13 +6,15 @@ line-indexed, and uniquely-targeted primitives that the Chairperson model
 can invoke during its autonomous ReAct loop.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .config import BASE_DIR
-
 
 # Directory names ignored during directory scans to keep payload sizes reasonable
 IGNORED_DIR_NAMES = frozenset({".git", "__pycache__", "node_modules", ".venv"})
@@ -47,7 +49,7 @@ class AgentToolExecutor:
     - Subprocess execution with process killing on timeout and output stream truncation.
     """
 
-    def __init__(self, workspace_root: Optional[Path] = None):
+    def __init__(self, workspace_root: Path | None = None):
         """Initialize the AgentToolExecutor with a designated workspace root.
 
         Args:
@@ -66,18 +68,14 @@ class AgentToolExecutor:
             Path: Absolute resolved Path object.
         """
         p = Path(path_str)
-        if not p.is_absolute():
-            p = (self.workspace_root / p).resolve()
-        else:
-            p = p.resolve()
-        return p
+        return p.resolve() if p.is_absolute() else (self.workspace_root / p).resolve()
 
     async def read_file(
         self,
         path: str,
-        start_line: Optional[int] = None,
-        end_line: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> dict[str, Any]:
         """Read the contents of a file, optionally bounded by line numbers (1-indexed).
 
         Prepends line numbers (e.g., '1: content') to aid the LLM in understanding
@@ -89,7 +87,7 @@ class AgentToolExecutor:
             end_line: Optional 1-indexed ending line number (inclusive).
 
         Returns:
-            Dict[str, Any]: Result dictionary containing:
+            dict[str, Any]: Result dictionary containing:
                 - success (bool): True if reading succeeded, False otherwise.
                 - path (str): String representation of the resolved file path.
                 - total_lines (int): Total number of lines in the file.
@@ -136,9 +134,9 @@ class AgentToolExecutor:
                 "content": "\n".join(numbered),
             }
         except Exception as e:
-            return {"success": False, "error": f"Failed to read file: {str(e)}"}
+            return {"success": False, "error": f"Failed to read file: {e}"}
 
-    async def write_file(self, path: str, content: str) -> Dict[str, Any]:
+    async def write_file(self, path: str, content: str) -> dict[str, Any]:
         """Create or overwrite a file with the given content.
 
         Creates parent directories automatically if needed. Emits relative path
@@ -149,7 +147,7 @@ class AgentToolExecutor:
             content: Complete string content to write into the file.
 
         Returns:
-            Dict[str, Any]: Result dictionary containing:
+            dict[str, Any]: Result dictionary containing:
                 - success (bool): True if writing succeeded.
                 - path (str): Relative path if within workspace, otherwise absolute path.
                 - bytes_written (int): Byte count of written UTF-8 content.
@@ -177,11 +175,11 @@ class AgentToolExecutor:
                 "message": f"Successfully wrote {rel_path}",
             }
         except Exception as e:
-            return {"success": False, "error": f"Failed to write file: {str(e)}"}
+            return {"success": False, "error": f"Failed to write file: {e}"}
 
     async def edit_file(
         self, path: str, target_content: str, replacement_content: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Replace target_content with replacement_content in an existing file.
 
         Enforces uniqueness: target_content must appear exactly once in the file.
@@ -194,7 +192,7 @@ class AgentToolExecutor:
             replacement_content: Substring to replace target_content with.
 
         Returns:
-            Dict[str, Any]: Result dictionary containing:
+            dict[str, Any]: Result dictionary containing:
                 - success (bool): True if replacement was performed cleanly.
                 - path (str): File path that was edited.
                 - message (str): Success confirmation.
@@ -235,11 +233,11 @@ class AgentToolExecutor:
                 "message": f"Successfully edited {path}",
             }
         except Exception as e:
-            return {"success": False, "error": f"Failed to edit file: {str(e)}"}
+            return {"success": False, "error": f"Failed to edit file: {e}"}
 
     async def list_directory(
         self, path: str = ".", recursive: bool = False, max_depth: int = 2
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """List files and subdirectories within a directory.
 
         Filters out hidden files and common build/dependency caches
@@ -252,11 +250,11 @@ class AgentToolExecutor:
             max_depth: Maximum directory depth to traverse when recursive=True (default 2).
 
         Returns:
-            Dict[str, Any]: Result dictionary containing:
+            dict[str, Any]: Result dictionary containing:
                 - success (bool): True if directory was successfully read.
                 - directory (str): Target directory path.
                 - count (int): Total number of matching entries discovered.
-                - entries (List[Dict[str, Any]]): Capped list of entries with metadata.
+                - entries (list[dict[str, Any]]): Capped list of entries with metadata.
                 - error (str, optional): Error details if path does not exist or is not a directory.
         """
         try:
@@ -296,11 +294,13 @@ class AgentToolExecutor:
                 for entry in sorted(dir_path.iterdir()):
                     if entry.name.startswith(".") or entry.name in IGNORED_DIR_NAMES:
                         continue
-                    items.append({
-                        "name": entry.name,
-                        "type": "directory" if entry.is_dir() else "file",
-                        "size": entry.stat().st_size if entry.is_file() else None,
-                    })
+                    items.append(
+                        {
+                            "name": entry.name,
+                            "type": "directory" if entry.is_dir() else "file",
+                            "size": entry.stat().st_size if entry.is_file() else None,
+                        }
+                    )
 
             return {
                 "success": True,
@@ -309,11 +309,9 @@ class AgentToolExecutor:
                 "entries": items[:150],  # Cap output size to prevent context overflow
             }
         except Exception as e:
-            return {"success": False, "error": f"Failed to list directory: {str(e)}"}
+            return {"success": False, "error": f"Failed to list directory: {e}"}
 
-    async def execute_command(
-        self, command: str, timeout: int = 60
-    ) -> Dict[str, Any]:
+    async def execute_command(self, command: str, timeout: int = 60) -> dict[str, Any]:
         """Execute a shell command within the workspace root with a timeout.
 
         If execution exceeds the timeout, the process is killed asynchronously
@@ -325,7 +323,7 @@ class AgentToolExecutor:
             timeout: Maximum allowed execution time in seconds (default 60s).
 
         Returns:
-            Dict[str, Any]: Subprocess execution result containing:
+            dict[str, Any]: Subprocess execution result containing:
                 - success (bool): True if returncode is 0.
                 - returncode (int): Integer exit code of the process (-1 on timeout/error).
                 - stdout (str): Standard output (truncated if exceeding limits).
@@ -345,13 +343,11 @@ class AgentToolExecutor:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(), timeout=timeout
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Forcefully kill runaway subprocess on timeout
-                try:
+                with suppress(Exception):
                     process.kill()
                     await process.wait()
-                except Exception:
-                    pass
                 return {
                     "success": False,
                     "error": f"Command timed out after {timeout} seconds",
@@ -383,7 +379,7 @@ class AgentToolExecutor:
                 "returncode": -1,
             }
 
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return schema descriptions of available tools for the Chairperson prompt.
 
         These definitions are injected into the agent's system prompt so the
@@ -391,7 +387,7 @@ class AgentToolExecutor:
         and the parameter schemas expected.
 
         Returns:
-            List[Dict[str, Any]]: List of tool definition dictionaries.
+            list[dict[str, Any]]: List of tool definition dictionaries.
         """
         return [
             {

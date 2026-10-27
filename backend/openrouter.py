@@ -5,8 +5,8 @@ hosted on OpenRouter (https://openrouter.ai).
 
 Key Features:
     1. Single & Parallel LLM Queries:
-       - `query_model`: Asynchronously queries a single model with timeout, error recovery,
-         optional prompt compression, and token usage accounting.
+       - `query_model`: Asynchronously queries a single model with timeout enforcement, error
+         recovery, optional prompt compression, and token usage accounting.
        - `query_models_parallel`: Uses `asyncio.gather` with task-level cancellation and timeouts
          to concurrently query all council models with graceful degradation.
     2. Dynamic Pricing & Cost Calculation:
@@ -23,27 +23,30 @@ Key Features:
          requests when token compression is enabled.
 """
 
+from __future__ import annotations
+
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
+from .compression import compress_messages
 from .config import (
     OPENROUTER_API_URL,
     OPENROUTER_MODELS_URL,
-    get_openrouter_api_key,
-    get_enable_token_compression,
     get_compression_algorithm,
+    get_enable_token_compression,
+    get_openrouter_api_key,
 )
-from .compression import compress_messages
 
 logger = logging.getLogger(__name__)
 
 # In-memory dynamic pricing cache
-_PRICING_CACHE: Dict[str, Any] = {
+_PRICING_CACHE: dict[str, Any] = {
     "rates": {},
     "updated_at": None,
     "timestamp": 0.0,
@@ -60,7 +63,7 @@ def parse_rate_value(val: Any) -> float:
     This helper handles type conversion safely and returns 0.0 on invalid or missing inputs.
 
     Args:
-        val (Any): Raw pricing rate value from OpenRouter API.
+        val: Raw pricing rate value from OpenRouter API.
 
     Returns:
         float: Parsed floating-point price per token (in USD), or 0.0 if unparseable.
@@ -74,8 +77,8 @@ def parse_rate_value(val: Any) -> float:
 
 
 def find_model_rates(
-    model_id: str, rates: Dict[str, Dict[str, float]]
-) -> Dict[str, float]:
+    model_id: str, rates: dict[str, dict[str, float]]
+) -> dict[str, float]:
     """Find matching prompt, completion, and request pricing rates for a given model identifier.
 
     OpenRouter model IDs often vary depending on routing hints, routing flags, or context variants
@@ -88,12 +91,12 @@ def find_model_rates(
       5. Substring / suffix match (e.g., matching 'gemini-2.5-flash' within 'google/gemini-2.5-flash').
 
     Args:
-        model_id (str): The model identifier string to look up.
-        rates (Dict[str, Dict[str, float]]): Dictionary mapping model IDs to rate dictionaries
+        model_id: The model identifier string to look up.
+        rates: Dictionary mapping model IDs to rate dictionaries
             with keys 'prompt', 'completion', and 'request'.
 
     Returns:
-        Dict[str, float]: Matched rates dictionary with keys 'prompt', 'completion', 'request'.
+        dict[str, float]: Matched rates dictionary with keys 'prompt', 'completion', 'request'.
             Returns default zero rates if no match is found.
     """
     default_rate = {"prompt": 0.0, "completion": 0.0, "request": 0.0}
@@ -119,7 +122,7 @@ def find_model_rates(
     base_lower = base.lower()
     for m_id, r in rates.items():
         m_lower = m_id.lower()
-        if m_lower == cleaned_lower or m_lower == base_lower:
+        if m_lower in (cleaned_lower, base_lower):
             return r
 
     # 5. Suffix / Substring match (e.g. 'gemini-2.5-flash' in 'google/gemini-2.5-flash')
@@ -131,16 +134,18 @@ def find_model_rates(
     return default_rate
 
 
-def _extract_pricing_rates(raw_models: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+def _extract_pricing_rates(
+    raw_models: list[dict[str, Any]],
+) -> dict[str, dict[str, float]]:
     """Extract and parse per-model pricing rate dictionaries from raw OpenRouter models list.
 
     Args:
-        raw_models (List[Dict[str, Any]]): List of raw model dictionaries returned by the OpenRouter API.
+        raw_models: List of raw model dictionaries returned by the OpenRouter API.
 
     Returns:
-        Dict[str, Dict[str, float]]: Mapping of model ID to {'prompt': float, 'completion': float, 'request': float}.
+        dict[str, dict[str, float]]: Mapping of model ID to {'prompt': float, 'completion': float, 'request': float}.
     """
-    rates: Dict[str, Dict[str, float]] = {}
+    rates: dict[str, dict[str, float]] = {}
     for model in raw_models:
         m_id = model.get("id")
         if not m_id:
@@ -154,14 +159,14 @@ def _extract_pricing_rates(raw_models: List[Dict[str, Any]]) -> Dict[str, Dict[s
     return rates
 
 
-def _update_pricing_cache(rates: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
+def _update_pricing_cache(rates: dict[str, dict[str, float]]) -> dict[str, Any]:
     """Update in-memory pricing cache with new rates and return structured cache metadata.
 
     Args:
-        rates (Dict[str, Dict[str, float]]): Mapping of model IDs to pricing rates.
+        rates: Mapping of model IDs to pricing rates.
 
     Returns:
-        Dict[str, Any]: Cache status summary containing 'rates', 'updated_at', and 'count'.
+        dict[str, Any]: Cache status summary containing 'rates', 'updated_at', and 'count'.
     """
     now = time.time()
     iso_now = datetime.now(timezone.utc).isoformat()
@@ -177,8 +182,8 @@ def _update_pricing_cache(rates: Dict[str, Dict[str, float]]) -> Dict[str, Any]:
 
 
 async def fetch_dynamic_pricing(
-    api_key: Optional[str] = None, force_refresh: bool = False
-) -> Dict[str, Any]:
+    api_key: str | None = None, force_refresh: bool = False
+) -> dict[str, Any]:
     """Fetch live model pricing dynamically from OpenRouter or return cached values.
 
     Checks the in-memory cache first: if the cache is non-empty and has not exceeded
@@ -189,11 +194,11 @@ async def fetch_dynamic_pricing(
     to any existing cached rates, or baseline static fallback rates for default council models.
 
     Args:
-        api_key (Optional[str]): Optional OpenRouter API key override. If omitted, uses configured key.
-        force_refresh (bool): If True, bypasses the TTL cache and forces a live network fetch.
+        api_key: Optional OpenRouter API key override. If omitted, uses configured key.
+        force_refresh: If True, bypasses the TTL cache and forces a live network fetch.
 
     Returns:
-        Dict[str, Any]: Dictionary containing:
+        dict[str, Any]: Dictionary containing:
             - "rates" (dict): Mapping of model IDs to pricing rates.
             - "updated_at" (str): ISO-8601 UTC timestamp of last update.
             - "count" (int): Number of models loaded.
@@ -224,9 +229,12 @@ async def fetch_dynamic_pricing(
             raw_models = data.get("data", [])
             rates = _extract_pricing_rates(raw_models)
             result = _update_pricing_cache(rates)
-            logger.info("Dynamically fetched %d model pricing rates from OpenRouter.", len(rates))
+            logger.info(
+                "Dynamically fetched %d model pricing rates from OpenRouter.",
+                len(rates),
+            )
             return result
-    except Exception as e:
+    except (httpx.HTTPError, OSError) as e:
         logger.warning("Failed to dynamically fetch OpenRouter pricing: %s", e)
         if _PRICING_CACHE["rates"]:
             return {
@@ -235,10 +243,26 @@ async def fetch_dynamic_pricing(
                 "count": _PRICING_CACHE["count"],
             }
         fallback_rates = {
-            "openai/gpt-4o-mini": {"prompt": 0.00000015, "completion": 0.0000006, "request": 0.0},
-            "google/gemini-2.5-flash": {"prompt": 0.0000003, "completion": 0.0000025, "request": 0.0},
-            "anthropic/claude-3-haiku": {"prompt": 0.00000025, "completion": 0.00000125, "request": 0.0},
-            "meta-llama/llama-3.3-70b-instruct": {"prompt": 0.0000001, "completion": 0.00000032, "request": 0.0},
+            "openai/gpt-4o-mini": {
+                "prompt": 0.00000015,
+                "completion": 0.0000006,
+                "request": 0.0,
+            },
+            "google/gemini-2.5-flash": {
+                "prompt": 0.0000003,
+                "completion": 0.0000025,
+                "request": 0.0,
+            },
+            "anthropic/claude-3-haiku": {
+                "prompt": 0.00000025,
+                "completion": 0.00000125,
+                "request": 0.0,
+            },
+            "meta-llama/llama-3.3-70b-instruct": {
+                "prompt": 0.0000001,
+                "completion": 0.00000032,
+                "request": 0.0,
+            },
         }
         return {
             "rates": fallback_rates,
@@ -247,7 +271,7 @@ async def fetch_dynamic_pricing(
         }
 
 
-def get_cached_rates() -> Dict[str, Dict[str, float]]:
+def get_cached_rates() -> dict[str, dict[str, float]]:
     """Return currently cached dynamic rates synchronously, scheduling a background refresh if expired.
 
     Checks whether the cache age exceeds `PRICING_CACHE_TTL` (900 seconds). If expired and an asyncio
@@ -255,7 +279,7 @@ def get_cached_rates() -> Dict[str, Dict[str, float]]:
     without blocking the caller.
 
     Returns:
-        Dict[str, Dict[str, float]]: In-memory mapping of model IDs to rates dictionaries.
+        dict[str, dict[str, float]]: In-memory mapping of model IDs to rates dictionaries.
     """
     now = time.time()
     if (now - _PRICING_CACHE.get("timestamp", 0.0)) >= PRICING_CACHE_TTL:
@@ -268,11 +292,11 @@ def get_cached_rates() -> Dict[str, Dict[str, float]]:
     return _PRICING_CACHE.get("rates") or {}
 
 
-def get_cached_pricing_info() -> Dict[str, Any]:
+def get_cached_pricing_info() -> dict[str, Any]:
     """Return status and metadata for the current in-memory pricing cache.
 
     Returns:
-        Dict[str, Any]: Dictionary containing:
+        dict[str, Any]: Dictionary containing:
             - "rates" (dict): Current model pricing rate tables.
             - "updated_at" (str): ISO-8601 UTC timestamp of last successful fetch.
             - "count" (int): Number of models currently cached.
@@ -285,9 +309,9 @@ def get_cached_pricing_info() -> Dict[str, Any]:
 
 
 def calculate_token_cost(
-    token_usage: Dict[str, Any],
-    rates: Optional[Dict[str, Dict[str, float]]] = None,
-) -> Dict[str, Any]:
+    token_usage: dict[str, Any],
+    rates: dict[str, dict[str, float]] | None = None,
+) -> dict[str, Any]:
     """Calculate estimated dollar spend for a token_usage dictionary using dynamic OpenRouter rates.
 
     For each model entry in `token_usage['by_model']`:
@@ -303,11 +327,11 @@ def calculate_token_cost(
       ($0.15 / 1M prompt tokens, $0.60 / 1M completion tokens).
 
     Args:
-        token_usage (Dict[str, Any]): Mutable token usage dictionary.
-        rates (Optional[Dict[str, Dict[str, float]]]): Optional rates table. If omitted, uses cached rates.
+        token_usage: Mutable token usage dictionary.
+        rates: Optional rates table. If omitted, uses cached rates.
 
     Returns:
-        Dict[str, Any]: The mutated `token_usage` dictionary updated with cost fields.
+        dict[str, Any]: The mutated `token_usage` dictionary updated with cost fields.
     """
     if not token_usage or not isinstance(token_usage, dict):
         return {"total_cost": 0.0, "total_cost_saved": 0.0}
@@ -355,18 +379,18 @@ def calculate_token_cost(
 
 
 async def fetch_openrouter_models(
-    api_key: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    api_key: str | None = None,
+) -> list[dict[str, Any]]:
     """Fetch all available models from OpenRouter API including context windows and pricing.
 
     Also automatically refreshes the in-memory pricing cache (`_PRICING_CACHE`) with the newly
     fetched rates. Results are sorted alphabetically by model name for UI display.
 
     Args:
-        api_key (Optional[str]): Optional OpenRouter API key override.
+        api_key: Optional OpenRouter API key override.
 
     Returns:
-        List[Dict[str, Any]]: List of model description dicts, each with:
+        list[dict[str, Any]]: List of model description dicts, each with:
             - "id" (str): Full identifier (e.g., 'openai/gpt-4o').
             - "name" (str): Human-readable model display name.
             - "context_length" (int): Maximum input context window tokens.
@@ -414,19 +438,26 @@ async def fetch_openrouter_models(
         return formatted_models
 
 
-_last_model_errors: Dict[str, str] = {}
+_last_model_errors: dict[str, str] = {}
 
 
-def get_last_model_error(model: str) -> Optional[str]:
-    """Get the most recent error message for an OpenRouter model query, if any."""
+def get_last_model_error(model: str) -> str | None:
+    """Get the most recent error message for an OpenRouter model query, if any.
+
+    Args:
+        model: OpenRouter model identifier.
+
+    Returns:
+        str | None: The last error message recorded for this model, or None.
+    """
     return _last_model_errors.get(model)
 
 
 async def query_model(
     model: str,
-    messages: List[Dict[str, str]],
+    messages: list[dict[str, str]],
     timeout: float = 120.0,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Query a single LLM model via OpenRouter API with error isolation and token accounting.
 
     Execution Flow:
@@ -441,14 +472,14 @@ async def query_model(
          for graceful degradation.
 
     Args:
-        model (str): OpenRouter model identifier (e.g. 'openai/gpt-4o-mini', 'google/gemini-2.5-flash').
-        messages (List[Dict[str, str]]): List of chat message dicts with 'role' and 'content'.
-        timeout (float): Maximum request duration in seconds before timing out. Defaults to 120.0.
+        model: OpenRouter model identifier (e.g. 'openai/gpt-4o-mini', 'google/gemini-2.5-flash').
+        messages: List of chat message dicts with 'role' and 'content'.
+        timeout: Maximum request duration in seconds before timing out. Defaults to 120.0.
 
     Returns:
-        Optional[Dict[str, Any]]: Response dictionary containing:
+        dict[str, Any] | None: Response dictionary containing:
             - "content" (str): Generated assistant response text.
-            - "reasoning_details" (Optional[Any]): Chain-of-thought details if supported by model.
+            - "reasoning_details" (Any | None): Chain-of-thought details if supported by model.
             - "usage" (dict): Token metrics:
                 - "prompt_tokens" (int)
                 - "completion_tokens" (int)
@@ -480,7 +511,7 @@ async def query_model(
         effective_messages = comp_res.messages
         tokens_saved = comp_res.tokens_saved
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": effective_messages,
     }
@@ -529,7 +560,7 @@ async def query_model(
         try:
             err_json = e.response.json()
             error_msg = err_json.get("error", {}).get("message") or error_preview
-        except Exception:
+        except (ValueError, json.JSONDecodeError, AttributeError):
             error_msg = error_preview
         _last_model_errors[model] = f"HTTP {status_code}: {error_msg}"
         logger.error(
@@ -541,19 +572,21 @@ async def query_model(
         return None
     except httpx.TimeoutException:
         _last_model_errors[model] = f"Timeout ({timeout}s) querying OpenRouter"
-        logger.warning("Timeout (%ss) while querying model %s via OpenRouter", timeout, model)
+        logger.warning(
+            "Timeout (%ss) while querying model %s via OpenRouter", timeout, model
+        )
         return None
     except Exception as e:
         _last_model_errors[model] = f"Unexpected error: {e}"
-        logger.exception("Unexpected error querying model %s: %s", model, e)
+        logger.exception("Unexpected error querying model %s", model)
         return None
 
 
 async def query_models_parallel(
-    models: List[str],
-    messages: List[Dict[str, str]],
+    models: list[str],
+    messages: list[dict[str, str]],
     timeout: float = 180.0,
-) -> Dict[str, Optional[Dict[str, Any]]]:
+) -> dict[str, dict[str, Any] | None]:
     """Query multiple models concurrently using asyncio.gather with timeout and cancellation safety.
 
     Creates an async query task for each model in `models`. If the entire batch exceeds
@@ -564,15 +597,14 @@ async def query_models_parallel(
     if one or more council models encounter an error, deliberation proceeds with the surviving models.
 
     Args:
-        models (List[str]): List of OpenRouter model identifiers to query.
-        messages (List[Dict[str, str]]): List of chat message dicts to send to every model.
-        timeout (float): Global timeout in seconds for all models to complete. Defaults to 180.0.
+        models: List of OpenRouter model identifiers to query.
+        messages: List of chat message dicts to send to every model.
+        timeout: Global timeout in seconds for all models to complete. Defaults to 180.0.
 
     Returns:
-        Dict[str, Optional[Dict[str, Any]]]: Mapping of model identifier to response dict
+        dict[str, dict[str, Any] | None]: Mapping of model identifier to response dict
             (or None if that specific model failed or timed out).
     """
-    # Create concurrent query tasks for all models
     tasks = [
         asyncio.create_task(query_model(model, messages, timeout=timeout))
         for model in models
@@ -583,7 +615,6 @@ async def query_models_parallel(
             asyncio.gather(*tasks, return_exceptions=True), timeout=timeout
         )
     except asyncio.TimeoutError:
-        # Cancel any tasks that are still running and mark them as timed out
         for task in tasks:
             if not task.done():
                 task.cancel()
@@ -592,12 +623,11 @@ async def query_models_parallel(
         for task in tasks:
             try:
                 response = await task
-            except Exception:
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 response = None
             responses.append(response)
     else:
-        # Normalize any captured exceptions to None for graceful degradation
-        normalized = []
+        normalized: list[dict[str, Any] | None] = []
         for response in responses:
             if isinstance(response, Exception):
                 normalized.append(None)
@@ -605,6 +635,4 @@ async def query_models_parallel(
                 normalized.append(response)
         responses = normalized
 
-    # Map models to their respective responses
-    return {model: response for model, response in zip(models, responses)}
-
+    return {model: response for model, response in zip(models, responses, strict=False)}

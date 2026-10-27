@@ -20,30 +20,33 @@ for the LLM Council application, orchestrating:
    - System configuration and user preferences persistence.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from contextlib import asynccontextmanager
-
 from . import storage
+from .agent import CouncilAgent
+from .compression import (
+    compress_messages,
+    get_compression_stats,
+    reset_compression_stats,
+)
 from .config import (
     get_default_mode,
     get_sensitivity_config,
     get_settings,
     save_settings,
-)
-from .openrouter import (
-    fetch_openrouter_models,
-    fetch_dynamic_pricing,
 )
 from .council import (
     calculate_aggregate_rankings,
@@ -56,19 +59,17 @@ from .council import (
     stage3_synthesize_final,
     stage4_generate_action_plan,
 )
-from .agent import CouncilAgent
 from .mcp_client_manager import mcp_manager
-from .compression import (
-    compress_messages,
-    get_compression_stats,
-    reset_compression_stats,
+from .openrouter import (
+    fetch_dynamic_pricing,
+    fetch_openrouter_models,
 )
 from .workflows import (
-    load_workflows,
-    get_workflow,
-    save_workflow,
     delete_workflow,
     execute_workflow_stream,
+    get_workflow,
+    load_workflows,
+    save_workflow,
     validate_workflow,
 )
 
@@ -135,7 +136,7 @@ def _sse_event(event_type: str, data: Any = None, **kwargs) -> str:
     Returns:
         str: Serialized SSE event frame string.
     """
-    payload: Dict[str, Any] = {"type": event_type, **kwargs}
+    payload: dict[str, Any] = {"type": event_type, **kwargs}
     if data is not None:
         payload["data"] = data
     return f"data: {json.dumps(payload)}\n\n"
@@ -154,14 +155,13 @@ app.add_middleware(
 class CreateConversationRequest(BaseModel):
     """Request payload for creating a new conversation."""
 
-    mode: Optional[str] = "informational"
+    mode: str | None = "informational"
 
 
 class UpdateConversationModeRequest(BaseModel):
     """Request payload for updating the conversation mode."""
 
     mode: str
-
 
 
 class SendMessageRequest(BaseModel):
@@ -175,7 +175,7 @@ class ActionRequest(BaseModel):
 
     request: str
     execute: bool = True  # Whether to actually execute the action plan tools
-    conversation_id: Optional[str] = None
+    conversation_id: str | None = None
 
 
 class ExecuteStoredActionRequest(BaseModel):
@@ -188,10 +188,10 @@ class AgentRunRequest(BaseModel):
     """Request payload to start an autonomous Council Chairperson agent run."""
 
     request: str
-    conversation_id: Optional[str] = None
-    max_steps: Optional[int] = 20
-    deliberation_sensitivity: Optional[str] = "medium"
-    sensitivity_config: Optional[Dict[str, Any]] = None
+    conversation_id: str | None = None
+    max_steps: int | None = 20
+    deliberation_sensitivity: str | None = "medium"
+    sensitivity_config: dict[str, Any] | None = None
 
 
 class CancelAgentRequest(BaseModel):
@@ -203,34 +203,34 @@ class CancelAgentRequest(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     """Request payload for updating application configuration settings."""
 
-    openrouter_api_key: Optional[str] = None
-    council_models: Optional[List[str]] = None
-    chairman_model: Optional[str] = None
-    show_token_count: Optional[bool] = None
-    show_tokens_per_model: Optional[bool] = None
-    show_spend_value: Optional[bool] = None
-    show_saved_tokens: Optional[bool] = None
-    enable_token_compression: Optional[bool] = None
-    compression_algorithm: Optional[str] = None
-    show_all_deliberation_steps: Optional[bool] = None
-    assistant_color: Optional[str] = None
-    user_color: Optional[str] = None
-    sensitivity_config: Optional[Dict[str, Any]] = None
-    default_mode: Optional[str] = None
+    openrouter_api_key: str | None = None
+    council_models: list[str] | None = None
+    chairman_model: str | None = None
+    show_token_count: bool | None = None
+    show_tokens_per_model: bool | None = None
+    show_spend_value: bool | None = None
+    show_saved_tokens: bool | None = None
+    enable_token_compression: bool | None = None
+    compression_algorithm: str | None = None
+    show_all_deliberation_steps: bool | None = None
+    assistant_color: str | None = None
+    user_color: str | None = None
+    sensitivity_config: dict[str, Any] | None = None
+    default_mode: str | None = None
 
 
 class CompressionPreviewRequest(BaseModel):
     """Request payload to preview token compression effects on sample messages."""
 
-    messages: List[Dict[str, Any]]
-    model: Optional[str] = "openai/gpt-4o-mini"
-    algorithm: Optional[str] = "headroom"
+    messages: list[dict[str, Any]]
+    model: str | None = "openai/gpt-4o-mini"
+    algorithm: str | None = "headroom"
 
 
 class ToggleMcpServerRequest(BaseModel):
     """Request payload to toggle or explicitly set the enabled status for an MCP server."""
 
-    enabled: Optional[bool] = None
+    enabled: bool | None = None
 
 
 class AddMcpServerRequest(BaseModel):
@@ -238,8 +238,8 @@ class AddMcpServerRequest(BaseModel):
 
     name: str
     command: str
-    args: Optional[List[str]] = []
-    env: Optional[Dict[str, str]] = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
     enabled: bool = True
     overwrite: bool = False
 
@@ -247,21 +247,21 @@ class AddMcpServerRequest(BaseModel):
 class SaveWorkflowRequest(BaseModel):
     """Request payload to create or update a custom workflow."""
 
-    id: Optional[str] = None
+    id: str | None = None
     name: str
-    description: Optional[str] = ""
-    is_template: Optional[bool] = False
-    nodes: List[Dict[str, Any]]
-    edges: List[Dict[str, Any]]
+    description: str | None = ""
+    is_template: bool | None = False
+    nodes: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
 
 
 class RunWorkflowRequest(BaseModel):
     """Request payload to run a custom workflow via streaming."""
 
-    workflow_id: Optional[str] = None
-    workflow: Optional[Dict[str, Any]] = None
+    workflow_id: str | None = None
+    workflow: dict[str, Any] | None = None
     input: str
-    conversation_id: Optional[str] = None
+    conversation_id: str | None = None
 
 
 class ConversationMetadata(BaseModel):
@@ -271,8 +271,8 @@ class ConversationMetadata(BaseModel):
     created_at: str
     title: str
     message_count: int
-    mode: Optional[str] = "informational"
-    token_usage: Optional[Dict[str, Any]] = None
+    mode: str | None = "informational"
+    token_usage: dict[str, Any] | None = None
 
 
 class Conversation(BaseModel):
@@ -281,9 +281,9 @@ class Conversation(BaseModel):
     id: str
     created_at: str
     title: str
-    mode: Optional[str] = "informational"
-    messages: List[Dict[str, Any]]
-    token_usage: Optional[Dict[str, Any]] = None
+    mode: str | None = "informational"
+    messages: list[dict[str, Any]]
+    token_usage: dict[str, Any] | None = None
 
 
 @app.get("/api/health")
@@ -293,13 +293,13 @@ async def health_check():
 
 
 @app.get("/api/models")
-async def get_openrouter_models_endpoint(api_key: Optional[str] = None):
+async def get_openrouter_models_endpoint(api_key: str | None = None):
     """Fetch available OpenRouter models."""
     try:
         models = await fetch_openrouter_models(api_key)
         return {"success": True, "models": models}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/pricing")
@@ -309,7 +309,7 @@ async def get_pricing_endpoint():
         pricing_data = await fetch_dynamic_pricing()
         return {"success": True, **pricing_data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/pricing/refresh")
@@ -319,7 +319,7 @@ async def refresh_pricing_endpoint():
         pricing_data = await fetch_dynamic_pricing(force_refresh=True)
         return {"success": True, **pricing_data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/settings")
@@ -340,7 +340,7 @@ async def save_settings_endpoint(request: UpdateSettingsRequest):
         updated = save_settings(data)
         return {"success": True, "settings": updated}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/compression/stats")
@@ -348,7 +348,7 @@ async def get_compression_stats_endpoint():
     """Get cumulative token compression metrics across the current backend session.
 
     Returns:
-        Dict[str, Any]: Aggregate statistics including:
+        dict[str, Any]: Aggregate statistics including:
             - tokens_before (int): Cumulative uncompressed token count.
             - tokens_after (int): Cumulative compressed token count.
             - tokens_saved (int): Net tokens saved across all compressed prompts.
@@ -362,7 +362,7 @@ async def get_compression_stats_endpoint():
         stats = get_compression_stats()
         return {"success": True, "stats": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/compression/preview")
@@ -377,7 +377,7 @@ async def preview_compression_endpoint(request: CompressionPreviewRequest):
         request: CompressionPreviewRequest containing messages, model, and algorithm.
 
     Returns:
-        Dict[str, Any]: Detailed preview payload with before/after token counts and
+        dict[str, Any]: Detailed preview payload with before/after token counts and
             the transformed message list.
     """
     try:
@@ -400,7 +400,7 @@ async def preview_compression_endpoint(request: CompressionPreviewRequest):
             },
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/compression/reset-stats")
@@ -408,7 +408,7 @@ async def reset_compression_stats_endpoint():
     """Reset cumulative in-memory compression metrics back to zero.
 
     Returns:
-        Dict[str, Any]: Confirmation message and zeroed compression statistics.
+        dict[str, Any]: Confirmation message and zeroed compression statistics.
     """
     try:
         reset_compression_stats()
@@ -418,7 +418,7 @@ async def reset_compression_stats_endpoint():
             "stats": get_compression_stats(),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/mcp/tools")
@@ -426,7 +426,7 @@ async def get_mcp_tools():
     """Get all available tools from connected MCP servers and their operational statuses.
 
     Returns:
-        Dict[str, Any]: Aggregated dictionary containing:
+        dict[str, Any]: Aggregated dictionary containing:
             - tools: List of tool schemas across all active servers.
             - statuses: Per-server connection health statuses ('connected', 'connecting', 'stopped', 'error').
             - servers: Configuration metadata for all known MCP servers.
@@ -440,7 +440,7 @@ async def get_mcp_tools():
             "servers": mcp_manager.get_servers_metadata(),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/mcp/servers")
@@ -448,7 +448,7 @@ async def get_mcp_servers():
     """Get metadata and connection statuses for all configured MCP servers.
 
     Returns:
-        Dict[str, Any]: Server metadata list including name, command, transport, and enabled status.
+        dict[str, Any]: Server metadata list including name, command, transport, and enabled status.
     """
     try:
         return {
@@ -456,12 +456,12 @@ async def get_mcp_servers():
             "servers": mcp_manager.get_servers_metadata(),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/mcp/servers/{server_name}/toggle")
 async def toggle_mcp_server(
-    server_name: str, request: Optional[ToggleMcpServerRequest] = None
+    server_name: str, request: ToggleMcpServerRequest | None = None
 ):
     """Enable or disable a specific MCP server dynamically at runtime.
 
@@ -472,7 +472,7 @@ async def toggle_mcp_server(
         request: Optional body specifying desired enabled state; toggles current state if omitted.
 
     Returns:
-        Dict[str, Any]: Result dictionary containing updated server status.
+        dict[str, Any]: Result dictionary containing updated server status.
     """
     try:
         if request and request.enabled is not None:
@@ -484,9 +484,9 @@ async def toggle_mcp_server(
         result = await mcp_manager.set_server_enabled(server_name, target_enabled)
         return {"success": True, **result}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/mcp/servers")
@@ -507,10 +507,10 @@ async def add_mcp_server(request: AddMcpServerRequest):
         )
         return {"success": True, **result}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to add MCP server: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/api/mcp/servers/{server_name}")
@@ -520,27 +520,27 @@ async def delete_mcp_server(server_name: str):
         result = await mcp_manager.remove_server(server_name)
         return {"success": True, **result}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to delete MCP server: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/api/conversations", response_model=List[ConversationMetadata])
+@app.get("/api/conversations", response_model=list[ConversationMetadata])
 async def list_conversations():
     """List summary metadata for all conversations, sorted newest first.
 
     Used by the frontend sidebar to populate conversation history.
 
     Returns:
-        List[ConversationMetadata]: Conversation descriptors with ID, title, message count,
+        list[ConversationMetadata]: Conversation descriptors with ID, title, message count,
             mode, and cumulative token usage.
     """
     return storage.list_conversations()
 
 
 @app.post("/api/conversations", response_model=Conversation)
-async def create_conversation(request: Optional[CreateConversationRequest] = None):
+async def create_conversation(request: CreateConversationRequest | None = None):
     """Create a new empty conversation with a generated UUID.
 
     Args:
@@ -567,7 +567,7 @@ async def update_conversation_mode_endpoint(
         request: Payload containing the new mode string.
 
     Returns:
-        Dict[str, str]: Status confirmation and new mode.
+        dict[str, str]: Status confirmation and new mode.
     """
     updated = storage.update_conversation_mode(conversation_id, request.mode)
     if updated is None:
@@ -599,7 +599,7 @@ async def delete_conversation_endpoint(conversation_id: str):
         conversation_id: Unique UUID of the conversation.
 
     Returns:
-        Dict[str, Any]: Status confirmation.
+        dict[str, Any]: Status confirmation.
     """
     deleted = storage.delete_conversation(conversation_id)
     if not deleted:
@@ -612,10 +612,14 @@ async def clear_all_conversations_endpoint():
     """Clear all historical conversations from storage.
 
     Returns:
-        Dict[str, Any]: Status confirmation and count of deleted conversations.
+        dict[str, Any]: Status confirmation and count of deleted conversations.
     """
     count = storage.clear_all_conversations()
-    return {"success": True, "deleted_count": count, "message": f"Cleared {count} conversations"}
+    return {
+        "success": True,
+        "deleted_count": count,
+        "message": f"Cleared {count} conversations",
+    }
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -631,7 +635,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         request: Payload containing the user's message text.
 
     Returns:
-        Dict[str, Any]: Complete deliberation outcome with stage1, stage2, stage3,
+        dict[str, Any]: Complete deliberation outcome with stage1, stage2, stage3,
             metadata, and cumulative token usage.
     """
     # Check if conversation exists
@@ -760,7 +764,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             conv_tokens = conv_updated.get("token_usage") if conv_updated else None
 
             # Send completion event with updated token usage
-            yield _sse_event("complete", {"token_usage": conv_tokens}, token_usage=conv_tokens)
+            yield _sse_event(
+                "complete", {"token_usage": conv_tokens}, token_usage=conv_tokens
+            )
 
         except Exception as e:
             # Send error event
@@ -790,7 +796,7 @@ async def perform_action(request: ActionRequest):
         request: ActionRequest specifying user request, execution flag, and optional conversation ID.
 
     Returns:
-        Dict[str, Any]: Comprehensive result including all stages and execution outputs.
+        dict[str, Any]: Comprehensive result including all stages and execution outputs.
     """
     if request.conversation_id is not None:
         conversation = storage.get_conversation(request.conversation_id)
@@ -826,7 +832,7 @@ async def perform_action(request: ActionRequest):
 
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Action failed: {e}") from e
 
 
 @app.post("/api/action/stream")
@@ -939,7 +945,9 @@ async def perform_action_stream(request: ActionRequest):
                 conv_updated = storage.get_conversation(request.conversation_id)
                 conv_tokens = conv_updated.get("token_usage") if conv_updated else None
 
-            yield _sse_event("complete", {"token_usage": conv_tokens}, token_usage=conv_tokens)
+            yield _sse_event(
+                "complete", {"token_usage": conv_tokens}, token_usage=conv_tokens
+            )
 
         except Exception as e:
             yield _sse_event("error", message=str(e))
@@ -1009,7 +1017,7 @@ async def execute_stored_action_stream(request: ExecuteStoredActionRequest):
 
 
 # In-memory registry of active agent runs mapped by conversation ID
-active_agents: Dict[str, CouncilAgent] = {}
+active_agents: dict[str, CouncilAgent] = {}
 
 
 @app.post("/api/agent/cancel")
@@ -1023,7 +1031,7 @@ async def cancel_agent(request: CancelAgentRequest):
         request: CancelAgentRequest containing the target conversation_id.
 
     Returns:
-        Dict[str, Any]: Status payload indicating whether an active agent was found and signalled.
+        dict[str, Any]: Status payload indicating whether an active agent was found and signalled.
     """
     agent = active_agents.get(request.conversation_id)
     if agent:
@@ -1157,7 +1165,7 @@ async def run_agent_stream(request: AgentRunRequest):
             # Event forwarder from agent to SSE
             queue = asyncio.Queue()
 
-            async def on_agent_event(event_type: str, data: Dict[str, Any]):
+            async def on_agent_event(event_type: str, data: dict[str, Any]):
                 """Queue agent lifecycle and tool execution events for SSE emission."""
                 await queue.put((event_type, data))
 
@@ -1168,7 +1176,7 @@ async def run_agent_stream(request: AgentRunRequest):
                 try:
                     event_type, data = await asyncio.wait_for(queue.get(), timeout=0.1)
                     yield _sse_event(event_type, data)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
 
             agent_result = await agent_task
@@ -1183,7 +1191,9 @@ async def run_agent_stream(request: AgentRunRequest):
                     artifacts=agent.artifacts,
                     summary=agent.summary,
                     error=agent.error,
-                    status="cancelled" if agent.is_cancelled else ("completed" if agent.is_completed else "failed"),
+                    status="cancelled"
+                    if agent.is_cancelled
+                    else ("completed" if agent.is_completed else "failed"),
                     token_usage=agent_result.get("token_usage"),
                 )
 
@@ -1220,12 +1230,13 @@ async def run_agent_stream(request: AgentRunRequest):
 # Custom Workflows Endpoints
 # ==============================================================================
 
+
 @app.get("/api/workflows")
 async def list_workflows_endpoint():
     """List all available workflows including built-in templates and custom saved graphs.
 
     Returns:
-        Dict[str, Any]: List of workflow objects under 'workflows'.
+        dict[str, Any]: List of workflow objects under 'workflows'.
     """
     workflows = load_workflows()
     return {"workflows": workflows}
@@ -1239,7 +1250,7 @@ async def get_workflow_endpoint(workflow_id: str):
         workflow_id: Unique workflow identifier.
 
     Returns:
-        Dict[str, Any]: Workflow graph definition.
+        dict[str, Any]: Workflow graph definition.
     """
     workflow = get_workflow(workflow_id)
     if not workflow:
@@ -1255,17 +1266,17 @@ async def save_workflow_endpoint(request: SaveWorkflowRequest):
         request: Workflow definition containing nodes and directed edges.
 
     Returns:
-        Dict[str, Any]: Saved workflow object.
+        dict[str, Any]: Saved workflow object.
     """
     try:
         wf_data = request.model_dump()
         saved = save_workflow(wf_data)
         return saved
     except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:
         logger.exception("Failed to save workflow: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/api/workflows/{workflow_id}")
@@ -1276,7 +1287,7 @@ async def delete_workflow_endpoint(workflow_id: str):
         workflow_id: Workflow identifier to delete.
 
     Returns:
-        Dict[str, Any]: Success status indicator.
+        dict[str, Any]: Success status indicator.
     """
     success = delete_workflow(workflow_id)
     if not success:
@@ -1310,7 +1321,9 @@ async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
 
     is_valid, error_msg = validate_workflow(workflow)
     if not is_valid:
-        raise HTTPException(status_code=400, detail=f"Invalid workflow graph: {error_msg}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid workflow graph: {error_msg}"
+        )
 
     conv_id = request.conversation_id
     is_first_message = False
@@ -1319,10 +1332,14 @@ async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
         if conv:
             is_first_message = len(conv.get("messages", [])) == 0
         else:
-            conv = storage.create_conversation(conversation_id=conv_id, mode="custom_workflows")
+            conv = storage.create_conversation(
+                conversation_id=conv_id, mode="custom_workflows"
+            )
             is_first_message = True
     else:
-        conv = storage.create_conversation(conversation_id=str(uuid.uuid4()), mode="custom_workflows")
+        conv = storage.create_conversation(
+            conversation_id=str(uuid.uuid4()), mode="custom_workflows"
+        )
         conv_id = conv["id"]
         is_first_message = True
 
@@ -1356,8 +1373,12 @@ async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
                 storage.add_workflow_message(
                     conversation_id=conv_id,
                     user_input=request.input,
-                    workflow_id=final_wf_event.get("workflow_id", workflow.get("id", "workflow")),
-                    workflow_name=final_wf_event.get("workflow_name", workflow.get("name", "Custom Workflow")),
+                    workflow_id=final_wf_event.get(
+                        "workflow_id", workflow.get("id", "workflow")
+                    ),
+                    workflow_name=final_wf_event.get(
+                        "workflow_name", workflow.get("name", "Custom Workflow")
+                    ),
                     nodes=final_wf_event.get("nodes", []),
                     edges=final_wf_event.get("edges", []),
                     final_output=final_wf_event.get("final_output", ""),
@@ -1372,8 +1393,12 @@ async def run_workflow_stream_endpoint(request: RunWorkflowRequest):
                 "complete",
                 {
                     "conversation_id": conv_id,
-                    "status": final_wf_event.get("status", "completed") if final_wf_event else "completed",
-                    "final_output": final_wf_event.get("final_output", "") if final_wf_event else "",
+                    "status": final_wf_event.get("status", "completed")
+                    if final_wf_event
+                    else "completed",
+                    "final_output": final_wf_event.get("final_output", "")
+                    if final_wf_event
+                    else "",
                 },
                 token_usage=conv_tokens,
             )
@@ -1397,8 +1422,11 @@ frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    app.mount(
+        "/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend"
+    )
 else:
+
     @app.get("/")
     async def root():
         """Health check endpoint when frontend is served separately in development."""

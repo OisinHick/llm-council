@@ -80,23 +80,22 @@ curl -X POST http://localhost:8001/api/action \
 import asyncio
 import httpx
 
+
 async def test():
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "http://localhost:8001/api/action",
-            json={
-                "request": "Check system uptime",
-                "execute": True
-            },
-            timeout=300.0
+            json={"request": "Check system uptime", "execute": True},
+            timeout=300.0,
         )
         result = response.json()
-        
+
         # Check execution result
         if result.get("execution", {}).get("success"):
             print("✓ Task executed successfully!")
         else:
             print("✗ Task failed")
+
 
 asyncio.run(test())
 ```

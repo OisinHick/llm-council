@@ -8,14 +8,17 @@ This module provides:
   5. Asynchronous streaming execution engine querying LLM models and emitting SSE events.
 """
 
+from __future__ import annotations
+
 import asyncio
 import copy
 import json
 import logging
 import re
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from .config import WORKFLOWS_FILE
 from .openrouter import calculate_token_cost, query_model
@@ -27,7 +30,7 @@ logger = logging.getLogger("llm_council.workflows")
 # Built-in Default Workflow Templates
 # ==============================================================================
 
-DEFAULT_WORKFLOWS: List[Dict[str, Any]] = [
+DEFAULT_WORKFLOWS: list[dict[str, Any]] = [
     {
         "id": "chain-refinement",
         "name": "Sequential Chain Refinement",
@@ -93,10 +96,34 @@ DEFAULT_WORKFLOWS: List[Dict[str, Any]] = [
             },
         ],
         "edges": [
-            {"id": "e_in_draft", "source": "node_input", "target": "node_draft", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_draft_critique", "source": "node_draft", "target": "node_critique", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_critique_polish", "source": "node_critique", "target": "node_polish", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_polish_out", "source": "node_polish", "target": "node_output", "sourceHandle": "out", "targetHandle": "in"},
+            {
+                "id": "e_in_draft",
+                "source": "node_input",
+                "target": "node_draft",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_draft_critique",
+                "source": "node_draft",
+                "target": "node_critique",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_critique_polish",
+                "source": "node_critique",
+                "target": "node_polish",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_polish_out",
+                "source": "node_polish",
+                "target": "node_output",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
         ],
     },
     {
@@ -162,11 +189,41 @@ DEFAULT_WORKFLOWS: List[Dict[str, Any]] = [
             },
         ],
         "edges": [
-            {"id": "e_in_creative", "source": "node_input", "target": "node_creative", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_in_analytical", "source": "node_input", "target": "node_analytical", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_creative_synthesis", "source": "node_creative", "target": "node_synthesis", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_analytical_synthesis", "source": "node_analytical", "target": "node_synthesis", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_synthesis_out", "source": "node_synthesis", "target": "node_output", "sourceHandle": "out", "targetHandle": "in"},
+            {
+                "id": "e_in_creative",
+                "source": "node_input",
+                "target": "node_creative",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_in_analytical",
+                "source": "node_input",
+                "target": "node_analytical",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_creative_synthesis",
+                "source": "node_creative",
+                "target": "node_synthesis",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_analytical_synthesis",
+                "source": "node_analytical",
+                "target": "node_synthesis",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_synthesis_out",
+                "source": "node_synthesis",
+                "target": "node_output",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
         ],
     },
     {
@@ -233,11 +290,41 @@ DEFAULT_WORKFLOWS: List[Dict[str, Any]] = [
             },
         ],
         "edges": [
-            {"id": "e_in_arch", "source": "node_input", "target": "node_architect", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_in_sec", "source": "node_input", "target": "node_security", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_arch_eng", "source": "node_architect", "target": "node_engineer", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_sec_eng", "source": "node_security", "target": "node_engineer", "sourceHandle": "out", "targetHandle": "in"},
-            {"id": "e_eng_out", "source": "node_engineer", "target": "node_output", "sourceHandle": "out", "targetHandle": "in"},
+            {
+                "id": "e_in_arch",
+                "source": "node_input",
+                "target": "node_architect",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_in_sec",
+                "source": "node_input",
+                "target": "node_security",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_arch_eng",
+                "source": "node_architect",
+                "target": "node_engineer",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_sec_eng",
+                "source": "node_security",
+                "target": "node_engineer",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
+            {
+                "id": "e_eng_out",
+                "source": "node_engineer",
+                "target": "node_output",
+                "sourceHandle": "out",
+                "targetHandle": "in",
+            },
         ],
     },
 ]
@@ -247,11 +334,12 @@ DEFAULT_WORKFLOWS: List[Dict[str, Any]] = [
 # Persistence & Storage
 # ==============================================================================
 
-def load_workflows() -> List[Dict[str, Any]]:
+
+def load_workflows() -> list[dict[str, Any]]:
     """Load workflows from disk, initializing with default templates if not present.
 
     Returns:
-        List[Dict[str, Any]]: List of workflow definitions.
+        list[dict[str, Any]]: List of workflow definitions.
     """
     file_path = WORKFLOWS_FILE
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +354,7 @@ def load_workflows() -> List[Dict[str, Any]]:
         return initial
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with file_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         workflows = data.get("workflows", [])
         if not isinstance(workflows, list):
@@ -293,14 +381,14 @@ def load_workflows() -> List[Dict[str, Any]]:
         return copy.deepcopy(DEFAULT_WORKFLOWS)
 
 
-def get_workflow(workflow_id: str) -> Optional[Dict[str, Any]]:
+def get_workflow(workflow_id: str) -> dict[str, Any] | None:
     """Retrieve a specific workflow by its ID.
 
     Args:
         workflow_id: Unique identifier of the workflow.
 
     Returns:
-        Optional[Dict[str, Any]]: Workflow object or None if not found.
+        dict[str, Any] or None: Workflow object or None if not found.
     """
     workflows = load_workflows()
     for wf in workflows:
@@ -309,14 +397,14 @@ def get_workflow(workflow_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def save_workflow(workflow_data: Dict[str, Any]) -> Dict[str, Any]:
+def save_workflow(workflow_data: dict[str, Any]) -> dict[str, Any]:
     """Create or update a workflow definition and atomically persist to disk.
 
     Args:
         workflow_data: Dictionary defining workflow properties, nodes, and edges.
 
     Returns:
-        Dict[str, Any]: The saved workflow with updated metadata.
+        dict[str, Any]: The saved workflow with updated metadata.
 
     Raises:
         ValueError: If graph validation fails.
@@ -365,7 +453,9 @@ def delete_workflow(workflow_id: str) -> bool:
     for idx, wf in enumerate(workflows):
         if wf.get("id") == workflow_id:
             if wf.get("is_template", False):
-                logger.warning("Attempted to delete protected template workflow: %s", workflow_id)
+                logger.warning(
+                    "Attempted to delete protected template workflow: %s", workflow_id
+                )
                 return False
             target_idx = idx
             break
@@ -382,7 +472,8 @@ def delete_workflow(workflow_id: str) -> bool:
 # Graph Validation and Topological Sorting
 # ==============================================================================
 
-def validate_workflow(workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+
+def validate_workflow(workflow: dict[str, Any]) -> tuple[bool, str | None]:
     """Validate that the workflow graph is a well-formed Directed Acyclic Graph (DAG).
 
     Verification checks:
@@ -396,7 +487,7 @@ def validate_workflow(workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         workflow: Workflow dictionary to validate.
 
     Returns:
-        Tuple[bool, Optional[str]]: (True, None) if valid, or (False, error_reason).
+        tuple[bool, str | None]: (True, None) if valid, or (False, error_reason).
     """
     if not isinstance(workflow, dict):
         return False, "Workflow payload must be an object."
@@ -409,7 +500,7 @@ def validate_workflow(workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     if not isinstance(nodes, list) or len(nodes) == 0:
         return False, "Workflow must contain at least one node."
 
-    node_ids: Set[str] = set()
+    node_ids: set[str] = set()
     has_input = False
     has_output = False
 
@@ -453,8 +544,8 @@ def validate_workflow(workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
             return False, f"Edge references nonexistent target node: '{tgt}'."
 
     # Cycle detection via Kahn's algorithm
-    in_degree: Dict[str, int] = {nid: 0 for nid in node_ids}
-    adj: Dict[str, List[str]] = {nid: [] for nid in node_ids}
+    in_degree: dict[str, int] = {nid: 0 for nid in node_ids}
+    adj: dict[str, list[str]] = {nid: [] for nid in node_ids}
 
     for edge in edges:
         src = edge["source"]
@@ -480,8 +571,8 @@ def validate_workflow(workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
 
 
 def get_topological_execution_layers(
-    nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]
-) -> List[List[Dict[str, Any]]]:
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> list[list[dict[str, Any]]]:
     """Group nodes into parallel execution layers based on DAG topological dependencies.
 
     Nodes within the same layer have all their dependencies satisfied and can run
@@ -492,11 +583,11 @@ def get_topological_execution_layers(
         edges: List of directed edge connections.
 
     Returns:
-        List[List[Dict[str, Any]]]: Ordered list of node layers.
+        list[list[dict[str, Any]]]: Ordered list of node layers.
     """
     node_map = {n["id"]: n for n in nodes}
-    in_degree: Dict[str, int] = {n["id"]: 0 for n in nodes}
-    adj: Dict[str, List[str]] = {n["id"]: [] for n in nodes}
+    in_degree: dict[str, int] = {n["id"]: 0 for n in nodes}
+    adj: dict[str, list[str]] = {n["id"]: [] for n in nodes}
 
     for edge in edges:
         src = edge.get("source")
@@ -505,7 +596,7 @@ def get_topological_execution_layers(
             adj[src].append(tgt)
             in_degree[tgt] += 1
 
-    layers: List[List[Dict[str, Any]]] = []
+    layers: list[list[dict[str, Any]]] = []
     current_layer = [nid for nid, deg in in_degree.items() if deg == 0]
 
     while current_layer:
@@ -525,12 +616,13 @@ def get_topological_execution_layers(
 # Prompt Interpolation
 # ==============================================================================
 
+
 def interpolate_prompt(
     template: str,
     user_input: str,
-    predecessor_outputs: Dict[str, str],
-    all_outputs: Dict[str, str],
-    node_labels: Dict[str, str],
+    predecessor_outputs: dict[str, str],
+    all_outputs: dict[str, str],
+    node_labels: dict[str, str],
 ) -> str:
     """Evaluate and interpolate prompt template variables.
 
@@ -589,10 +681,11 @@ def interpolate_prompt(
 # Streaming Execution Engine
 # ==============================================================================
 
+
 async def execute_workflow_stream(
-    workflow: Dict[str, Any],
+    workflow: dict[str, Any],
     user_input: str,
-) -> AsyncGenerator[Dict[str, Any], None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Execute a workflow DAG and yield real-time SSE execution events.
 
     Events yielded:
@@ -606,18 +699,18 @@ async def execute_workflow_stream(
         user_input: Raw user input text to process through the graph.
 
     Yields:
-        Dict[str, Any]: SSE event dictionary with 'event' and 'data' fields.
+        dict[str, Any]: SSE event dictionary with 'event' and 'data' fields.
     """
     wf_id = workflow.get("id", "workflow")
     wf_name = workflow.get("name", "Custom Workflow")
     nodes = workflow.get("nodes", [])
     edges = workflow.get("edges", [])
 
-    node_map: Dict[str, Dict[str, Any]] = {n["id"]: n for n in nodes}
-    node_labels: Dict[str, str] = {n["id"]: n.get("label", n["id"]) for n in nodes}
+    node_map: dict[str, dict[str, Any]] = {n["id"]: n for n in nodes}
+    node_labels: dict[str, str] = {n["id"]: n.get("label", n["id"]) for n in nodes}
 
     # Predecessor mapping: target -> list of source node IDs
-    predecessors: Dict[str, List[str]] = {n["id"]: [] for n in nodes}
+    predecessors: dict[str, list[str]] = {n["id"]: [] for n in nodes}
     for edge in edges:
         src = edge.get("source")
         tgt = edge.get("target")
@@ -636,10 +729,10 @@ async def execute_workflow_stream(
         },
     }
 
-    all_node_outputs: Dict[str, str] = {}
-    node_execution_records: List[Dict[str, Any]] = []
+    all_node_outputs: dict[str, str] = {}
+    node_execution_records: list[dict[str, Any]] = []
 
-    cumulative_tokens: Dict[str, Any] = {
+    cumulative_tokens: dict[str, Any] = {
         "total_tokens": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
@@ -649,7 +742,7 @@ async def execute_workflow_stream(
         "by_model": {},
     }
 
-    async def run_single_node(node: Dict[str, Any]) -> Dict[str, Any]:
+    async def run_single_node(node: dict[str, Any]) -> dict[str, Any]:
         """Execute one node within the active layer."""
         nid = node["id"]
         ntype = node.get("type", "model_step")
@@ -678,9 +771,7 @@ async def execute_workflow_stream(
         elif ntype == "output":
             # Output node aggregates its predecessors
             if pred_outputs:
-                output_text = "\n\n".join(
-                    out for out in pred_outputs.values() if out
-                )
+                output_text = "\n\n".join(out for out in pred_outputs.values() if out)
             else:
                 output_text = user_input
             usage = {
@@ -706,7 +797,9 @@ async def execute_workflow_stream(
 
             messages = [{"role": "user", "content": evaluated_prompt}]
             try:
-                response = await query_model(model=model, messages=messages, timeout=180.0)
+                response = await query_model(
+                    model=model, messages=messages, timeout=180.0
+                )
                 if response and response.get("content"):
                     output_text = response["content"]
                     usage = response.get(
@@ -738,7 +831,9 @@ async def execute_workflow_stream(
                     status = "completed"
                     error = None
                 else:
-                    output_text = f"[Error: Model '{model}' returned empty or failed response]"
+                    output_text = (
+                        f"[Error: Model '{model}' returned empty or failed response]"
+                    )
                     usage = {
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
@@ -803,9 +898,7 @@ async def execute_workflow_stream(
             }
 
         # Run nodes in this layer concurrently
-        layer_records = await asyncio.gather(
-            *(run_single_node(node) for node in layer)
-        )
+        layer_records = await asyncio.gather(*(run_single_node(node) for node in layer))
 
         # Store outputs and emit node_complete events
         for rec in layer_records:
@@ -844,9 +937,7 @@ async def execute_workflow_stream(
                 bm["total_tokens"] += t["total_tokens"]
                 bm["tokens_saved"] += t["tokens_saved"]
                 bm["cost"] = round(bm["cost"] + t["cost"], 8)
-                bm["cost_saved"] = round(
-                    bm["cost_saved"] + t.get("cost_saved", 0.0), 8
-                )
+                bm["cost_saved"] = round(bm["cost_saved"] + t.get("cost_saved", 0.0), 8)
                 bm["total_cost"] = bm["cost"]
 
             yield {

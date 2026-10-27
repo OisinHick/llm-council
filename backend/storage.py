@@ -38,14 +38,18 @@ Key Features:
       message types and assistant execution details to keep metadata consistent.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
 import tempfile
 import uuid
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .config import DATA_DIR
 from .openrouter import calculate_token_cost
@@ -67,7 +71,7 @@ def ensure_data_dir() -> Path:
     return p
 
 
-def _safe_write_json(file_path: str, data: Dict[str, Any]) -> None:
+def _safe_write_json(file_path: str, data: dict[str, Any]) -> None:
     """Safely write JSON data to file using an atomic write pattern via a temporary file.
 
     Guarantees that the target file is never left in a truncated or partially written state
@@ -82,15 +86,15 @@ def _safe_write_json(file_path: str, data: Dict[str, Any]) -> None:
       6. Cleans up the temporary file if an exception occurs during the process.
 
     Args:
-        file_path (str): Target filesystem path where JSON should be saved.
-        data (Dict[str, Any]): Dictionary to serialize into JSON format.
+        file_path: Target filesystem path where JSON should be saved.
+        data: Dictionary to serialize into JSON format.
 
     Raises:
-        Exception: If file writing or renaming fails.
+        OSError: If file writing or renaming fails.
     """
     target = Path(file_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = None
+    temp_file: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             "w",
@@ -107,10 +111,8 @@ def _safe_write_json(file_path: str, data: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error("Failed to safely write JSON file %s: %s", file_path, e)
         if temp_file and temp_file.exists():
-            try:
+            with suppress(Exception):
                 temp_file.unlink()
-            except Exception:
-                pass
         raise
 
 
@@ -118,7 +120,7 @@ def get_conversation_path(conversation_id: str) -> str:
     """Compute the absolute filesystem path for a conversation's JSON storage file.
 
     Args:
-        conversation_id (str): Unique UUID string of the conversation.
+        conversation_id: Unique UUID string of the conversation.
 
     Returns:
         str: Absolute file path (e.g. `/path/to/data/conversations/<conversation_id>.json`).
@@ -126,11 +128,11 @@ def get_conversation_path(conversation_id: str) -> str:
     return os.path.join(DATA_DIR, f"{conversation_id}.json")
 
 
-def empty_token_usage() -> Dict[str, Any]:
+def empty_token_usage() -> dict[str, Any]:
     """Return a baseline zeroed token usage dictionary.
 
     Returns:
-        Dict[str, Any]: A dictionary initialized with:
+        dict[str, Any]: A dictionary initialized with:
             - "total_tokens" (int): 0
             - "prompt_tokens" (int): 0
             - "completion_tokens" (int): 0
@@ -151,11 +153,11 @@ def empty_token_usage() -> Dict[str, Any]:
 
 
 def _accumulate_model_tokens(
-    target: Dict[str, Any],
+    target: dict[str, Any],
     model: str,
     prompt_tokens: int,
     completion_tokens: int,
-    total_tokens: Optional[int] = None,
+    total_tokens: int | None = None,
     tokens_saved: int = 0,
 ) -> None:
     """Accumulate token counts for a specific model into a target usage dictionary.
@@ -164,12 +166,12 @@ def _accumulate_model_tokens(
     'total_tokens', 'tokens_saved') and the nested 'by_model' entry for the given model.
 
     Args:
-        target (Dict[str, Any]): Mutable token usage dictionary to accumulate into.
-        model (str): OpenRouter model identifier (e.g. 'openai/gpt-4o-mini').
-        prompt_tokens (int): Input prompt tokens consumed.
-        completion_tokens (int): Output generated tokens consumed.
-        total_tokens (Optional[int]): Total tokens. If None, defaults to prompt_tokens + completion_tokens.
-        tokens_saved (int): Number of prompt tokens avoided through context compression.
+        target: Mutable token usage dictionary to accumulate into.
+        model: OpenRouter model identifier (e.g. 'openai/gpt-4o-mini').
+        prompt_tokens: Input prompt tokens consumed.
+        completion_tokens: Output generated tokens consumed.
+        total_tokens: Total tokens. If None, defaults to prompt_tokens + completion_tokens.
+        tokens_saved: Number of prompt tokens avoided through context compression.
     """
     if not model:
         return
@@ -198,8 +200,8 @@ def _accumulate_model_tokens(
 
 
 def merge_token_usages(
-    usage_a: Optional[Dict[str, Any]], usage_b: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
+    usage_a: dict[str, Any] | None, usage_b: dict[str, Any] | None
+) -> dict[str, Any]:
     """Merge two token usage dictionaries into a unified usage report.
 
     Combines prompt, completion, total, and saved tokens from both inputs, merging
@@ -207,11 +209,11 @@ def merge_token_usages(
     on cached OpenRouter pricing rates.
 
     Args:
-        usage_a (Optional[Dict[str, Any]]): First usage dictionary (or None).
-        usage_b (Optional[Dict[str, Any]]): Second usage dictionary (or None).
+        usage_a: First usage dictionary (or None).
+        usage_b: Second usage dictionary (or None).
 
     Returns:
-        Dict[str, Any]: Newly created merged token usage dictionary with updated costs.
+        dict[str, Any]: Newly created merged token usage dictionary with updated costs.
     """
     result = empty_token_usage()
     for usage in (usage_a, usage_b):
@@ -247,11 +249,11 @@ def merge_token_usages(
 
 
 def _accumulate_stage_item(
-    target: Dict[str, Any],
-    item: Optional[Dict[str, Any]],
-    default_model: Optional[str] = None,
+    target: dict[str, Any],
+    item: dict[str, Any] | None,
+    default_model: str | None = None,
     fallback_prompt: int = 0,
-    fallback_content_key: Optional[str] = None,
+    fallback_content_key: str | None = None,
 ) -> None:
     """Helper to accumulate token usage from an individual stage response or agent step.
 
@@ -260,11 +262,11 @@ def _accumulate_stage_item(
     heuristic estimate is calculated and added as a fallback.
 
     Args:
-        target (Dict[str, Any]): Mutable token usage dictionary to accumulate into.
-        item (Optional[Dict[str, Any]]): Individual response item or agent step dictionary.
-        default_model (Optional[str]): Fallback model name if item['model'] is missing.
-        fallback_prompt (int): Assumed baseline prompt token count for fallback estimation.
-        fallback_content_key (Optional[str]): Key in item containing response text to estimate tokens for.
+        target: Mutable token usage dictionary to accumulate into.
+        item: Individual response item or agent step dictionary.
+        default_model: Fallback model name if item['model'] is missing.
+        fallback_prompt: Assumed baseline prompt token count for fallback estimation.
+        fallback_content_key: Key in item containing response text to estimate tokens for.
     """
     if not item or not isinstance(item, dict):
         return
@@ -282,18 +284,22 @@ def _accumulate_stage_item(
     elif model and fallback_content_key:
         content = item.get(fallback_content_key)
         if content:
-            c_len = len(json.dumps(content)) if isinstance(content, (dict, list)) else len(str(content))
+            c_len = (
+                len(json.dumps(content))
+                if isinstance(content, (dict, list))
+                else len(str(content))
+            )
             _accumulate_model_tokens(target, model, fallback_prompt, c_len // 4)
 
 
 def compute_turn_token_usage(
-    stage1: Optional[List[Dict[str, Any]]] = None,
-    stage2: Optional[List[Dict[str, Any]]] = None,
-    stage3: Optional[Dict[str, Any]] = None,
-    stage4: Optional[Dict[str, Any]] = None,
-    steps: Optional[List[Dict[str, Any]]] = None,
-    extra_usages: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    stage1: list[dict[str, Any]] | None = None,
+    stage2: list[dict[str, Any]] | None = None,
+    stage3: dict[str, Any] | None = None,
+    stage4: dict[str, Any] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    extra_usages: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Calculate cumulative token usage and estimated spend for a single assistant turn.
 
     Aggregates token consumption across all active stages in a turn:
@@ -305,26 +311,32 @@ def compute_turn_token_usage(
       - Extra Usages: Any additional model queries (e.g. sub-council consultations).
 
     Args:
-        stage1 (Optional[List[Dict[str, Any]]]): List of Stage 1 model responses.
-        stage2 (Optional[List[Dict[str, Any]]]): List of Stage 2 ranking evaluations.
-        stage3 (Optional[Dict[str, Any]]): Stage 3 synthesized response dict.
-        stage4 (Optional[Dict[str, Any]]): Stage 4 action plan result dict.
-        steps (Optional[List[Dict[str, Any]]]): ReAct agent step records.
-        extra_usages (Optional[List[Dict[str, Any]]]): Additional token usage dicts.
+        stage1: List of Stage 1 model responses.
+        stage2: List of Stage 2 ranking evaluations.
+        stage3: Stage 3 synthesized response dict.
+        stage4: Stage 4 action plan result dict.
+        steps: ReAct agent step records.
+        extra_usages: Additional token usage dicts.
 
     Returns:
-        Dict[str, Any]: Complete token usage dictionary with calculated dollar cost.
+        dict[str, Any]: Complete token usage dictionary with calculated dollar cost.
     """
     usage_result = empty_token_usage()
 
     for r in stage1 or []:
-        _accumulate_stage_item(usage_result, r, fallback_prompt=50, fallback_content_key="response")
+        _accumulate_stage_item(
+            usage_result, r, fallback_prompt=50, fallback_content_key="response"
+        )
 
     for r in stage2 or []:
-        _accumulate_stage_item(usage_result, r, fallback_prompt=200, fallback_content_key="ranking")
+        _accumulate_stage_item(
+            usage_result, r, fallback_prompt=200, fallback_content_key="ranking"
+        )
 
     if stage3:
-        _accumulate_stage_item(usage_result, stage3, fallback_prompt=400, fallback_content_key="response")
+        _accumulate_stage_item(
+            usage_result, stage3, fallback_prompt=400, fallback_content_key="response"
+        )
 
     if stage4:
         _accumulate_stage_item(usage_result, stage4, default_model="chairman")
@@ -345,7 +357,7 @@ def compute_turn_token_usage(
     return usage_result
 
 
-def compute_conversation_token_usage(conversation: Dict[str, Any]) -> Dict[str, Any]:
+def compute_conversation_token_usage(conversation: dict[str, Any]) -> dict[str, Any]:
     """Compute aggregate token usage across an entire conversation.
 
     Sums tokens across all assistant messages in the conversation, as well as
@@ -353,10 +365,10 @@ def compute_conversation_token_usage(conversation: Dict[str, Any]) -> Dict[str, 
     the total monetary spend.
 
     Args:
-        conversation (Dict[str, Any]): Full conversation dictionary.
+        conversation: Full conversation dictionary.
 
     Returns:
-        Dict[str, Any]: Aggregated token usage and cost structure.
+        dict[str, Any]: Aggregated token usage and cost structure.
     """
     total_usage = empty_token_usage()
 
@@ -387,20 +399,20 @@ def compute_conversation_token_usage(conversation: Dict[str, Any]) -> Dict[str, 
 
 
 def record_standalone_tokens(
-    conversation_id: str, model: str, usage: Optional[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
+    conversation_id: str, model: str, usage: dict[str, Any] | None
+) -> dict[str, Any] | None:
     """Record standalone token usage for a conversation (e.g. from title generation).
 
     Updates the conversation's `standalone_token_usage`, recalculates the overall
     conversation `token_usage`, and atomically persists the update to disk.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        model (str): Model identifier that executed the standalone task.
-        usage (Optional[Dict[str, Any]]): Token usage dict with 'prompt_tokens', 'completion_tokens'.
+        conversation_id: Conversation identifier.
+        model: Model identifier that executed the standalone task.
+        usage: Token usage dict with 'prompt_tokens', 'completion_tokens'.
 
     Returns:
-        Optional[Dict[str, Any]]: Updated conversation total token usage dict, or None if failed.
+        dict[str, Any] or None: Updated conversation total token usage dict, or None if failed.
     """
     if not usage:
         return None
@@ -423,21 +435,20 @@ def record_standalone_tokens(
 
 
 def create_conversation(
-    conversation_id: Optional[str] = None, mode: str = "informational"
-) -> Dict[str, Any]:
+    conversation_id: str | None = None, mode: str = "informational"
+) -> dict[str, Any]:
     """Create a new conversation record and atomically persist it to disk.
 
     Initializes an empty conversation structure with default title, empty messages list,
     and zeroed token usage statistics.
 
     Args:
-        conversation_id (Optional[str]): Unique UUID string for the conversation.
-            Generated automatically if omitted.
-        mode (str): Initial conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
+        conversation_id: Unique UUID string for the conversation. Generated automatically if omitted.
+        mode: Initial conversation mode ('informational', 'one_shot', 'agentic', 'custom_workflows').
             Defaults to 'informational'.
 
     Returns:
-        Dict[str, Any]: Newly initialized conversation dictionary:
+        dict[str, Any]: Newly initialized conversation dictionary:
             - "id" (str): The conversation UUID.
             - "created_at" (str): ISO-8601 UTC timestamp.
             - "title" (str): Default title ("New Conversation").
@@ -468,7 +479,7 @@ def create_conversation(
 
 
 def get_conversation_mode_from_messages(
-    messages: List[Dict[str, Any]], fallback: str = "informational"
+    messages: list[dict[str, Any]], fallback: str = "informational"
 ) -> str:
     """Infer the active conversation mode based on the most recent assistant message.
 
@@ -483,8 +494,8 @@ def get_conversation_mode_from_messages(
         Classified as `"informational"` (standard 3-stage deliberation Q&A).
 
     Args:
-        messages (List[Dict[str, Any]]): List of message dictionaries from the conversation.
-        fallback (str): Default mode to return if no assistant message is present.
+        messages: List of message dictionaries from the conversation.
+        fallback: Default mode to return if no assistant message is present.
 
     Returns:
         str: Resolved mode string ('informational', 'one_shot', 'agentic', or 'custom_workflows').
@@ -503,7 +514,7 @@ def get_conversation_mode_from_messages(
     return fallback
 
 
-def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
+def get_conversation(conversation_id: str) -> dict[str, Any] | None:
     """Load a conversation from disk, reconcile dynamic fields, and return its contents.
 
     Reads the JSON file from `data/conversations/<conversation_id>.json`.
@@ -514,10 +525,10 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
       - Computes and sets cumulative `token_usage` for the conversation.
 
     Args:
-        conversation_id (str): Unique UUID string of the conversation.
+        conversation_id: Unique UUID string of the conversation.
 
     Returns:
-        Optional[Dict[str, Any]]: Loaded and reconciled conversation dict, or None if the
+        dict[str, Any] or None: Loaded and reconciled conversation dict, or None if the
             file does not exist, cannot be decoded, or is corrupted.
     """
     path = get_conversation_path(conversation_id)
@@ -526,7 +537,7 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with Path(path).open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
         logger.error("Failed to load conversation %s: %s", conversation_id, e)
@@ -549,21 +560,21 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     return data
 
 
-def save_conversation(conversation: Dict[str, Any]) -> None:
+def save_conversation(conversation: dict[str, Any]) -> None:
     """Save an updated conversation dictionary to disk using atomic file writing.
 
     Args:
-        conversation (Dict[str, Any]): Complete conversation dictionary containing an 'id' key.
+        conversation: Complete conversation dictionary containing an 'id' key.
 
     Raises:
-        Exception: If writing the atomic temporary file or replacing the target file fails.
+        OSError: If writing the atomic temporary file or replacing the target file fails.
     """
     ensure_data_dir()
     path = get_conversation_path(conversation["id"])
     _safe_write_json(path, conversation)
 
 
-def list_conversations() -> List[Dict[str, Any]]:
+def list_conversations() -> list[dict[str, Any]]:
     """List summary metadata for all stored conversations, ordered newest first.
 
     Scans the `data/conversations/` directory for `.json` files.
@@ -571,7 +582,7 @@ def list_conversations() -> List[Dict[str, Any]]:
     interrupting the overall listing.
 
     Returns:
-        List[Dict[str, Any]]: List of conversation metadata dictionaries, each containing:
+        list[dict[str, Any]]: List of conversation metadata dictionaries, each containing:
             - "id" (str): Conversation UUID.
             - "created_at" (str): ISO-8601 UTC creation timestamp.
             - "title" (str): Conversation title.
@@ -586,9 +597,13 @@ def list_conversations() -> List[Dict[str, Any]]:
         if filename.endswith(".json"):
             path = os.path.join(DATA_DIR, filename)
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with Path(path).open("r", encoding="utf-8") as f:
                     data = json.load(f)
-                if not isinstance(data, dict) or "id" not in data or "created_at" not in data:
+                if (
+                    not isinstance(data, dict)
+                    or "id" not in data
+                    or "created_at" not in data
+                ):
                     continue
                 messages = data.get("messages", [])
                 mode = data.get("mode") or get_conversation_mode_from_messages(
@@ -605,7 +620,9 @@ def list_conversations() -> List[Dict[str, Any]]:
                     }
                 )
             except Exception as e:
-                logger.warning("Skipping unreadable conversation file %s: %s", filename, e)
+                logger.warning(
+                    "Skipping unreadable conversation file %s: %s", filename, e
+                )
 
     # Sort conversations by creation timestamp, newest first
     conversations.sort(key=lambda x: x["created_at"], reverse=True)
@@ -617,7 +634,7 @@ def delete_conversation(conversation_id: str) -> bool:
     """Delete a single conversation by its ID.
 
     Args:
-        conversation_id (str): Conversation UUID identifier.
+        conversation_id: Conversation UUID identifier.
 
     Returns:
         bool: True if file was found and removed, False otherwise.
@@ -658,8 +675,8 @@ def add_user_message(conversation_id: str, content: str) -> None:
     """Append a user prompt message to a conversation and persist the change.
 
     Args:
-        conversation_id (str): Conversation UUID identifier.
-        content (str): Text content of the user prompt.
+        conversation_id: Conversation UUID identifier.
+        content: Text content of the user prompt.
 
     Raises:
         ValueError: If the conversation does not exist.
@@ -675,13 +692,13 @@ def add_user_message(conversation_id: str, content: str) -> None:
 
 def add_assistant_message(
     conversation_id: str,
-    stage1: List[Dict[str, Any]],
-    stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any],
-    stage4: Optional[Dict[str, Any]] = None,
-    execution: Optional[Dict[str, Any]] = None,
-    action_request: Optional[str] = None,
-    token_usage: Optional[Dict[str, Any]] = None,
+    stage1: list[dict[str, Any]],
+    stage2: list[dict[str, Any]],
+    stage3: dict[str, Any],
+    stage4: dict[str, Any] | None = None,
+    execution: dict[str, Any] | None = None,
+    action_request: str | None = None,
+    token_usage: dict[str, Any] | None = None,
 ) -> None:
     """Append a deliberated assistant response message to a conversation and persist it.
 
@@ -689,14 +706,14 @@ def add_assistant_message(
     Stage 3 synthesis) and 4-stage action requests with MCP tool execution results.
 
     Args:
-        conversation_id (str): Target conversation identifier.
-        stage1 (List[Dict[str, Any]]): List of individual model responses.
-        stage2 (List[Dict[str, Any]]): List of peer ranking evaluations.
-        stage3 (Dict[str, Any]): Chairman's final synthesized consensus response.
-        stage4 (Optional[Dict[str, Any]]): Optional Stage 4 action plan output.
-        execution (Optional[Dict[str, Any]]): Optional tool execution results.
-        action_request (Optional[str]): Optional original action request text.
-        token_usage (Optional[Dict[str, Any]]): Explicit turn token usage (computed if omitted).
+        conversation_id: Target conversation identifier.
+        stage1: List of individual model responses.
+        stage2: List of peer ranking evaluations.
+        stage3: Chairman's final synthesized consensus response.
+        stage4: Optional Stage 4 action plan output.
+        execution: Optional tool execution results.
+        action_request: Optional original action request text.
+        token_usage: Explicit turn token usage (computed if omitted).
 
     Raises:
         ValueError: If the conversation is not found in storage.
@@ -712,7 +729,7 @@ def add_assistant_message(
         stage4=stage4,
     )
 
-    message: Dict[str, Any] = {
+    message: dict[str, Any] = {
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
@@ -740,13 +757,13 @@ def add_assistant_message(
 def add_agent_message(
     conversation_id: str,
     user_request: str,
-    initial_council: Dict[str, Any],
-    steps: List[Dict[str, Any]],
-    artifacts: List[str],
-    summary: Optional[str] = None,
-    error: Optional[str] = None,
+    initial_council: dict[str, Any],
+    steps: list[dict[str, Any]],
+    artifacts: list[str],
+    summary: str | None = None,
+    error: str | None = None,
     status: str = "completed",
-    token_usage: Optional[Dict[str, Any]] = None,
+    token_usage: dict[str, Any] | None = None,
 ) -> None:
     """Append an autonomous Chairperson agent trajectory message to a conversation.
 
@@ -755,15 +772,15 @@ def add_agent_message(
     created artifacts, final deliverable summary, and cumulative token usage.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        user_request (str): Original user prompt/task specification.
-        initial_council (Dict[str, Any]): Pre-execution 3-stage deliberation context.
-        steps (List[Dict[str, Any]]): Sequence of step records (thought, action, params, observation).
-        artifacts (List[str]): List of file paths generated or edited during execution.
-        summary (Optional[str]): Executive summary produced upon completion.
-        error (Optional[str]): Error description if agent run terminated abnormally.
-        status (str): Execution status: 'completed', 'cancelled', or 'failed'.
-        token_usage (Optional[Dict[str, Any]]): Explicit token usage dictionary for the agent loop.
+        conversation_id: Conversation identifier.
+        user_request: Original user prompt/task specification.
+        initial_council: Pre-execution 3-stage deliberation context.
+        steps: Sequence of step records (thought, action, params, observation).
+        artifacts: List of file paths generated or edited during execution.
+        summary: Executive summary produced upon completion.
+        error: Error description if agent run terminated abnormally.
+        status: Execution status: 'completed', 'cancelled', or 'failed'.
+        token_usage: Explicit token usage dictionary for the agent loop.
 
     Raises:
         ValueError: If the conversation is not found in storage.
@@ -783,7 +800,7 @@ def add_agent_message(
         step_tokens = compute_turn_token_usage(steps=steps)
         turn_tokens = merge_token_usages(council_tokens, step_tokens)
 
-    message: Dict[str, Any] = {
+    message: dict[str, Any] = {
         "role": "assistant",
         "type": "agent",
         "action_request": user_request,
@@ -808,20 +825,19 @@ def add_agent_message(
 
 def update_last_assistant_message(
     conversation_id: str,
-    updater: Callable[[Dict[str, Any]], Dict[str, Any]],
-) -> Dict[str, Any]:
+    updater: Callable[[dict[str, Any]], dict[str, Any]],
+) -> dict[str, Any]:
     """Apply an update callable to the most recent assistant message in a conversation.
 
     Locates the last message where `role == "assistant"`, invokes `updater(message)`,
     replaces the message with the returned value, and persists the conversation.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        updater (Callable[[Dict[str, Any]], Dict[str, Any]]): Function receiving current assistant
-            message and returning updated message dict.
+        conversation_id: Conversation identifier.
+        updater: Function receiving current assistant message and returning updated message dict.
 
     Returns:
-        Dict[str, Any]: The updated assistant message.
+        dict[str, Any]: The updated assistant message.
 
     Raises:
         ValueError: If the conversation is not found or has no assistant messages.
@@ -844,8 +860,8 @@ def update_conversation_title(conversation_id: str, title: str) -> None:
     """Update the descriptive display title of a conversation.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        title (str): New title string.
+        conversation_id: Conversation identifier.
+        title: New title string.
 
     Raises:
         ValueError: If the conversation is not found.
@@ -858,17 +874,15 @@ def update_conversation_title(conversation_id: str, title: str) -> None:
     save_conversation(conversation)
 
 
-def update_conversation_mode(
-    conversation_id: str, mode: str
-) -> Optional[Dict[str, Any]]:
+def update_conversation_mode(conversation_id: str, mode: str) -> dict[str, Any] | None:
     """Update the operational mode of a conversation and persist the change.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        mode (str): New mode string ('informational', 'one_shot', 'agentic', or 'custom_workflows').
+        conversation_id: Conversation identifier.
+        mode: New mode string ('informational', 'one_shot', 'agentic', or 'custom_workflows').
 
     Returns:
-        Optional[Dict[str, Any]]: Updated conversation dictionary, or None if not found.
+        dict[str, Any] or None: Updated conversation dictionary, or None if not found.
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
@@ -884,26 +898,26 @@ def add_workflow_message(
     user_input: str,
     workflow_id: str,
     workflow_name: str,
-    nodes: List[Dict[str, Any]],
-    edges: List[Dict[str, Any]],
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
     final_output: str,
     status: str = "completed",
-    error: Optional[str] = None,
-    token_usage: Optional[Dict[str, Any]] = None,
+    error: str | None = None,
+    token_usage: dict[str, Any] | None = None,
 ) -> None:
     """Append a custom workflow execution record to a conversation.
 
     Args:
-        conversation_id (str): Conversation identifier.
-        user_input (str): Original user prompt submitted to the workflow.
-        workflow_id (str): Unique identifier of the executed workflow.
-        workflow_name (str): Display name of the workflow.
-        nodes (List[Dict[str, Any]]): List of node execution states and outputs.
-        edges (List[Dict[str, Any]]): Graph edge definitions connecting the nodes.
-        final_output (str): Consolidated final output text produced by the graph.
-        status (str): Workflow status ('completed', 'failed', or 'cancelled').
-        error (Optional[str]): Error description if workflow failed.
-        token_usage (Optional[Dict[str, Any]]): Aggregated token counts and costs.
+        conversation_id: Conversation identifier.
+        user_input: Original user prompt submitted to the workflow.
+        workflow_id: Unique identifier of the executed workflow.
+        workflow_name: Display name of the workflow.
+        nodes: List of node execution states and outputs.
+        edges: Graph edge definitions connecting the nodes.
+        final_output: Consolidated final output text produced by the graph.
+        status: Workflow status ('completed', 'failed', or 'cancelled').
+        error: Error description if workflow failed.
+        token_usage: Aggregated token counts and costs.
 
     Raises:
         ValueError: If the conversation is not found in storage.
@@ -922,7 +936,7 @@ def add_workflow_message(
         "by_model": {},
     }
 
-    message: Dict[str, Any] = {
+    message: dict[str, Any] = {
         "role": "assistant",
         "type": "workflow",
         "workflow_id": workflow_id,

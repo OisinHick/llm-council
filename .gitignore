@@ -21,8 +21,6 @@ frontend/dist/
 frontend/.vite/
 
 # Tests
-tests/
-test/
 .pytest_cache/
 
 # Logs

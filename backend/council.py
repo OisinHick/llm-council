@@ -1,4 +1,4 @@
-"""3-stage LLM Council orchestration.
+"""Multi-stage LLM Council deliberation orchestration.
 
 This module coordinates multi-model deliberation through a structured consensus pipeline:
 - Stage 1 (Divergence): Concurrently queries all configured council models with the user
@@ -15,11 +15,14 @@ This module coordinates multi-model deliberation through a structured consensus 
   with streaming event callbacks for architectural dilemmas or error diagnostics.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
@@ -29,25 +32,27 @@ from .openrouter import get_last_model_error, query_model, query_models_parallel
 logger = logging.getLogger("llm_council.council")
 
 # Precompiled regular expressions for robust parsing of model rankings and JSON payloads
-_RE_FINAL_RANKING_HEADER = re.compile(r"FINAL RANKING:\s*(.*)", re.DOTALL | re.IGNORECASE)
+_RE_FINAL_RANKING_HEADER = re.compile(
+    r"FINAL RANKING:\s*(.*)", re.DOTALL | re.IGNORECASE
+)
 _RE_NUMBERED_RESPONSE = re.compile(r"\d+\.\s*Response\s*([A-Z])", re.IGNORECASE)
 _RE_RESPONSE_LABEL = re.compile(r"Response\s*([A-Z])", re.IGNORECASE)
 _RE_JSON_CODE_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _RE_OUTER_JSON = re.compile(r"\{.*\}", re.DOTALL)
 
 
-def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+def _extract_json_object(text: str) -> dict[str, Any] | None:
     """Helper to safely extract and parse a JSON dictionary from raw LLM text.
 
     Uses a two-phase extraction strategy:
-    1. Attempts to locate a fenced markdown code block (````json ... ````).
-    2. Falls back to finding the outermost matching curly braces (`{...}`).
+    1. Attempts to locate a fenced markdown code block (```json ... ```).
+    2. Falls back to finding the outermost matching curly braces ({...}).
 
     Args:
         text: Raw text response received from an LLM.
 
     Returns:
-        Optional[Dict[str, Any]]: Parsed JSON dictionary if valid, or None if extraction failed.
+        dict[str, Any] | None: Parsed JSON dictionary if valid, or None if extraction failed.
     """
     if not text:
         return None
@@ -68,7 +73,7 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(user_query: str) -> list[dict[str, Any]]:
     """Stage 1: Collect individual responses from all council models.
 
     Fans out parallel queries to all models configured in the council using
@@ -79,7 +84,7 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
         user_query: The user's input query or problem statement.
 
     Returns:
-        List[Dict[str, Any]]: List of response dictionaries, each containing:
+        list[dict[str, Any]]: List of response dictionaries, each containing:
             - model (str): OpenRouter model identifier.
             - response (str): Generated textual response.
             - usage (dict): Token consumption dictionary (prompt, completion, total).
@@ -87,12 +92,14 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel with an overall timeout of 180 seconds
-    responses = await query_models_parallel(get_council_models(), messages, timeout=180.0)
+    responses = await query_models_parallel(
+        get_council_models(), messages, timeout=180.0
+    )
 
     # Format results, filtering out models that timed out or errored (response is None)
-    stage1_results = []
+    stage1_results: list[dict[str, Any]] = []
     for model, response in responses.items():
-        if response is not None:  # Only include successful responses
+        if response is not None:
             stage1_results.append(
                 {
                     "model": model,
@@ -108,8 +115,8 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
 
 
 async def stage2_collect_rankings(
-    user_query: str, stage1_results: List[Dict[str, Any]]
-) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    user_query: str, stage1_results: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Stage 2: Each model ranks the anonymized responses.
 
     To eliminate brand bias and ensure impartial peer review:
@@ -123,25 +130,25 @@ async def stage2_collect_rankings(
         stage1_results: The collection of responses gathered in Stage 1.
 
     Returns:
-        Tuple[List[Dict[str, Any]], Dict[str, str]]:
+        tuple[list[dict[str, Any]], dict[str, str]]:
             - stage2_results: List of per-model evaluation dictionaries with raw text,
               parsed ranking order, and token usage.
             - label_to_model: Dictionary mapping anonymous labels to real model IDs.
     """
     # Create anonymized labels for responses (Response A, Response B, etc.)
-    labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
+    labels = [chr(65 + i) for i in range(len(stage1_results))]
 
     # Create mapping from label to model name
     label_to_model = {
         f"Response {label}": result["model"]
-        for label, result in zip(labels, stage1_results)
+        for label, result in zip(labels, stage1_results, strict=False)
     }
 
     # Build the ranking prompt with anonymized proposals
     responses_text = "\n\n".join(
         [
             f"Response {label}:\n{result['response']}"
-            for label, result in zip(labels, stage1_results)
+            for label, result in zip(labels, stage1_results, strict=False)
         ]
     )
 
@@ -179,10 +186,12 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel with an overall timeout
-    responses = await query_models_parallel(get_council_models(), messages, timeout=90.0)
+    responses = await query_models_parallel(
+        get_council_models(), messages, timeout=90.0
+    )
 
     # Format results
-    stage2_results = []
+    stage2_results: list[dict[str, Any]] = []
     for model, response in responses.items():
         if response is not None:
             full_text = response.get("content", "")
@@ -204,9 +213,9 @@ Now provide your evaluation and ranking:"""
 
 async def stage3_synthesize_final(
     user_query: str,
-    stage1_results: List[Dict[str, Any]],
-    stage2_results: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    stage1_results: list[dict[str, Any]],
+    stage2_results: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Stage 3: Chairman synthesizes final response based on Stage 1 & 2 outputs.
 
     Provides the Chairman model with:
@@ -221,7 +230,7 @@ async def stage3_synthesize_final(
         stage2_results: Evaluations and rankings from Stage 2.
 
     Returns:
-        Dict[str, Any]: Result dictionary containing:
+        dict[str, Any]: Result dictionary containing:
             - model (str): Chairman model identifier.
             - response (str): Synthesized final response.
             - usage (dict): Token consumption dictionary.
@@ -237,7 +246,7 @@ async def stage3_synthesize_final(
     stage2_text = "\n\n".join(
         [
             f"Model {result['model']} ranking: {', '.join(result.get('parsed_ranking', []))}\nEvaluation Summary: {result['ranking'][:400]}..."
-            if len(result.get('ranking', '')) > 400
+            if len(result.get("ranking", "")) > 400
             else f"Model {result['model']} ranking: {', '.join(result.get('parsed_ranking', []))}\nEvaluation: {result.get('ranking', '')}"
             for result in stage2_results
         ]
@@ -290,7 +299,7 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     }
 
 
-def parse_ranking_from_text(ranking_text: str) -> List[str]:
+def parse_ranking_from_text(ranking_text: str) -> list[str]:
     """Parse the FINAL RANKING section from a model's Stage 2 evaluation text.
 
     Extraction order:
@@ -303,7 +312,7 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
         ranking_text: Raw evaluation string returned by a council model.
 
     Returns:
-        List[str]: Ordered list of normalized response labels (e.g., ["Response A", "Response B"]).
+        list[str]: Ordered list of normalized response labels (e.g., ["Response A", "Response B"]).
     """
     if not ranking_text:
         return []
@@ -331,8 +340,8 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
 
 
 def calculate_aggregate_rankings(
-    stage2_results: List[Dict[str, Any]], label_to_model: Dict[str, str]
-) -> List[Dict[str, Any]]:
+    stage2_results: list[dict[str, Any]], label_to_model: dict[str, str]
+) -> list[dict[str, Any]]:
     """Calculate aggregate rankings across all models.
 
     Computes the arithmetic mean rank position for each model across all
@@ -344,13 +353,13 @@ def calculate_aggregate_rankings(
         label_to_model: Mapping from anonymous labels ('Response A') to model IDs.
 
     Returns:
-        List[Dict[str, Any]]: List of ranking summary dicts sorted best to worst:
+        list[dict[str, Any]]: List of ranking summary dicts sorted best to worst:
             - model (str): Model identifier.
             - average_rank (float): Average position assigned by peers.
             - rankings_count (int): Number of models that ranked this proposal.
     """
     # Track positions for each model
-    model_positions = defaultdict(list)
+    model_positions: dict[str, list[int]] = defaultdict(list)
 
     for ranking in stage2_results:
         ranking_text = ranking["ranking"]
@@ -364,7 +373,7 @@ def calculate_aggregate_rankings(
                 model_positions[model_name].append(position)
 
     # Calculate average position for each model
-    aggregate = []
+    aggregate: list[dict[str, Any]] = []
     for model, positions in model_positions.items():
         if positions:
             avg_rank = sum(positions) / len(positions)
@@ -383,7 +392,7 @@ def calculate_aggregate_rankings(
 
 
 async def generate_conversation_title(
-    user_query: str, conversation_id: Optional[str] = None
+    user_query: str, conversation_id: str | None = None
 ) -> str:
     """Generate a short title for a conversation based on the first user message.
 
@@ -417,11 +426,16 @@ Title:"""
     if conversation_id and response.get("usage"):
         try:
             from . import storage
+
             storage.record_standalone_tokens(
                 conversation_id, chairman, response.get("usage")
             )
-        except Exception as e:
-            logger.debug("Could not record standalone tokens for conversation %s: %s", conversation_id, e)
+        except (ImportError, AttributeError, OSError) as e:
+            logger.debug(
+                "Could not record standalone tokens for conversation %s: %s",
+                conversation_id,
+                e,
+            )
 
     title = response.get("content", "New Conversation").strip()
 
@@ -435,7 +449,9 @@ Title:"""
     return title
 
 
-async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
+async def run_full_council(
+    user_query: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Run the complete 3-stage council deliberation pipeline.
 
     1. Executes Stage 1 to collect independent responses from all council models.
@@ -447,7 +463,7 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
         user_query: The user's question or prompt.
 
     Returns:
-        Tuple[List, List, Dict, Dict]:
+        tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
             - stage1_results: Individual model responses.
             - stage2_results: Peer evaluations and parsed rankings.
             - stage3_result: Final synthesis dictionary from Chairman.
@@ -492,9 +508,9 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
 
 async def stage4_generate_action_plan(
     user_request: str,
-    stage1_results: List[Dict[str, Any]],
-    aggregate_rankings: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    stage1_results: list[dict[str, Any]],
+    aggregate_rankings: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Stage 4: Generate an executable tool action plan based on the top-ranked response.
 
     Identifies the model voted #1 by the council peers, gathers all currently
@@ -508,7 +524,7 @@ async def stage4_generate_action_plan(
         aggregate_rankings: Sorted aggregate rankings from Stage 2.
 
     Returns:
-        Dict[str, Any]: Generation outcome dictionary containing:
+        dict[str, Any]: Generation outcome dictionary containing:
             - success (bool): True if a valid action plan was generated and parsed.
             - action_plan (dict, optional): Parsed JSON action plan with description,
               reasoning, and list of tool calls.
@@ -551,7 +567,7 @@ async def stage4_generate_action_plan(
     # Document dynamically loaded external tools
     if external_tools:
         tools_doc += "\n2. External MCP Server Tools:\n"
-        for i, tool in enumerate(external_tools, 1):
+        for tool in external_tools:
             tools_doc += f'   - {tool["name"]} (server: "{tool["server"]}")\n'
             tools_doc += f"     Description: {tool['description']}\n"
             tools_doc += f"     Parameters Schema: {json.dumps(tool['input_schema'])}\n"
@@ -617,7 +633,7 @@ Now generate the action plan JSON:"""
     }
 
 
-async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_action_plan(action_plan_response: dict[str, Any]) -> dict[str, Any]:
     """Execute the MCP tool calls from a generated action plan.
 
     Validates the generated plan and dispatches all tool calls via `executor.execute_tools`.
@@ -626,7 +642,7 @@ async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str,
         action_plan_response: Outcome dictionary returned by `stage4_generate_action_plan`.
 
     Returns:
-        Dict[str, Any]: Execution result payload containing:
+        dict[str, Any]: Execution result payload containing:
             - success (bool): True if all tool executions succeeded.
             - action_plan (dict): The original action plan that was run.
             - execution_results (dict): Per-tool execution statuses and outputs.
@@ -656,7 +672,7 @@ async def execute_action_plan(action_plan_response: Dict[str, Any]) -> Dict[str,
 
 async def run_full_council_with_action(
     user_request: str, execute: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the complete 4-stage council process with optional action execution.
 
     Coordinates Stages 1-3 deliberation, Stage 4 action plan generation,
@@ -667,7 +683,7 @@ async def run_full_council_with_action(
         execute: Whether to immediately execute the tool action plan. Defaults to True.
 
     Returns:
-        Dict[str, Any]: Complete council run result including stage1, stage2, stage3,
+        dict[str, Any]: Complete council run result including stage1, stage2, stage3,
             metadata, stage4_action_plan, and execution results.
     """
     # Stages 1-3: Run the council
@@ -698,9 +714,9 @@ async def run_full_council_with_action(
 
 async def run_sub_council(
     question: str,
-    context: Optional[str] = None,
-    on_event: Optional[Any] = None,
-) -> Dict[str, Any]:
+    context: str | None = None,
+    on_event: Callable[[str, Any], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     """Run an on-demand sub-council deliberation on a specific subtask, code problem, or dilemma.
 
     Used by the autonomous agent to request targeted peer review during its ReAct loop
@@ -713,7 +729,7 @@ async def run_sub_council(
         on_event: Optional async callable for streaming sub-council stage events.
 
     Returns:
-        Dict[str, Any]: Comprehensive deliberation result containing:
+        dict[str, Any]: Comprehensive deliberation result containing:
             - question (str): The evaluated question.
             - context (str, optional): The provided context.
             - stage1 (list): Individual model responses.
@@ -766,4 +782,3 @@ async def run_sub_council(
         "aggregate_rankings": aggregate,
         "consensus_recommendation": stage3.get("response", ""),
     }
-

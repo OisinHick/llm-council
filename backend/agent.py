@@ -18,10 +18,13 @@ Key Capabilities:
   thought and action visualization in the frontend timeline.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import re
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .agent_tools import agent_executor
 from .config import get_chairman_model
@@ -48,10 +51,10 @@ class CouncilAgent:
     def __init__(
         self,
         user_request: str,
-        initial_council: Dict[str, Any],
-        max_steps: Optional[int] = 20,
+        initial_council: dict[str, Any],
+        max_steps: int | None = 20,
         deliberation_sensitivity: str = "medium",
-        sensitivity_config: Optional[Dict[str, Any]] = None,
+        sensitivity_config: dict[str, Any] | None = None,
     ):
         """Initialize the autonomous Council Agent.
 
@@ -103,13 +106,13 @@ class CouncilAgent:
             self.max_steps = max_steps if max_steps is not None else 20
 
         # Execution tracking state
-        self.steps: List[Dict[str, Any]] = []
-        self.artifacts: List[str] = []
-        self.summary: Optional[str] = None
+        self.steps: list[dict[str, Any]] = []
+        self.artifacts: list[str] = []
+        self.summary: str | None = None
         self.is_completed: bool = False
         self.is_cancelled: bool = False
-        self.error: Optional[str] = None
-        self.token_usage: Dict[str, Any] = {
+        self.error: str | None = None
+        self.token_usage: dict[str, Any] = {
             "total_tokens": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -117,7 +120,7 @@ class CouncilAgent:
             "by_model": {},
         }
 
-    def _record_tokens(self, model: str, usage: Optional[Dict[str, Any]]):
+    def _record_tokens(self, model: str, usage: dict[str, Any] | None):
         """Record token consumption for a given model into the agent's aggregate metrics.
 
         Updates cumulative prompt, completion, total, and compression-saved tokens,
@@ -155,7 +158,7 @@ class CouncilAgent:
         by_m[model]["total_tokens"] += t
         by_m[model]["tokens_saved"] = by_m[model].get("tokens_saved", 0) + s
 
-    def _record_sub_council_tokens(self, council_data: Dict[str, Any]):
+    def _record_sub_council_tokens(self, council_data: dict[str, Any]):
         """Record all token usage consumed during a sub-council deliberation.
 
         Traverses Stage 1, Stage 2, and Stage 3 result payloads and attributes
@@ -188,7 +191,7 @@ class CouncilAgent:
         """Signal the agent to cooperatively abort execution at the next loop iteration."""
         self.is_cancelled = True
 
-    def _build_system_prompt(self, external_tools: List[Dict[str, Any]]) -> str:
+    def _build_system_prompt(self, external_tools: list[dict[str, Any]]) -> str:
         """Construct the comprehensive system instructions for the Chairperson model.
 
         Documents available workspace tools, connected external MCP tools,
@@ -225,8 +228,12 @@ class CouncilAgent:
         if external_tools:
             tools_doc += "\nExternal Connected MCP Tools:\n"
             for t in external_tools:
-                tools_doc += f"- {t['name']} (server: {t['server']}): {t['description']}\n"
-                tools_doc += f"  Parameters Schema: {json.dumps(t.get('input_schema', {}))}\n"
+                tools_doc += (
+                    f"- {t['name']} (server: {t['server']}): {t['description']}\n"
+                )
+                tools_doc += (
+                    f"  Parameters Schema: {json.dumps(t.get('input_schema', {}))}\n"
+                )
 
         # Dynamically inject rules based on active deliberation sensitivity level
         if self.sensitivity_level == "low":
@@ -285,11 +292,22 @@ CRITICAL OPERATIONAL RULES:
         Returns:
             str: Markdown-formatted briefing text.
         """
-        s3 = self.initial_council.get("stage3", {}).get("response", "No synthesis available.")
-        rankings = self.initial_council.get("metadata", {}).get("aggregate_rankings", [])
-        rankings_str = ", ".join(
-            [f"{r.get('model', '').split('/')[-1]} (avg rank: {r.get('average_rank')})" for r in rankings]
-        ) if rankings else "Council votes recorded."
+        s3 = self.initial_council.get("stage3", {}).get(
+            "response", "No synthesis available."
+        )
+        rankings = self.initial_council.get("metadata", {}).get(
+            "aggregate_rankings", []
+        )
+        rankings_str = (
+            ", ".join(
+                [
+                    f"{r.get('model', '').split('/')[-1]} (avg rank: {r.get('average_rank')})"
+                    for r in rankings
+                ]
+            )
+            if rankings
+            else "Council votes recorded."
+        )
 
         return f"""### INITIAL COUNCIL CROSS-REFERENCED BLUEPRINT & STRATEGY
 The Council deliberated on this user request and produced the following consensus:
@@ -301,9 +319,9 @@ Consensus Synthesis & Strategy:
 
     @staticmethod
     def _make_sub_event_forwarder(
-        on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]],
+        on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None,
         step_count: int,
-    ) -> Optional[Callable[[str, Any], Awaitable[None]]]:
+    ) -> Callable[[str, Any], Awaitable[None]] | None:
         """Create a forwarding callback for streaming nested sub-council events.
 
         Wraps events produced inside `run_sub_council` into a parent `sub_council_event`
@@ -314,7 +332,7 @@ Consensus Synthesis & Strategy:
             step_count: The active step number of the agent ReAct loop.
 
         Returns:
-            Optional[Callable]: Async forwarder function, or None if on_event is not provided.
+            Callable or None: Async forwarder function, or None if on_event is not provided.
         """
         if not on_event:
             return None
@@ -327,7 +345,7 @@ Consensus Synthesis & Strategy:
 
         return sub_event_forwarder
 
-    def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json(self, text: str) -> dict[str, Any] | None:
         """Extract and parse a JSON dictionary from raw model text.
 
         Checks for ```json code blocks first, falling back to outer curly braces.
@@ -336,7 +354,7 @@ Consensus Synthesis & Strategy:
             text: Raw string generated by the Chairperson model.
 
         Returns:
-            Optional[Dict[str, Any]]: Parsed dictionary if valid JSON, otherwise None.
+            dict[str, Any] or None: Parsed dictionary if valid JSON, otherwise None.
         """
         if not text:
             return None
@@ -361,8 +379,8 @@ Consensus Synthesis & Strategy:
 
     async def run(
         self,
-        on_event: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None,
-    ) -> Dict[str, Any]:
+        on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
         """Execute the autonomous agent loop until task completion or max steps.
 
         Execution Lifecycle:
@@ -387,7 +405,7 @@ Consensus Synthesis & Strategy:
                 streaming progress updates to the caller.
 
         Returns:
-            Dict[str, Any]: Agent outcome payload containing:
+            dict[str, Any]: Agent outcome payload containing:
                 - success (bool): True if task was declared completed.
                 - steps (list): Recorded step history with thoughts, actions, and observations.
                 - artifacts (list): List of modified/created file paths.
@@ -400,7 +418,7 @@ Consensus Synthesis & Strategy:
         initial_briefing = self._format_initial_briefing()
 
         # Build initial conversation history for Chairperson
-        messages: List[Dict[str, str]] = [
+        messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
@@ -444,7 +462,9 @@ Consensus Synthesis & Strategy:
             if not response or not response.get("content"):
                 self.error = f"Chairperson model ({chairman_model}) failed to respond at step {step_count}."
                 if on_event:
-                    await on_event("agent_error", {"error": self.error, "step": step_count})
+                    await on_event(
+                        "agent_error", {"error": self.error, "step": step_count}
+                    )
                 break
 
             response_text = response.get("content", "")
@@ -469,7 +489,7 @@ Consensus Synthesis & Strategy:
             action = parsed.get("action", "")
             params = parsed.get("params", {})
 
-            step_record: Dict[str, Any] = {
+            step_record: dict[str, Any] = {
                 "step": step_count,
                 "thought": thought,
                 "action": action,
@@ -501,7 +521,9 @@ Consensus Synthesis & Strategy:
                 ):
                     self.completion_reviewed = True
                     self.consultation_count += 1
-                    summary_cand = params.get("summary", thought or "Task deliverables completed.")
+                    summary_cand = params.get(
+                        "summary", thought or "Task deliverables completed."
+                    )
                     artifacts_cand = params.get("artifacts", self.artifacts)
                     if on_event:
                         await on_event(
@@ -530,7 +552,9 @@ Consensus Synthesis & Strategy:
                     step_record["observation"] = {
                         "success": True,
                         "message": "Council pre-completion review complete.",
-                        "consensus_recommendation": review_data.get("consensus_recommendation", ""),
+                        "consensus_recommendation": review_data.get(
+                            "consensus_recommendation", ""
+                        ),
                         "aggregate_rankings": review_data.get("aggregate_rankings", []),
                     }
                     self.steps.append(step_record)
@@ -575,8 +599,8 @@ Consensus Synthesis & Strategy:
                 break
 
             # Execute tool action
-            observation: Dict[str, Any] = {}
-            council_data: Optional[Dict[str, Any]] = None
+            observation: dict[str, Any] = {}
+            council_data: dict[str, Any] | None = None
 
             try:
                 if action == "write_file":
@@ -608,7 +632,9 @@ Consensus Synthesis & Strategy:
                 elif action == "execute_command":
                     cmd = params.get("command", "")
                     tout = params.get("timeout", 60)
-                    observation = await agent_executor.execute_command(cmd, timeout=tout)
+                    observation = await agent_executor.execute_command(
+                        cmd, timeout=tout
+                    )
 
                 elif action == "consult_council":
                     q = params.get("question", "")
@@ -630,15 +656,21 @@ Consensus Synthesis & Strategy:
                                 {"question": q, "context": ctx, "step": step_count},
                             )
 
-                        sub_forwarder = self._make_sub_event_forwarder(on_event, step_count)
+                        sub_forwarder = self._make_sub_event_forwarder(
+                            on_event, step_count
+                        )
                         council_data = await run_sub_council(
                             q, context=ctx, on_event=sub_forwarder
                         )
                         self._record_sub_council_tokens(council_data)
                         observation = {
                             "success": True,
-                            "consensus_recommendation": council_data.get("consensus_recommendation", ""),
-                            "aggregate_rankings": council_data.get("aggregate_rankings", []),
+                            "consensus_recommendation": council_data.get(
+                                "consensus_recommendation", ""
+                            ),
+                            "aggregate_rankings": council_data.get(
+                                "aggregate_rankings", []
+                            ),
                             "message": "Council cross-referencing completed.",
                         }
 
@@ -654,7 +686,9 @@ Consensus Synthesis & Strategy:
                     # Check if it is an external MCP tool
                     is_external = any(t["name"] == action for t in external_tools)
                     if is_external:
-                        matching_tool = next(t for t in external_tools if t["name"] == action)
+                        matching_tool = next(
+                            t for t in external_tools if t["name"] == action
+                        )
                         observation = await mcp_manager.call_tool(
                             matching_tool["server"], action, params
                         )
@@ -704,7 +738,9 @@ Consensus Synthesis & Strategy:
                     )
                     self._record_sub_council_tokens(diag_data)
                     council_data = diag_data
-                    observation["council_diagnostic"] = diag_data.get("consensus_recommendation", "")
+                    observation["council_diagnostic"] = diag_data.get(
+                        "consensus_recommendation", ""
+                    )
                     if on_event:
                         await on_event(
                             "consult_council_complete",
@@ -716,7 +752,7 @@ Consensus Synthesis & Strategy:
 
             except Exception as ex:
                 logger.exception("Error executing action %s", action)
-                observation = {"success": False, "error": f"Execution error: {str(ex)}"}
+                observation = {"success": False, "error": f"Execution error: {ex}"}
 
             step_record["observation"] = observation
             step_record["council_consultation"] = council_data
@@ -745,11 +781,18 @@ Consensus Synthesis & Strategy:
                 }
             )
 
-        if not self.is_completed and not self.error and not self.is_cancelled:
-            if not self.is_unlimited_steps and step_count >= self.max_steps:
-                self.error = f"Reached maximum allowed steps ({self.max_steps}) without completion."
-                if on_event:
-                    await on_event("agent_error", {"error": self.error})
+        if (
+            not self.is_completed
+            and not self.error
+            and not self.is_cancelled
+            and not self.is_unlimited_steps
+            and step_count >= self.max_steps
+        ):
+            self.error = (
+                f"Reached maximum allowed steps ({self.max_steps}) without completion."
+            )
+            if on_event:
+                await on_event("agent_error", {"error": self.error})
 
         return {
             "success": self.is_completed,

@@ -15,7 +15,7 @@ Supported Compression Strategies:
        - Collapses horizontal spaces and indentation runs (3+ spaces -> single space).
        - Normalizes extended markdown horizontal rules and ASCII delimiters.
        - Compacts multi-line JSON structures into single-line minified JSON.
-       - Strips conversational conversational preambles ("Sure! I can help with...", "As an AI language model...").
+       - Strips conversational preambles ("Sure! I can help with...", "As an AI language model...").
     3. Adaptive Hybrid (`adaptive`):
        - Multi-stage pipeline: runs fast Heuristic cleaning first, followed by Headroom semantic compression.
     4. Safety Invariant:
@@ -24,11 +24,13 @@ Supported Compression Strategies:
          result and keeps the original uncompressed messages.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ def _compact_json_match(match: re.Match) -> str:
     If parsing fails, returns the original matched text unchanged.
 
     Args:
-        match (re.Match): Regex match object containing the JSON candidate text.
+        match: Regex match object containing the JSON candidate text.
 
     Returns:
         str: Minified JSON string if valid JSON, or the original text.
@@ -80,21 +82,17 @@ def _compact_json_match(match: re.Match) -> str:
 
 
 def _fallback_heuristic_with_estimates(
-    messages: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], int, int, List[str]]:
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int, list[str]]:
     """Helper to apply heuristic compression and calculate before/after token counts.
 
     Used when Headroom is unavailable or encounters an error during execution.
 
     Args:
-        messages (List[Dict[str, Any]]): Original list of message dictionaries.
+        messages: Original list of message dictionaries.
 
     Returns:
-        Tuple[List[Dict[str, Any]], int, int, List[str]]:
-            - Compressed messages list.
-            - Token count before compression.
-            - Token count after compression.
-            - List of transformation names applied.
+        tuple: (compressed_messages, tokens_before, tokens_after, transforms_applied).
     """
     comp_msgs, transforms = compress_with_heuristic(messages)
     t_before = estimate_messages_tokens(messages)
@@ -105,6 +103,7 @@ def _fallback_heuristic_with_estimates(
 # Attempt to load OpenAI's tiktoken for accurate BPE token counting; fallback to None
 try:
     import tiktoken
+
     _TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
 except Exception:
     _TIKTOKEN_ENC = None
@@ -112,6 +111,7 @@ except Exception:
 # Attempt to load Headroom AI SDK; track availability flag
 try:
     import headroom
+
     _HAS_HEADROOM = True
 except ImportError:
     headroom = None
@@ -123,25 +123,26 @@ class CompressionResult:
     """Structured report returned by the compression pipeline.
 
     Attributes:
-        messages (List[Dict[str, Any]]): The resulting message list (compressed or original).
-        tokens_before (int): Estimated token count prior to compression.
-        tokens_after (int): Estimated token count following compression.
-        tokens_saved (int): Net prompt tokens saved (tokens_before - tokens_after).
-        compression_ratio (float): Percentage of tokens eliminated (e.g., 0.25 for 25% reduction).
-        algorithm (str): Name of the algorithm executed ('headroom', 'heuristic', 'adaptive', 'disabled').
-        transforms_applied (List[str]): List of specific transformations executed (e.g. 'collapse_spaces').
+        messages: The resulting message list (compressed or original).
+        tokens_before: Estimated token count prior to compression.
+        tokens_after: Estimated token count following compression.
+        tokens_saved: Net prompt tokens saved (tokens_before - tokens_after).
+        compression_ratio: Percentage of tokens eliminated (e.g., 0.25 for 25% reduction).
+        algorithm: Name of the algorithm executed ('headroom', 'heuristic', 'adaptive', 'disabled').
+        transforms_applied: List of specific transformations executed (e.g. 'collapse_spaces').
     """
-    messages: List[Dict[str, Any]]
+
+    messages: list[dict[str, Any]]
     tokens_before: int
     tokens_after: int
     tokens_saved: int
     compression_ratio: float
     algorithm: str
-    transforms_applied: List[str] = field(default_factory=list)
+    transforms_applied: list[str] = field(default_factory=list)
 
 
 # Cumulative in-memory compression analytics
-_COMPRESSION_STATS: Dict[str, Any] = {
+_COMPRESSION_STATS: dict[str, Any] = {
     "total_queries": 0,
     "tokens_before": 0,
     "tokens_after": 0,
@@ -150,7 +151,7 @@ _COMPRESSION_STATS: Dict[str, Any] = {
 }
 
 
-def estimate_tokens(text: Optional[str]) -> int:
+def estimate_tokens(text: str | None) -> int:
     """Estimate token count for a text string using tiktoken BPE or a 4-character heuristic.
 
     Uses the OpenAI `cl100k_base` tokenizer encoding when available. If tiktoken is not installed
@@ -158,7 +159,7 @@ def estimate_tokens(text: Optional[str]) -> int:
     1 token ~= 4 UTF-8 characters.
 
     Args:
-        text (Optional[str]): Input text string to evaluate.
+        text: Input text string to evaluate.
 
     Returns:
         int: Estimated token count (0 for empty or None text, minimum 1 for non-empty text).
@@ -173,14 +174,14 @@ def estimate_tokens(text: Optional[str]) -> int:
     return max(1, len(text) // 4)
 
 
-def estimate_messages_tokens(messages: List[Dict[str, Any]]) -> int:
+def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
     """Estimate total token consumption for a list of chat message dictionaries.
 
     Iterates through each message in `messages`, evaluating string or multi-part content
     blocks, and adds 3 tokens per message for chat markup/role overhead.
 
     Args:
-        messages (List[Dict[str, Any]]): List of chat message dicts containing 'role' and 'content'.
+        messages: List of chat message dicts containing 'role' and 'content'.
 
     Returns:
         int: Cumulative estimated token count across all messages.
@@ -200,14 +201,14 @@ def estimate_messages_tokens(messages: List[Dict[str, Any]]) -> int:
     return total
 
 
-def map_model_for_headroom(model: Optional[str]) -> str:
+def map_model_for_headroom(model: str | None) -> str:
     """Map OpenRouter model identifier strings to supported Headroom AI target model identifiers.
 
     Headroom optimizes prompts targeting specific model families (e.g., 'gpt-4o', 'claude-3-5-sonnet',
     'gemini-1.5-pro'). This function maps diverse OpenRouter model slugs to the closest Headroom profile.
 
     Args:
-        model (Optional[str]): OpenRouter model identifier (e.g. 'google/gemini-2.5-flash').
+        model: OpenRouter model identifier (e.g. 'google/gemini-2.5-flash').
 
     Returns:
         str: Headroom model identifier ('gpt-4o', 'claude-3-5-sonnet', or 'gemini-1.5-pro').
@@ -224,7 +225,7 @@ def map_model_for_headroom(model: Optional[str]) -> str:
     return "gpt-4o"
 
 
-def compress_heuristic_text(text: str) -> Tuple[str, List[str]]:
+def compress_heuristic_text(text: str) -> tuple[str, list[str]]:
     """Apply deterministic heuristic text optimization rules to a single text string.
 
     Rules applied:
@@ -236,10 +237,10 @@ def compress_heuristic_text(text: str) -> Tuple[str, List[str]]:
       6. JSON minification: minifies formatting whitespace in candidate JSON blocks.
 
     Args:
-        text (str): Raw string content from a prompt message.
+        text: Raw string content from a prompt message.
 
     Returns:
-        Tuple[str, List[str]]: (optimized text string, list of transformation names applied).
+        tuple[str, list[str]]: (optimized text string, list of transformation names applied).
     """
     if not text or len(text) < 40:
         return text, []
@@ -279,18 +280,18 @@ def compress_heuristic_text(text: str) -> Tuple[str, List[str]]:
 
 
 def compress_with_heuristic(
-    messages: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[str]]:
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Execute heuristic compression across all messages in a conversation array.
 
     Clones each message dictionary, applies `compress_heuristic_text` to its string content,
     and collects the distinct set of transformations applied across all messages.
 
     Args:
-        messages (List[Dict[str, Any]]): List of chat message dicts.
+        messages: List of chat message dicts.
 
     Returns:
-        Tuple[List[Dict[str, Any]], List[str]]:
+        tuple[list[dict[str, Any]], list[str]]:
             - New message list with compressed text content.
             - List of unique transformation names applied.
     """
@@ -308,8 +309,8 @@ def compress_with_heuristic(
 
 
 def compress_with_headroom(
-    messages: List[Dict[str, Any]], model: str = "gpt-4o"
-) -> Tuple[List[Dict[str, Any]], int, int, List[str]]:
+    messages: list[dict[str, Any]], model: str = "gpt-4o"
+) -> tuple[list[dict[str, Any]], int, int, list[str]]:
     """Compress a message list using the Headroom AI SDK.
 
     Calls `headroom.compress` targeting the mapped model architecture.
@@ -317,11 +318,11 @@ def compress_with_headroom(
     it falls back to heuristic compression.
 
     Args:
-        messages (List[Dict[str, Any]]): List of chat messages to compress.
-        model (str): OpenRouter or target model identifier string.
+        messages: List of chat messages to compress.
+        model: OpenRouter or target model identifier string.
 
     Returns:
-        Tuple[List[Dict[str, Any]], int, int, List[str]]:
+        tuple[list[dict[str, Any]], int, int, list[str]]:
             - Compressed messages list.
             - Tokens before compression.
             - Tokens after compression.
@@ -355,7 +356,7 @@ def compress_with_headroom(
 
 
 def compress_messages(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     model: str = "gpt-4o",
     algorithm: str = "headroom",
     enabled: bool = True,
@@ -374,10 +375,10 @@ def compress_messages(
       5. Updates global cumulative compression statistics (`_COMPRESSION_STATS`).
 
     Args:
-        messages (List[Dict[str, Any]]): List of chat message dicts.
-        model (str): Model identifier for model-specific compression tuning.
-        algorithm (str): Compression algorithm ('headroom', 'heuristic', 'adaptive').
-        enabled (bool): Whether compression is enabled.
+        messages: List of chat message dicts.
+        model: Model identifier for model-specific compression tuning.
+        algorithm: Compression algorithm ('headroom', 'heuristic', 'adaptive').
+        enabled: Whether compression is enabled.
 
     Returns:
         CompressionResult: Complete compression report including messages, tokens, and ratio.
@@ -413,8 +414,8 @@ def compress_messages(
             transforms_applied.extend(hr_transforms)
             tokens_after = t_after
         else:  # headroom
-            compressed_messages, _, tokens_after, hr_transforms = compress_with_headroom(
-                messages, model=model
+            compressed_messages, _, tokens_after, hr_transforms = (
+                compress_with_headroom(messages, model=model)
             )
             transforms_applied.extend(hr_transforms)
     except Exception as e:
@@ -450,7 +451,7 @@ def compress_messages(
     )
 
 
-def get_compression_stats() -> Dict[str, Any]:
+def get_compression_stats() -> dict[str, Any]:
     """Retrieve cumulative token compression metrics and estimated dollar savings.
 
     Calculates aggregate compression ratio, estimated monetary savings based on
@@ -458,7 +459,7 @@ def get_compression_stats() -> Dict[str, Any]:
     package is available in the current environment.
 
     Returns:
-        Dict[str, Any]: Analytics dictionary containing:
+        dict[str, Any]: Analytics dictionary containing:
             - "total_queries" (int): Number of compression operations evaluated.
             - "tokens_before" (int): Cumulative prompt tokens before compression.
             - "tokens_after" (int): Cumulative prompt tokens after compression.

@@ -306,20 +306,23 @@ import httpx
 import asyncio
 import json
 
+
 async def execute_council_action(task: str, execute: bool = True):
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "http://localhost:8001/api/action",
             json={"request": task, "execute": execute},
-            timeout=300.0  # Long timeout for council deliberation
+            timeout=300.0,  # Long timeout for council deliberation
         )
         return response.json()
 
+
 # Example usage
-result = asyncio.run(execute_council_action(
-    "Scan network for open ports and save to /tmp/results.txt",
-    execute=True
-))
+result = asyncio.run(
+    execute_council_action(
+        "Scan network for open ports and save to /tmp/results.txt", execute=True
+    )
+)
 
 # Check if all stages succeeded
 if result.get("execution", {}).get("success"):

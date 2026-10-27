@@ -26,6 +26,8 @@ Key Architecture & Robustness Mechanisms:
          and refreshes available tool schemas in the background.
 """
 
+from __future__ import annotations
+
 import asyncio
 import base64
 import json
@@ -34,9 +36,9 @@ import os
 import re
 import tempfile
 import urllib.request
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -73,38 +75,40 @@ class MCPClientManager:
 
     def __init__(self) -> None:
         """Initialize the MCP client manager with empty sessions, caches, and file paths."""
-        self.sessions: Dict[str, ClientSession] = {}
-        self.exit_stacks: Dict[str, AsyncExitStack] = {}
-        self.config_path: Path = Path(__file__).resolve().parent.parent / "mcp_servers.json"
-        self.configured_servers: List[str] = []
-        self.server_statuses: Dict[str, str] = {}
-        self.cached_tools: List[Dict[str, Any]] = []
-        self.polling_task: Optional[asyncio.Task] = None
+        self.sessions: dict[str, ClientSession] = {}
+        self.exit_stacks: dict[str, AsyncExitStack] = {}
+        self.config_path: Path = (
+            Path(__file__).resolve().parent.parent / "mcp_servers.json"
+        )
+        self.configured_servers: list[str] = []
+        self.server_statuses: dict[str, str] = {}
+        self.cached_tools: list[dict[str, Any]] = []
+        self.polling_task: asyncio.Task | None = None
 
-    def _read_config(self) -> Dict[str, Any]:
+    def _read_config(self) -> dict[str, Any]:
         """Read and parse the `mcp_servers.json` configuration file from disk.
 
         Returns:
-            Dict[str, Any]: Parsed configuration dictionary with a 'mcpServers' object mapping,
+            dict[str, Any]: Parsed configuration dictionary with a 'mcpServers' object mapping,
                 or a default empty schema `{"mcpServers": {}}` if missing or unparseable.
         """
         if not self.config_path.exists():
             return {"mcpServers": {}}
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with self.config_path.open("r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Failed to read mcp_servers.json: {e}")
+            logger.error("Failed to read mcp_servers.json: %s", e)
             return {"mcpServers": {}}
 
-    def _write_config(self, config_data: Dict[str, Any]) -> None:
+    def _write_config(self, config_data: dict[str, Any]) -> None:
         """Write updated configuration to `mcp_servers.json` using atomic temporary file write.
 
         Args:
-            config_data (Dict[str, Any]): Complete MCP configuration dictionary to persist.
+            config_data: Complete MCP configuration dictionary to persist.
 
         Raises:
-            Exception: If temporary file writing or replacement fails.
+            OSError: If temporary file writing or replacement fails.
         """
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,11 +125,11 @@ class MCPClientManager:
                 temp_name = tf.name
             os.replace(temp_name, self.config_path)
         except Exception as e:
-            logger.error(f"Failed to write mcp_servers.json: {e}")
+            logger.error("Failed to write mcp_servers.json: %s", e)
             raise
 
     def is_server_enabled(
-        self, name: str, config_data: Optional[Dict[str, Any]] = None
+        self, name: str, config_data: dict[str, Any] | None = None
     ) -> bool:
         """Check whether a given MCP server is enabled in configuration.
 
@@ -133,9 +137,9 @@ class MCPClientManager:
         `disabled: true` or `enabled: false`.
 
         Args:
-            name (str): Server name key in `mcp_servers.json`.
-            config_data (Optional[Dict[str, Any]]): Pre-loaded configuration data.
-                If None, reads fresh configuration from disk.
+            name: Server name key in `mcp_servers.json`.
+            config_data: Pre-loaded configuration data. If None, reads fresh
+                configuration from disk.
 
         Returns:
             bool: True if the server is enabled and allowed to run, False otherwise.
@@ -148,7 +152,7 @@ class MCPClientManager:
             return False
         return srv.get("enabled", True)
 
-    async def start_server(self, name: str, server_config: Dict[str, Any]) -> bool:
+    async def start_server(self, name: str, server_config: dict[str, Any]) -> bool:
         """Start an individual MCP server process, filter its stdout, and establish a ClientSession.
 
         Launches the server executable via a Python wrapper script that filters out non-JSON
@@ -156,9 +160,9 @@ class MCPClientManager:
         and records the server status.
 
         Args:
-            name (str): Identifier name for the server (e.g. 'kali-tools').
-            server_config (Dict[str, Any]): Server configuration containing 'command',
-                optional 'args', and optional 'env' variables.
+            name: Identifier name for the server (e.g. 'kali-tools').
+            server_config: Server configuration containing 'command', optional 'args',
+                and optional 'env' variables.
 
         Returns:
             bool: True if connection succeeded, False if configuration was invalid or launch failed.
@@ -172,15 +176,15 @@ class MCPClientManager:
 
         if not command:
             logger.warning(
-                f"Server '{name}' configuration is missing 'command'. Skipping."
+                "Server '%s' configuration is missing 'command'. Skipping.", name
             )
             self.server_statuses[name] = "configuration_error"
             return False
 
-        logger.info(f"Starting MCP server '{name}' via command: {command} {args}")
+        logger.info("Starting MCP server '%s' via command: %s %s", name, command, args)
         stack = AsyncExitStack()
         try:
-            full_cmd = [command] + args
+            full_cmd = [command, *args]
 
             # Wrap the server invocation in a python filter script that swallows non-JSON lines
             # from stdout (e.g. npm installs, node version warnings, progress bars).
@@ -226,7 +230,9 @@ for line in iter(proc.stdout.readline, b''):
     except Exception:
         pass
 """
-            encoded_script = base64.b64encode(filter_script.encode("utf-8")).decode("utf-8")
+            encoded_script = base64.b64encode(filter_script.encode("utf-8")).decode(
+                "utf-8"
+            )
             wrapped_command = "python"
             wrapped_args = [
                 "-u",
@@ -245,15 +251,13 @@ for line in iter(proc.stdout.readline, b''):
             self.exit_stacks[name] = stack
             self.sessions[name] = session
             self.server_statuses[name] = "connected"
-            logger.info(f"Successfully connected to MCP server '{name}'")
+            logger.info("Successfully connected to MCP server '%s'", name)
             return True
         except Exception as e:
-            logger.error(f"Failed to start MCP server '{name}': {e}")
-            self.server_statuses[name] = f"failed: {str(e)}"
-            try:
+            logger.error("Failed to start MCP server '%s': %s", name, e)
+            self.server_statuses[name] = f"failed: {e}"
+            with suppress(Exception):
                 await stack.aclose()
-            except Exception:
-                pass
             return False
 
     async def stop_server(self, name: str) -> None:
@@ -263,15 +267,15 @@ for line in iter(proc.stdout.readline, b''):
         its registered session and cached tools.
 
         Args:
-            name (str): Identifier of the server to stop.
+            name: Identifier of the server to stop.
         """
         stack = self.exit_stacks.pop(name, None)
         if stack:
             try:
-                logger.info(f"Stopping MCP server '{name}'...")
+                logger.info("Stopping MCP server '%s'...", name)
                 await stack.aclose()
             except Exception as e:
-                logger.warning(f"Error closing exit stack for '{name}': {e}")
+                logger.warning("Error closing exit stack for '%s': %s", name, e)
 
         self.sessions.pop(name, None)
         # Remove cached tools belonging to this stopped server
@@ -293,7 +297,7 @@ for line in iter(proc.stdout.readline, b''):
                 await self.start_server(name, server_config)
             else:
                 self.server_statuses[name] = "disabled"
-                logger.info(f"MCP server '{name}' is disabled; skipping startup.")
+                logger.info("MCP server '%s' is disabled; skipping startup.", name)
 
         # Run initial tools check to populate the cache
         await self.get_available_tools(bypass_cache=True)
@@ -315,18 +319,18 @@ for line in iter(proc.stdout.readline, b''):
         self.cached_tools.clear()
         logger.info("All MCP servers stopped.")
 
-    async def set_server_enabled(self, name: str, enabled: bool) -> Dict[str, Any]:
+    async def set_server_enabled(self, name: str, enabled: bool) -> dict[str, Any]:
         """Enable or disable a specific MCP server, update configuration, and adjust runtime state.
 
         If enabled=True, writes config and launches the server subprocess.
         If enabled=False, writes config and terminates the server subprocess.
 
         Args:
-            name (str): Server identifier name.
-            enabled (bool): New enabled status.
+            name: Server identifier name.
+            enabled: New enabled status.
 
         Returns:
-            Dict[str, Any]: Summary dictionary containing name, enabled, status, servers metadata, and tools list.
+            dict[str, Any]: Summary dictionary containing name, enabled, status, servers metadata, and tools list.
 
         Raises:
             ValueError: If the requested server is not defined in `mcp_servers.json`.
@@ -358,19 +362,19 @@ for line in iter(proc.stdout.readline, b''):
             "tools": self.cached_tools,
         }
 
-    def get_servers_metadata(self) -> List[Dict[str, Any]]:
+    def get_servers_metadata(self) -> list[dict[str, Any]]:
         """Return structured status and configuration metadata for all configured MCP servers.
 
         Reads configuration and collects runtime status ('connected', 'disconnected', 'disabled',
         or error description) along with tool counts for each server.
 
         Returns:
-            List[Dict[str, Any]]: List of server metadata dictionaries, each containing:
+            list[dict[str, Any]]: List of server metadata dictionaries, each containing:
                 - "name" (str): Unique server identifier.
                 - "enabled" (bool): Whether the server is active.
                 - "status" (str): Runtime status description.
                 - "command" (str): Executable command string.
-                - "args" (List[str]): Command line arguments.
+                - "args" (list[str]): Command line arguments.
                 - "tools_count" (int): Number of tools registered by this server.
         """
         config_data = self._read_config()
@@ -400,11 +404,11 @@ for line in iter(proc.stdout.readline, b''):
         self,
         name: str,
         command: str,
-        args: Optional[List[str]] = None,
-        env: Optional[Dict[str, str]] = None,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
         enabled: bool = True,
         overwrite: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Add a new MCP server configuration and optionally start its process.
 
         Args:
@@ -416,7 +420,7 @@ for line in iter(proc.stdout.readline, b''):
             overwrite: Whether to allow overwriting an existing server configuration.
 
         Returns:
-            Dict[str, Any]: Result dictionary containing name, enabled, status, servers, and tools.
+            dict[str, Any]: Result dictionary containing name, enabled, status, servers, and tools.
 
         Raises:
             ValueError: If name or command is invalid, or server already exists and overwrite is False.
@@ -446,7 +450,7 @@ for line in iter(proc.stdout.readline, b''):
             else None
         )
 
-        server_entry: Dict[str, Any] = {
+        server_entry: dict[str, Any] = {
             "command": clean_cmd,
             "args": clean_args,
             "enabled": bool(enabled),
@@ -475,14 +479,14 @@ for line in iter(proc.stdout.readline, b''):
             "tools": self.cached_tools,
         }
 
-    async def remove_server(self, name: str) -> Dict[str, Any]:
+    async def remove_server(self, name: str) -> dict[str, Any]:
         """Remove an MCP server from configuration and terminate its session.
 
         Args:
             name: Identifier name of server to remove.
 
         Returns:
-            Dict[str, Any]: Result dictionary with deleted flag, servers metadata, and tools list.
+            dict[str, Any]: Result dictionary with deleted flag, servers metadata, and tools list.
 
         Raises:
             ValueError: If server is not found in configuration.
@@ -523,7 +527,7 @@ for line in iter(proc.stdout.readline, b''):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in MCP polling loop: {e}")
+                logger.error("Error in MCP polling loop: %s", e)
             try:
                 await asyncio.sleep(10)
             except asyncio.CancelledError:
@@ -531,7 +535,7 @@ for line in iter(proc.stdout.readline, b''):
 
     async def get_available_tools(
         self, bypass_cache: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Discover and aggregate all tools exposed by enabled and running MCP servers.
 
         Queries each connected `ClientSession` via `session.list_tools()`. For special services
@@ -539,11 +543,11 @@ for line in iter(proc.stdout.readline, b''):
         Updates the internal cache (`self.cached_tools`) and server health statuses.
 
         Args:
-            bypass_cache (bool): If True, queries all active server sessions over stdio;
+            bypass_cache: If True, queries all active server sessions over stdio;
                 if False and cached tools exist, returns the cached tool definitions immediately.
 
         Returns:
-            List[Dict[str, Any]]: List of available tool definitions, each containing:
+            list[dict[str, Any]]: List of available tool definitions, each containing:
                 - "server" (str): Originating MCP server name.
                 - "name" (str): Function/tool identifier.
                 - "description" (str): Human and LLM readable documentation.
@@ -567,18 +571,19 @@ for line in iter(proc.stdout.readline, b''):
             if not self.is_server_enabled(server_name, config_data):
                 continue
 
-            if server_name == "kali-tools":
-                if not check_kali_tools_health():
-                    self.server_statuses[server_name] = (
-                        "error: Kali Linux Docker backend is offline"
-                    )
-                    continue
+            if server_name == "kali-tools" and not check_kali_tools_health():
+                self.server_statuses[server_name] = (
+                    "error: Kali Linux Docker backend is offline"
+                )
+                continue
 
             try:
                 result = await session.list_tools()
                 tools_list = getattr(result, "tools", [])
                 for tool in tools_list:
-                    schema = getattr(tool, "input_schema", getattr(tool, "inputSchema", {}))
+                    schema = getattr(
+                        tool, "input_schema", getattr(tool, "inputSchema", {})
+                    )
                     all_tools.append(
                         {
                             "server": server_name,
@@ -589,15 +594,15 @@ for line in iter(proc.stdout.readline, b''):
                     )
                 self.server_statuses[server_name] = "connected"
             except Exception as e:
-                logger.error(f"Failed to list tools for server '{server_name}': {e}")
-                self.server_statuses[server_name] = f"error: {str(e)}"
+                logger.error("Failed to list tools for server '%s': %s", server_name, e)
+                self.server_statuses[server_name] = f"error: {e}"
 
         self.cached_tools = all_tools
         return all_tools
 
     async def call_tool(
-        self, server_name: str, tool_name: str, arguments: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, server_name: str, tool_name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute a tool call against a specific running MCP server.
 
         Validates that the server is enabled and running, invokes `session.call_tool(...)`,
@@ -605,16 +610,16 @@ for line in iter(proc.stdout.readline, b''):
         a standardized success/failure payload.
 
         Args:
-            server_name (str): Identifier name of target MCP server (e.g. 'kali-tools').
-            tool_name (str): Name of the tool function to call on the server.
-            arguments (Dict[str, Any]): Dictionary of arguments matching the tool's input schema.
+            server_name: Identifier name of target MCP server (e.g. 'kali-tools').
+            tool_name: Name of the tool function to call on the server.
+            arguments: Dictionary of arguments matching the tool's input schema.
 
         Returns:
-            Dict[str, Any]: Standardized execution outcome dictionary:
+            dict[str, Any]: Standardized execution outcome dictionary:
                 - "success" (bool): True if tool executed without error.
                 - "content" (str): Consolidated textual output from tool response.
                 - "raw_result" (str): String representation of the raw protocol response.
-                - "error" (Optional[str]): Error message if execution failed.
+                - "error" (str, optional): Error message if execution failed.
         """
         if not self.is_server_enabled(server_name):
             return {
@@ -631,7 +636,10 @@ for line in iter(proc.stdout.readline, b''):
 
         try:
             logger.info(
-                f"Calling tool '{tool_name}' on server '{server_name}' with args: {arguments}"
+                "Calling tool '%s' on server '%s' with args: %s",
+                tool_name,
+                server_name,
+                arguments,
             )
             result = await session.call_tool(tool_name, arguments=arguments)
             content_list = getattr(result, "content", [])
@@ -655,7 +663,10 @@ for line in iter(proc.stdout.readline, b''):
             }
         except Exception as e:
             logger.error(
-                f"Error calling tool '{tool_name}' on server '{server_name}': {e}"
+                "Error calling tool '%s' on server '%s': %s",
+                tool_name,
+                server_name,
+                e,
             )
             return {"success": False, "error": str(e)}
 

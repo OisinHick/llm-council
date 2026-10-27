@@ -273,7 +273,7 @@ async def main():
         print("LLM Council MCP Action Executor\n")
         print("Usage: python example_action.py [TASK DESCRIPTION]\n")
         print("Example tasks:")
-        for label, task, execute in examples:
+        for _label, task, execute in examples:
             cmd = f"python example_action.py {task}"
             marker = "(will execute)" if execute else "(plan only)"
             print(f"  {cmd} {marker}")

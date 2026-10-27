@@ -3,7 +3,7 @@
 This module provides the `MCPToolExecutor` engine responsible for executing
 actions synthesized by the LLM Council or emitted during single-action execution.
 It provides two primary capabilities:
-1. Legacy built-in local primitives:
+1. Built-in local primitives:
    - `execute_command`: Asynchronous subprocess shell execution with configurable timeout.
    - `read_file`: Filesystem read operations with error trapping and size recording.
    - `write_file`: Filesystem write/append operations creating parent folders automatically.
@@ -12,9 +12,11 @@ It provides two primary capabilities:
    - Routing tool requests targeted at registered external MCP servers to `mcp_manager`.
 """
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiohttp
 
@@ -29,7 +31,7 @@ class MCPToolExecutor:
     MCP servers connected via stdio or SSE transports.
     """
 
-    async def execute_command(self, command: str, timeout: int = 30) -> Dict[str, Any]:
+    async def execute_command(self, command: str, timeout: int = 30) -> dict[str, Any]:
         """Execute a shell command asynchronously with a timeout limit.
 
         Spawns a subprocess shell, captures stdout and stderr via asyncio streams,
@@ -38,10 +40,10 @@ class MCPToolExecutor:
         Args:
             command: Shell command string to execute in the system environment.
             timeout: Maximum execution duration in seconds before killing the process
-                and raising a TimeoutError (defaults to 30 seconds).
+                and returning a timeout error (defaults to 30 seconds).
 
         Returns:
-            Dict[str, Any]: Execution result payload containing:
+            dict[str, Any]: Execution result payload containing:
                 - success (bool): True if returncode is 0, False otherwise.
                 - stdout (str): Standard output decoded as UTF-8 (replacement on error).
                 - stderr (str): Standard error decoded as UTF-8 (replacement on error).
@@ -64,7 +66,7 @@ class MCPToolExecutor:
                 "stderr": stderr.decode("utf-8", errors="replace"),
                 "returncode": process.returncode,
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "success": False,
                 "error": f"Command timed out after {timeout} seconds",
@@ -81,7 +83,7 @@ class MCPToolExecutor:
                 "returncode": -1,
             }
 
-    async def read_file(self, path: str) -> Dict[str, Any]:
+    async def read_file(self, path: str) -> dict[str, Any]:
         """Read a file from the local filesystem.
 
         Validates file existence and returns raw text contents along with byte count.
@@ -90,7 +92,7 @@ class MCPToolExecutor:
             path: Relative or absolute filesystem path to read.
 
         Returns:
-            Dict[str, Any]: A result dictionary:
+            dict[str, Any]: A result dictionary:
                 - On success: `{"success": True, "content": <text>, "size": <char_len>}`
                 - On failure: `{"success": False, "error": <err_msg>}`
         """
@@ -106,7 +108,7 @@ class MCPToolExecutor:
 
     async def write_file(
         self, path: str, content: str, mode: str = "write"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Write text content to a file on the local filesystem.
 
         Automatically creates any missing parent directories before writing.
@@ -119,7 +121,7 @@ class MCPToolExecutor:
                 or "append" (appends to end of file). Defaults to "write".
 
         Returns:
-            Dict[str, Any]: Status payload:
+            dict[str, Any]: Status payload:
                 - On success: `{"success": True, "message": ..., "size": <char_len>}`
                 - On failure: `{"success": False, "error": <err_msg>}`
         """
@@ -129,7 +131,7 @@ class MCPToolExecutor:
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             if mode == "append":
-                with open(file_path, "a", encoding="utf-8") as f:
+                with file_path.open("a", encoding="utf-8") as f:
                     f.write(content)
             else:
                 file_path.write_text(content, encoding="utf-8")
@@ -146,10 +148,10 @@ class MCPToolExecutor:
         self,
         method: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
-        data: Optional[Dict[str, Any]] = None,
+        headers: dict[str, str] | None = None,
+        data: dict[str, Any] | None = None,
         timeout: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make an asynchronous HTTP request.
 
         Performs outbound HTTP calls, serializing data to JSON if supplied,
@@ -163,7 +165,7 @@ class MCPToolExecutor:
             timeout: Maximum request duration in seconds before aborting (default 30s).
 
         Returns:
-            Dict[str, Any]: Response dictionary containing:
+            dict[str, Any]: Response dictionary containing:
                 - success (bool): True if HTTP status code is < 400.
                 - status_code (int): HTTP status code returned by remote server.
                 - response (Any): Parsed JSON object, or plain string if JSON decode fails.
@@ -171,7 +173,7 @@ class MCPToolExecutor:
         """
         try:
             async with aiohttp.ClientSession() as session:
-                kwargs: Dict[str, Any] = {
+                kwargs: dict[str, Any] = {
                     "headers": headers or {},
                     "timeout": aiohttp.ClientTimeout(total=timeout),
                 }
@@ -190,7 +192,7 @@ class MCPToolExecutor:
                         "status_code": response.status,
                         "response": response_data,
                     }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "success": False,
                 "error": f"Request timed out after {timeout} seconds",
@@ -198,7 +200,7 @@ class MCPToolExecutor:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def execute_tools(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def execute_tools(self, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
         """Execute a batch of tool calls determined by the council action plan.
 
         Inspects the server target for each tool call:
@@ -217,12 +219,12 @@ class MCPToolExecutor:
                 - 'params': Parameter dictionary matching the tool's schema.
 
         Returns:
-            Dict[str, Any]: Aggregated batch execution payload:
+            dict[str, Any]: Aggregated batch execution payload:
                 - executed_tools (int): Total number of tool calls processed.
-                - results (List[Dict[str, Any]]): Ordered list of per-tool execution records.
+                - results (list[dict[str, Any]]): Ordered list of per-tool execution records.
                 - all_successful (bool): True if every executed tool succeeded.
         """
-        results = []
+        results: list[dict[str, Any]] = []
 
         for call in tool_calls:
             tool_name = call.get("tool")
@@ -231,7 +233,7 @@ class MCPToolExecutor:
 
             try:
                 if server_name == "local":
-                    # Run legacy local tools
+                    # Run built-in local tools
                     if tool_name == "execute_command":
                         result = await self.execute_command(**params)
                     elif tool_name == "read_file":
