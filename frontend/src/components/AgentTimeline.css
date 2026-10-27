@@ -176,6 +176,9 @@
 .action-type-badge.consult_council { background: #fce7f3; color: #be185d; }
 .action-type-badge.list_directory { background: #e2e8f0; color: #334155; }
 .action-type-badge.complete_task { background: #dcfce7; color: #15803d; }
+.action-type-badge.load_skill { background: #ccfbf1; color: #0f766e; }
+.action-type-badge.execute_skill_script { background: #fef08a; color: #854d0e; }
+.action-type-badge.list_skills { background: #e0f2fe; color: #0369a1; }
 
 .agent-step-body {
   padding: 14px 18px;

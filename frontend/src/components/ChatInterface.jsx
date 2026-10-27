@@ -702,6 +702,13 @@ const ChatMessageItem = memo(function ChatMessageItem({
             <>
               {showAllDeliberationSteps ? (
                 <>
+                  {msg.metadata?.skill && (
+                    <div className="active-skill-pill-banner">
+                      <span className="skill-pill-icon">🎯</span>
+                      <span className="skill-pill-label">Deliberation Skill:</span>
+                      <span className="skill-pill-name">{msg.metadata.skill.name}</span>
+                    </div>
+                  )}
                   {/* Stage 1 */}
                   {msg.loading?.stage1 && (
                     <div className="stage-loading">
@@ -870,10 +877,30 @@ export default function ChatInterface({
   workflowLoading = false,
   onNewConversation = null,
   onDeleteConversation = null,
+  selectedSkill = "auto",
+  onSelectSkill = null,
 }) {
   const [input, setInput] = useState("");
   const currentMode = mode || "informational";
   const isAgentic = currentMode === "agentic" || currentMode === "action_mode";
+
+  const [internalSkill, setInternalSkill] = useState("auto");
+  const activeSkillId = selectedSkill !== undefined ? selectedSkill : internalSkill;
+  const setSkill = onSelectSkill || setInternalSkill;
+  const [availableSkills, setAvailableSkills] = useState([]);
+
+  useEffect(() => {
+    api
+      .listSkills()
+      .then((res) => {
+        if (res?.skills) {
+          setAvailableSkills(res.skills);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load skills list:", err);
+      });
+  }, []);
 
   const [mcpTools, setMcpTools] = useState([]);
   const [mcpStatuses, setMcpStatuses] = useState({});
@@ -1295,18 +1322,20 @@ export default function ChatInterface({
     e.preventDefault();
     if (!input.trim() || isLoading || actionLoading || agentLoading || workflowLoading) return;
 
+    const skillParam = activeSkillId === "none" ? null : activeSkillId;
+
     if (currentMode === "custom_workflows") {
       if (onRunWorkflow) {
         onRunWorkflow(input);
       }
     } else if (isAgentic) {
       if (onRunAgent) {
-        onRunAgent(input, sensitivityConfig);
+        onRunAgent(input, sensitivityConfig, skillParam);
       }
     } else if (currentMode === "one_shot") {
-      onGenerateActionPlan(input);
+      onGenerateActionPlan(input, skillParam);
     } else {
-      onSendMessage(input);
+      onSendMessage(input, skillParam);
     }
 
     setInput("");
@@ -2111,6 +2140,48 @@ export default function ChatInterface({
                   <option value="one_shot">⚡ One Shot Execution</option>
                   <option value="agentic">🤖 Agentic</option>
                   <option value="custom_workflows">🔀 Custom Workflows</option>
+                </select>
+                <span className="mode-select-chevron" aria-hidden="true">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div className="mode-dropdown-group skill-dropdown-group">
+              <label htmlFor="skill-select" className="mode-dropdown-label">
+                Domain Skill
+              </label>
+              <div className="mode-select-wrapper">
+                <select
+                  id="skill-select"
+                  className="mode-dropdown-select"
+                  value={activeSkillId}
+                  onChange={(e) => setSkill(e.target.value)}
+                  disabled={isLoading || actionLoading || agentLoading || workflowLoading}
+                  aria-label="Domain Skill Selection"
+                >
+                  <option value="auto">✨ Auto-Detect</option>
+                  <option value="none">🚫 None (General)</option>
+                  {availableSkills.length > 0 && (
+                    <optgroup label="Installed Skills">
+                      {availableSkills.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          🎯 {s.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <span className="mode-select-chevron" aria-hidden="true">
                   <svg

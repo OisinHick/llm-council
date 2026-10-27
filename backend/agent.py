@@ -31,6 +31,7 @@ from .config import get_chairman_model
 from .council import run_sub_council
 from .mcp_client_manager import mcp_manager
 from .openrouter import query_model
+from .skills import skill_manager
 
 logger = logging.getLogger("llm_council.agent")
 
@@ -55,6 +56,8 @@ class CouncilAgent:
         max_steps: int | None = 20,
         deliberation_sensitivity: str = "medium",
         sensitivity_config: dict[str, Any] | None = None,
+        skill_id: str | None = None,
+        active_skill: dict[str, Any] | None = None,
     ):
         """Initialize the autonomous Council Agent.
 
@@ -72,9 +75,22 @@ class CouncilAgent:
                 - review_before_completion (bool): Require council review before accepting complete_task.
                 - max_consultations (int): Maximum allowed sub-council consultations (0 for unlimited).
                 - max_steps (int): Override max execution steps.
+            skill_id: Optional ID of a specialized domain skill to activate.
+            active_skill: Optional pre-loaded skill dictionary.
         """
         self.user_request = user_request
         self.initial_council = initial_council
+
+        # Resolve active skill if provided
+        if active_skill:
+            self.active_skill = active_skill
+            self.skill_id = active_skill.get("id")
+        elif skill_id:
+            self.active_skill = skill_manager.get_skill(skill_id)
+            self.skill_id = skill_id
+        else:
+            self.active_skill = None
+            self.skill_id = None
 
         # Extract fine-grained sensitivity configuration
         cfg = sensitivity_config or {}
@@ -222,9 +238,24 @@ class CouncilAgent:
 6. consult_council: Consult the full LLM Council for multi-model cross-referenced answers on a tricky bug, architectural dilemma, code design, or fact verification.
    Parameters: {"question": "specific question for the council", "context": "relevant code, error trace, or context"}
 
-7. complete_task: Declare the task completed when all deliverables, documents, code, and verification are finished.
+7. list_skills: List available specialized domain skills with short descriptions and triggers.
+   Parameters: {}
+
+8. load_skill: Dynamically load specialized domain instructions, checklists, and rubrics for a skill.
+   Parameters: {"skill_name": "skill identifier (e.g. 'my-domain-skill')"}
+
+9. execute_skill_script: Run an executable helper script bundled within a domain skill.
+   Parameters: {"skill_name": "skill identifier", "script_name": "script filename", "args": optional "arguments string", "timeout": optional int seconds}
+
+10. complete_task: Declare the task completed when all deliverables, documents, code, and verification are finished.
    Parameters: {"summary": "detailed summary of what was accomplished and verified", "artifacts": ["list", "of", "created", "files"]}
 """
+        available_skills = skill_manager.discover_skills()
+        if available_skills:
+            tools_doc += "\nInstalled Domain Skills (Use load_skill to access deep guidelines or execute_skill_script to run helper tools):\n"
+            for s in available_skills:
+                tools_doc += f"- {s['id']}: {s['description']}\n"
+
         if external_tools:
             tools_doc += "\nExternal Connected MCP Tools:\n"
             for t in external_tools:
@@ -260,10 +291,25 @@ class CouncilAgent:
                 "If you face a complex bug, architectural fork, or need multi-perspective validation, use `consult_council` to obtain consensus from your AI council."
             )
 
+        skill_section = ""
+        if self.active_skill:
+            skill_section = f"""
+================================================================================
+ACTIVE DOMAIN SKILL: {self.active_skill['name']}
+================================================================================
+Description: {self.active_skill['description']}
+
+OPERATIONAL GUIDELINES & BEST PRACTICES:
+{self.active_skill['instructions']}
+================================================================================
+"""
+
         return f"""You are the Chairperson of the LLM Council, acting as an autonomous software engineer, architect, and technical writer.
 
 Your goal is to accomplish the user's task with the highest precision, accuracy, and thoroughness.
 You have at your disposal a cross-referenced Initial Council Deliberation produced by multiple AI models and peer-reviewed for quality.
+{skill_section}
+{tools_doc}
 
 CRITICAL OPERATIONAL RULES:
 1. Always plan carefully before taking action.
@@ -540,6 +586,7 @@ Consensus Synthesis & Strategy:
                         f"Review task completion for '{self.user_request}'. Proposed summary: {summary_cand}. Created artifacts: {artifacts_cand}. Are all requirements satisfied or are there missing files, bugs, or unverified outputs?",
                         context=f"Created artifacts: {artifacts_cand}\nDeliverable summary: {summary_cand}",
                         on_event=sub_forwarder,
+                        skill=self.active_skill,
                     )
                     self._record_sub_council_tokens(review_data)
                     if on_event:
@@ -660,7 +707,7 @@ Consensus Synthesis & Strategy:
                             on_event, step_count
                         )
                         council_data = await run_sub_council(
-                            q, context=ctx, on_event=sub_forwarder
+                            q, context=ctx, on_event=sub_forwarder, skill=self.active_skill
                         )
                         self._record_sub_council_tokens(council_data)
                         observation = {
@@ -682,6 +729,28 @@ Consensus Synthesis & Strategy:
                                     "council_data": council_data,
                                 },
                             )
+
+                elif action == "list_skills":
+                    observation = await agent_executor.list_skills()
+
+                elif action == "load_skill":
+                    s_name = params.get("skill_name") or params.get("name", "")
+                    observation = await agent_executor.load_skill(s_name)
+                    if observation.get("success"):
+                        loaded = skill_manager.get_skill(s_name)
+                        if loaded:
+                            self.active_skill = loaded
+                            self.skill_id = s_name
+
+                elif action == "execute_skill_script":
+                    s_name = params.get("skill_name", "")
+                    sc_name = params.get("script_name", "")
+                    s_args = params.get("args", "")
+                    s_tout = params.get("timeout", 60)
+                    observation = await agent_executor.execute_skill_script(
+                        s_name, sc_name, args=s_args, timeout=s_tout
+                    )
+
                 else:
                     # Check if it is an external MCP tool
                     is_external = any(t["name"] == action for t in external_tools)
@@ -735,6 +804,7 @@ Consensus Synthesis & Strategy:
                         f"The Chairperson executed '{action}' which failed with error:\n{err_detail}\nWhat is the root cause and recommended solution?",
                         context=f"Tool: {action}\nInput Params: {json.dumps(params)}\nObservation: {json.dumps(observation)}",
                         on_event=sub_forwarder,
+                        skill=self.active_skill,
                     )
                     self._record_sub_council_tokens(diag_data)
                     council_data = diag_data

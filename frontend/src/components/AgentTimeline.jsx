@@ -131,6 +131,13 @@ function AgentTimeline({
 
           {showInitialCouncil && (
             <div className="initial-council-content">
+              {initial_council?.metadata?.skill && (
+                <div className="active-skill-pill-banner" style={{ marginBottom: "10px" }}>
+                  <span className="skill-pill-icon">🎯</span>
+                  <span className="skill-pill-label">Deliberation Skill:</span>
+                  <span className="skill-pill-name">{initial_council.metadata.skill.name}</span>
+                </div>
+              )}
               {initial_council.stage1 && (
                 <Stage1 responses={initial_council.stage1} />
               )}
@@ -233,6 +240,27 @@ function AgentTimeline({
                   {action === "execute_command" && (
                     <div className="command-terminal-box">
                       {params.command}
+                    </div>
+                  )}
+
+                  {action === "load_skill" && (
+                    <div className="action-target-path">
+                      🎯 Loading Domain Skill: <code>{params.skill_name || params.name}</code>
+                    </div>
+                  )}
+
+                  {action === "list_skills" && (
+                    <div className="action-target-path">
+                      📋 Discovering available domain skills in repository
+                    </div>
+                  )}
+
+                  {action === "execute_skill_script" && (
+                    <div className="action-target-path">
+                      ⚙️ Executing Skill Tool: <code>{params.skill_name}/{params.script_name}</code>
+                      {params.args && (
+                        <span className="action-params-preview"> args: {params.args}</span>
+                      )}
                     </div>
                   )}
 

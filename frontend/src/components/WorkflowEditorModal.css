@@ -256,6 +256,11 @@
   color: #7c3aed;
 }
 
+.icon-skill_step {
+  background: #fef3c7;
+  color: #d97706;
+}
+
 .icon-synthesis {
   background: #fdf4ff;
   color: #c026d3;
@@ -459,6 +464,11 @@
 .node-header-type-model_step {
   background: #f5f3ff;
   border-bottom-color: #ddd6fe;
+}
+
+.node-header-type-skill_step {
+  background: #fef3c7;
+  border-bottom-color: #fde68a;
 }
 
 .node-header-type-synthesis {

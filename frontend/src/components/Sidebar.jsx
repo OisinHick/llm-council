@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useRef, memo } from "react";
 import SettingsModal from "./SettingsModal";
+import SkillsModal from "./SkillsModal";
 import { api } from "../api";
 import { formatShortNumber, formatSpend, formatExactSpend } from "../formatters";
 import "./Sidebar.css";
@@ -142,9 +143,12 @@ function Sidebar({
   setShowSavedTokens,
   enableTokenCompression,
   setEnableTokenCompression,
+  onSkillSelected = null,
 }) {
   // Modal visibility flag for SettingsModal
   const [showSettings, setShowSettings] = useState(false);
+  // Modal visibility flag for SkillsModal
+  const [showSkills, setShowSkills] = useState(false);
   // Target conversation pending delete confirmation
   const [convToDelete, setConvToDelete] = useState(null);
   // Flag indicating whether clear all confirmation modal is open
@@ -265,15 +269,31 @@ function Sidebar({
     <div className="sidebar">
       <div className="sidebar-header">
         <h1>LLM Council</h1>
-        <button
-          type="button"
-          className="settings-cog-btn"
-          onClick={() => setShowSettings(true)}
-          title="Settings"
-        >
-          ⚙️
-        </button>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button
+            type="button"
+            className="settings-cog-btn"
+            onClick={() => setShowSkills(true)}
+            title="Domain Skills Registry"
+          >
+            🎯
+          </button>
+          <button
+            type="button"
+            className="settings-cog-btn"
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+          >
+            ⚙️
+          </button>
+        </div>
       </div>
+
+      <SkillsModal
+        isOpen={showSkills}
+        onClose={() => setShowSkills(false)}
+        onSkillSelected={onSkillSelected}
+      />
 
       <SettingsModal
         isOpen={showSettings}

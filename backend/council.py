@@ -17,6 +17,7 @@ This module coordinates multi-model deliberation through a structured consensus 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -28,6 +29,7 @@ from .config import get_chairman_model, get_council_models
 from .mcp_client_manager import mcp_manager
 from .mcp_tools import executor
 from .openrouter import get_last_model_error, query_model, query_models_parallel
+from .skills import skill_manager
 
 logger = logging.getLogger("llm_council.council")
 
@@ -73,15 +75,20 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-async def stage1_collect_responses(user_query: str) -> list[dict[str, Any]]:
+async def stage1_collect_responses(
+    user_query: str, skill: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Stage 1: Collect individual responses from all council models.
 
     Fans out parallel queries to all models configured in the council using
     `query_models_parallel` with a 180-second timeout. Filters out any models
     that failed or timed out, returning only successful outputs with token usage.
+    If a domain skill is provided, injects specialized instructions or distinct
+    expert roles across models.
 
     Args:
         user_query: The user's input query or problem statement.
+        skill: Optional domain skill dictionary with instructions and expert roles.
 
     Returns:
         list[dict[str, Any]]: List of response dictionaries, each containing:
@@ -89,12 +96,45 @@ async def stage1_collect_responses(user_query: str) -> list[dict[str, Any]]:
             - response (str): Generated textual response.
             - usage (dict): Token consumption dictionary (prompt, completion, total).
     """
-    messages = [{"role": "user", "content": user_query}]
+    models = get_council_models()
 
-    # Query all models in parallel with an overall timeout of 180 seconds
-    responses = await query_models_parallel(
-        get_council_models(), messages, timeout=180.0
-    )
+    if skill and skill.get("expert_roles"):
+        roles = skill["expert_roles"]
+        tasks = []
+        for i, model in enumerate(models):
+            role = roles[i % len(roles)]
+            prompt = (
+                f"You are serving as an expert {role} on the LLM Council.\n"
+                f"ACTIVE DOMAIN SKILL: {skill['name']}\n"
+                f"Description: {skill['description']}\n\n"
+                f"DOMAIN GUIDELINES:\n{skill['instructions']}\n\n"
+                f"From your specialized lens as a {role}, provide a comprehensive response to:\n\n"
+                f"{user_query}"
+            )
+            tasks.append(
+                asyncio.create_task(
+                    query_model(model, [{"role": "user", "content": prompt}], timeout=180.0)
+                )
+            )
+        raw_responses = await asyncio.gather(*tasks, return_exceptions=True)
+        responses = {
+            model: (res if isinstance(res, dict) else None)
+            for model, res in zip(models, raw_responses, strict=False)
+        }
+    else:
+        if skill:
+            prompt = (
+                f"ACTIVE DOMAIN SKILL: {skill['name']}\n"
+                f"Description: {skill['description']}\n\n"
+                f"DOMAIN GUIDELINES:\n{skill['instructions']}\n\n"
+                f"User Request:\n{user_query}"
+            )
+            messages = [{"role": "user", "content": prompt}]
+        else:
+            messages = [{"role": "user", "content": user_query}]
+
+        # Query all models in parallel with an overall timeout of 180 seconds
+        responses = await query_models_parallel(models, messages, timeout=180.0)
 
     # Format results, filtering out models that timed out or errored (response is None)
     stage1_results: list[dict[str, Any]] = []
@@ -115,19 +155,23 @@ async def stage1_collect_responses(user_query: str) -> list[dict[str, Any]]:
 
 
 async def stage2_collect_rankings(
-    user_query: str, stage1_results: list[dict[str, Any]]
+    user_query: str,
+    stage1_results: list[dict[str, Any]],
+    skill: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Stage 2: Each model ranks the anonymized responses.
 
     To eliminate brand bias and ensure impartial peer review:
     1. Maps each model's Stage 1 response to an anonymous label ('Response A', 'Response B', ...).
     2. Builds a structured evaluation prompt presenting all anonymized proposals.
-    3. Dispatches the prompt in parallel to all council models.
-    4. Parses the model's critique and structured 'FINAL RANKING:' section.
+    3. Injects domain-specific evaluation criteria if a skill is active.
+    4. Dispatches the prompt in parallel to all council models.
+    5. Parses the model's critique and structured 'FINAL RANKING:' section.
 
     Args:
         user_query: The original user question.
         stage1_results: The collection of responses gathered in Stage 1.
+        skill: Optional domain skill dictionary containing evaluation rubric.
 
     Returns:
         tuple[list[dict[str, Any]], dict[str, str]]:
@@ -152,6 +196,15 @@ async def stage2_collect_rankings(
         ]
     )
 
+    rubric_section = ""
+    if skill and skill.get("evaluation_rubric"):
+        rubric_section = f"""
+DOMAIN EVALUATION CRITERIA ({skill['name']}):
+{skill['evaluation_rubric']}
+
+When evaluating each response, assess how well it satisfies these domain-specific criteria in addition to general correctness, depth, and clarity.
+"""
+
     ranking_prompt = f"""You are evaluating different responses to the following question:
 
 Question: {user_query}
@@ -159,9 +212,9 @@ Question: {user_query}
 Here are the responses from different models (anonymized):
 
 {responses_text}
-
+{rubric_section}
 Your task:
-1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly.
+1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly (referencing domain criteria if provided).
 2. Then, at the very end of your response, provide a final ranking.
 
 IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
@@ -215,12 +268,14 @@ async def stage3_synthesize_final(
     user_query: str,
     stage1_results: list[dict[str, Any]],
     stage2_results: list[dict[str, Any]],
+    skill: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Stage 3: Chairman synthesizes final response based on Stage 1 & 2 outputs.
 
     Provides the Chairman model with:
     - Full individual model responses from Stage 1.
     - Peer reviews, rankings, and critique summaries from Stage 2.
+    - Active domain skill standards and guidelines if present.
     Instructs the Chairman to synthesize an authoritative, coherent solution reflecting
     the collective consensus and resolving conflicting claims.
 
@@ -228,6 +283,7 @@ async def stage3_synthesize_final(
         user_query: The original user question.
         stage1_results: Individual model responses from Stage 1.
         stage2_results: Evaluations and rankings from Stage 2.
+        skill: Optional domain skill dictionary with guidelines and rubrics.
 
     Returns:
         dict[str, Any]: Result dictionary containing:
@@ -252,10 +308,20 @@ async def stage3_synthesize_final(
         ]
     )
 
+    skill_section = ""
+    if skill:
+        skill_section = f"""
+ACTIVE DOMAIN SKILL: {skill['name']}
+Description: {skill.get('description', '')}
+Quality & Evaluation Standards:
+{skill.get('evaluation_rubric', '')}
+Ensure your final synthesis rigorously reflects these domain standards.
+"""
+
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
 Original Question: {user_query}
-
+{skill_section}
 STAGE 1 - Individual Responses:
 {stage1_text}
 
@@ -451,6 +517,7 @@ Title:"""
 
 async def run_full_council(
     user_query: str,
+    skill: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Run the complete 3-stage council deliberation pipeline.
 
@@ -461,16 +528,17 @@ async def run_full_council(
 
     Args:
         user_query: The user's question or prompt.
+        skill: Optional domain skill dictionary with guidelines and rubrics.
 
     Returns:
         tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
             - stage1_results: Individual model responses.
             - stage2_results: Peer evaluations and parsed rankings.
             - stage3_result: Final synthesis dictionary from Chairman.
-            - metadata: Auxiliary data (label_to_model map, aggregate rankings).
+            - metadata: Auxiliary data (label_to_model map, aggregate rankings, active skill).
     """
     # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query)
+    stage1_results = await stage1_collect_responses(user_query, skill=skill)
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -486,7 +554,7 @@ async def run_full_council(
 
     # Stage 2: Collect rankings
     stage2_results, label_to_model = await stage2_collect_rankings(
-        user_query, stage1_results
+        user_query, stage1_results, skill=skill
     )
 
     # Calculate aggregate rankings
@@ -494,14 +562,20 @@ async def run_full_council(
 
     # Stage 3: Synthesize final answer
     stage3_result = await stage3_synthesize_final(
-        user_query, stage1_results, stage2_results
+        user_query, stage1_results, stage2_results, skill=skill
     )
 
     # Prepare metadata
-    metadata = {
+    metadata: dict[str, Any] = {
         "label_to_model": label_to_model,
         "aggregate_rankings": aggregate_rankings,
     }
+    if skill:
+        metadata["skill"] = {
+            "id": skill["id"],
+            "name": skill["name"],
+            "description": skill.get("description", ""),
+        }
 
     return stage1_results, stage2_results, stage3_result, metadata
 
@@ -671,7 +745,9 @@ async def execute_action_plan(action_plan_response: dict[str, Any]) -> dict[str,
 
 
 async def run_full_council_with_action(
-    user_request: str, execute: bool = True
+    user_request: str,
+    execute: bool = True,
+    skill: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the complete 4-stage council process with optional action execution.
 
@@ -681,6 +757,7 @@ async def run_full_council_with_action(
     Args:
         user_request: The user's request or task instructions.
         execute: Whether to immediately execute the tool action plan. Defaults to True.
+        skill: Optional domain skill dictionary for skill-guided deliberation.
 
     Returns:
         dict[str, Any]: Complete council run result including stage1, stage2, stage3,
@@ -688,7 +765,7 @@ async def run_full_council_with_action(
     """
     # Stages 1-3: Run the council
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        user_request
+        user_request, skill=skill
     )
 
     # Stage 4: Generate action plan based on voting
@@ -716,6 +793,7 @@ async def run_sub_council(
     question: str,
     context: str | None = None,
     on_event: Callable[[str, Any], Awaitable[None]] | None = None,
+    skill: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an on-demand sub-council deliberation on a specific subtask, code problem, or dilemma.
 
@@ -727,6 +805,7 @@ async def run_sub_council(
         question: The specific dilemma or problem statement for the sub-council.
         context: Optional background context (code snippets, error traces, file diffs).
         on_event: Optional async callable for streaming sub-council stage events.
+        skill: Optional domain skill dictionary with guidelines and rubrics.
 
     Returns:
         dict[str, Any]: Comprehensive deliberation result containing:
@@ -746,14 +825,14 @@ async def run_sub_council(
     if on_event:
         await on_event("sub_council_stage1_start", {"question": question})
 
-    stage1 = await stage1_collect_responses(full_prompt)
+    stage1 = await stage1_collect_responses(full_prompt, skill=skill)
     if on_event:
         await on_event("sub_council_stage1_complete", {"data": stage1})
 
     if on_event:
         await on_event("sub_council_stage2_start", {})
 
-    stage2, label_to_model = await stage2_collect_rankings(full_prompt, stage1)
+    stage2, label_to_model = await stage2_collect_rankings(full_prompt, stage1, skill=skill)
     aggregate = calculate_aggregate_rankings(stage2, label_to_model)
     if on_event:
         await on_event(
@@ -768,7 +847,7 @@ async def run_sub_council(
     if on_event:
         await on_event("sub_council_stage3_start", {})
 
-    stage3 = await stage3_synthesize_final(full_prompt, stage1, stage2)
+    stage3 = await stage3_synthesize_final(full_prompt, stage1, stage2, skill=skill)
     if on_event:
         await on_event("sub_council_stage3_complete", {"data": stage3})
 

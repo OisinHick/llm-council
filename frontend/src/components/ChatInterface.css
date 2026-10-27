@@ -2262,3 +2262,34 @@
   color: #64748b;
   margin-top: 2px;
 }
+
+/* Domain Skills Styling */
+.active-skill-pill-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin-bottom: 12px;
+  border-radius: 20px;
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-size: 12px;
+}
+
+.skill-pill-icon {
+  font-size: 13px;
+}
+
+.skill-pill-label {
+  font-weight: 500;
+  color: #1e40af;
+}
+
+.skill-pill-name {
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.skill-dropdown-group {
+  margin-left: 8px;
+}

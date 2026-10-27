@@ -127,6 +127,8 @@ function App() {
 
   // Default mode for a new unsaved conversation before messages are sent
   const [pendingMode, setPendingMode] = useState("informational");
+  // Active domain skill selection ("auto", "none", or skill_id)
+  const [selectedSkill, setSelectedSkill] = useState("auto");
 
   // Display and compression preferences persisted in localStorage
   const [showAllDeliberationSteps, setShowAllDeliberationSteps] =
@@ -336,6 +338,11 @@ function App() {
    */
   const handleActionStreamEvent = (eventType, event, targetConvId) => {
     switch (eventType) {
+      case "skill_activated":
+        updateLastActionMessage((lastMsg) => ({
+          metadata: { ...lastMsg.metadata, skill: event.data },
+        }));
+        break;
       case "stage1_start":
         updateLastActionMessage((lastMsg) => ({
           loading: { ...lastMsg.loading, stage1: true },
@@ -711,9 +718,10 @@ function App() {
    * 4. Updates conversation title and accumulates token count on stream completion.
    *
    * @param {string} content - Raw user query or prompt.
+   * @param {string} [skillId] - Optional domain skill ID.
    * @returns {Promise<void>}
    */
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, skillId = undefined) => {
     if (!content.trim()) return;
 
     setActionPlanResult(null);
@@ -753,6 +761,22 @@ function App() {
         content,
         (eventType, event) => {
           switch (eventType) {
+            case "skill_activated":
+              setCurrentConversation((prev) => {
+                if (!prev?.messages?.length) return prev;
+                const messages = [...prev.messages];
+                const lastIdx = messages.length - 1;
+                if (messages[lastIdx]?.role !== "assistant") return prev;
+                messages[lastIdx] = {
+                  ...messages[lastIdx],
+                  metadata: {
+                    ...(messages[lastIdx].metadata || {}),
+                    skill: event.data,
+                  },
+                };
+                return { ...prev, messages };
+              });
+              break;
             case "stage1_start":
               setCurrentConversation((prev) => {
                 if (!prev?.messages?.length) return prev;
@@ -881,6 +905,7 @@ function App() {
               console.log("Unknown event type:", eventType);
           }
         },
+        skillId,
       );
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -903,9 +928,10 @@ function App() {
    * can review the proposed tool calls before clicking "Execute Action Plan".
    *
    * @param {string} requestText - User instruction to plan out.
+   * @param {string} [skillId] - Optional domain skill ID.
    * @returns {Promise<void>}
    */
-  const handleGenerateActionPlan = async (requestText) => {
+  const handleGenerateActionPlan = async (requestText, skillId = undefined) => {
     if (!requestText.trim()) return;
 
     setActionLoading(true);
@@ -947,6 +973,7 @@ function App() {
         false,
         (eventType, event) => handleActionStreamEvent(eventType, event, activeId),
         activeId,
+        skillId,
       );
     } catch (error) {
       console.error("Failed to generate action plan:", error);
@@ -992,9 +1019,14 @@ function App() {
    *
    * @param {string} requestText - High-level task description for the agent.
    * @param {Object} [sensitivityConfig] - Optional sensitivity configuration (preset level, triggers, caps).
+   * @param {string} [skillId] - Optional domain skill ID.
    * @returns {Promise<void>}
    */
-  const handleRunAgent = async (requestText, sensitivityConfig = undefined) => {
+  const handleRunAgent = async (
+    requestText,
+    sensitivityConfig = undefined,
+    skillId = undefined,
+  ) => {
     if (!requestText.trim()) return;
 
     setAgentLoading(true);
@@ -1053,6 +1085,18 @@ function App() {
         activeId,
         (eventType, event) => {
           switch (eventType) {
+            case "skill_activated":
+              updateCurrentAgentMessage((msg) => ({
+                ...msg,
+                initial_council: {
+                  ...msg.initial_council,
+                  metadata: {
+                    ...(msg.initial_council?.metadata || {}),
+                    skill: event.data,
+                  },
+                },
+              }));
+              break;
             case "stage1_start":
               break;
             case "stage1_complete":
@@ -1225,6 +1269,7 @@ function App() {
           ? sensitivityConfig.max_steps
           : 20,
         sensitivityConfig,
+        skillId,
       );
     } catch (err) {
       console.error("Agent run error:", err);
@@ -1486,11 +1531,14 @@ function App() {
         setEnableTokenCompression={setEnableTokenCompression}
         onDeleteConversation={handleDeleteConversation}
         onClearAllConversations={handleClearAllConversations}
+        onSkillSelected={(id) => setSelectedSkill(id)}
       />
       <ChatInterface
         conversation={currentConversation}
         mode={activeMode}
         onModeChange={handleModeChange}
+        selectedSkill={selectedSkill}
+        onSelectSkill={setSelectedSkill}
         showAllDeliberationSteps={showAllDeliberationSteps}
         showTokenCount={showTokenCount}
         showTokensPerModel={showTokensPerModel}

@@ -210,15 +210,20 @@ export const api = {
    * @param {string} conversationId - The conversation ID.
    * @param {string} content - The user prompt or question text.
    * @param {function(string, Object): void} onEvent - Callback for SSE events: `(eventType, eventData) => void`.
+   * @param {string} [skillId] - Optional domain skill identifier (or "auto").
    * @returns {Promise<void>} Resolves when the SSE stream closes.
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, content, onEvent, skillId = undefined) {
+    const payload = { content };
+    if (skillId) {
+      payload.skill_id = skillId;
+    }
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(payload),
       },
     );
 
@@ -273,6 +278,7 @@ export const api = {
    * @param {boolean} [execute=true] - If true, executes tools immediately; if false, only plans.
    * @param {function(string, Object): void} onEvent - Callback for SSE events: `(eventType, data) => void`.
    * @param {string} [conversationId] - Optional conversation ID to bind request to.
+   * @param {string} [skillId] - Optional domain skill identifier (or "auto").
    * @returns {Promise<void>} Resolves when the stream closes.
    */
   async executeActionStream(
@@ -280,10 +286,14 @@ export const api = {
     execute = true,
     onEvent,
     conversationId = undefined,
+    skillId = undefined,
   ) {
     const payload = { request, execute };
     if (conversationId) {
       payload.conversation_id = conversationId;
+    }
+    if (skillId) {
+      payload.skill_id = skillId;
     }
 
     const response = await fetch(`${API_BASE}/api/action/stream`, {
@@ -329,6 +339,7 @@ export const api = {
    *   - `review_before_completion`: boolean
    *   - `max_consultations`: number
    *   - `max_steps`: number
+   * @param {string} [skillId] - Optional domain skill identifier (or "auto").
    * @returns {Promise<void>} Resolves when the stream closes.
    */
   async runAgentStream(
@@ -337,6 +348,7 @@ export const api = {
     onEvent,
     maxSteps = 20,
     sensitivityConfig = undefined,
+    skillId = undefined,
   ) {
     const effectiveMaxSteps =
       sensitivityConfig?.max_steps !== undefined
@@ -350,6 +362,9 @@ export const api = {
       deliberation_sensitivity: sensitivityConfig?.level || "medium",
       sensitivity_config: sensitivityConfig || undefined,
     };
+    if (skillId) {
+      payload.skill_id = skillId;
+    }
 
     const response = await fetch(`${API_BASE}/api/agent/stream`, {
       method: "POST",
@@ -706,5 +721,56 @@ export const api = {
     }
 
     return consumeSSEStream(response, onEvent);
+  },
+
+  /**
+   * List all discovered domain skills with short descriptions and trigger keywords.
+   *
+   * @returns {Promise<{skills: Array<Object>}>}
+   */
+  async listSkills() {
+    return requestJson("/api/skills", {}, "Failed to list skills");
+  },
+
+  /**
+   * Get full details of a specific domain skill including markdown instructions and rubric.
+   *
+   * @param {string} skillId - The skill identifier.
+   * @returns {Promise<Object>}
+   */
+  async getSkill(skillId) {
+    return requestJson(`/api/skills/${encodeURIComponent(skillId)}`, {}, "Failed to get skill");
+  },
+
+  /**
+   * Create or update a custom domain skill.
+   *
+   * @param {Object} skillData - Skill creation payload.
+   * @returns {Promise<{success: boolean, skill: Object}>}
+   */
+  async saveSkill(skillData) {
+    return requestJson(
+      "/api/skills",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(skillData),
+      },
+      "Failed to save skill",
+    );
+  },
+
+  /**
+   * Delete a custom domain skill.
+   *
+   * @param {string} skillId - Identifier of custom skill to delete.
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  async deleteSkill(skillId) {
+    return requestJson(
+      `/api/skills/${encodeURIComponent(skillId)}`,
+      { method: "DELETE" },
+      "Failed to delete skill",
+    );
   },
 };

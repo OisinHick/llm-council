@@ -64,6 +64,7 @@ from .openrouter import (
     fetch_dynamic_pricing,
     fetch_openrouter_models,
 )
+from .skills import skill_manager
 from .workflows import (
     delete_workflow,
     execute_workflow_stream,
@@ -168,6 +169,7 @@ class SendMessageRequest(BaseModel):
     """Request payload for submitting a user message to a conversation."""
 
     content: str
+    skill_id: str | None = None
 
 
 class ActionRequest(BaseModel):
@@ -176,6 +178,7 @@ class ActionRequest(BaseModel):
     request: str
     execute: bool = True  # Whether to actually execute the action plan tools
     conversation_id: str | None = None
+    skill_id: str | None = None
 
 
 class ExecuteStoredActionRequest(BaseModel):
@@ -192,6 +195,28 @@ class AgentRunRequest(BaseModel):
     max_steps: int | None = 20
     deliberation_sensitivity: str | None = "medium"
     sensitivity_config: dict[str, Any] | None = None
+    skill_id: str | None = None
+
+
+class SaveSkillRequest(BaseModel):
+    """Request payload to create or update a custom domain skill."""
+
+    id: str
+    name: str
+    description: str
+    instructions: str
+    triggers: list[str] | None = None
+    evaluation_rubric: str | None = None
+    expert_roles: list[str] | None = None
+
+
+def _resolve_skill(skill_id: str | None, query_text: str = "") -> dict[str, Any] | None:
+    """Helper to resolve skill from explicit ID, 'auto' detection, or return None."""
+    if not skill_id or skill_id.lower() in ("none", "null"):
+        return None
+    if skill_id.lower() == "auto":
+        return skill_manager.match_skill(query_text)
+    return skill_manager.get_skill(skill_id)
 
 
 class CancelAgentRequest(BaseModel):
@@ -656,9 +681,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         )
         storage.update_conversation_title(conversation_id, title)
 
+    # Resolve optional skill
+    skill = _resolve_skill(request.skill_id, request.content)
+
     # Run the 3-stage council process
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content
+        request.content, skill=skill
     )
 
     # Add assistant message with all stages
@@ -720,32 +748,47 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                     )
                 )
 
+            # Resolve optional skill
+            skill = _resolve_skill(request.skill_id, request.content)
+            if skill:
+                yield _sse_event(
+                    "skill_activated",
+                    {
+                        "id": skill["id"],
+                        "name": skill["name"],
+                        "description": skill.get("description", ""),
+                    },
+                )
+
             # Stage 1: Collect responses
             yield _sse_event("stage1_start")
-            stage1_results = await stage1_collect_responses(request.content)
+            stage1_results = await stage1_collect_responses(request.content, skill=skill)
             yield _sse_event("stage1_complete", stage1_results)
 
             # Stage 2: Collect rankings
             yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
-                request.content, stage1_results
+                request.content, stage1_results, skill=skill
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
+            s2_meta: dict[str, Any] = {
+                "label_to_model": label_to_model,
+                "aggregate_rankings": aggregate_rankings,
+            }
+            if skill:
+                s2_meta["skill"] = {"id": skill["id"], "name": skill["name"]}
             yield _sse_event(
                 "stage2_complete",
                 stage2_results,
-                metadata={
-                    "label_to_model": label_to_model,
-                    "aggregate_rankings": aggregate_rankings,
-                },
+                metadata=s2_meta,
             )
 
             # Stage 3: Synthesize final answer
             yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
-                request.content, stage1_results, stage2_results
+                request.content, stage1_results, stage2_results, skill=skill
             )
             yield _sse_event("stage3_complete", stage3_result)
 
@@ -812,8 +855,9 @@ async def perform_action(request: ActionRequest):
             storage.update_conversation_title(request.conversation_id, title)
 
     try:
+        skill = _resolve_skill(request.skill_id, request.request)
         result = await run_full_council_with_action(
-            request.request, execute=request.execute
+            request.request, execute=request.execute, skill=skill
         )
 
         if request.conversation_id is not None:
@@ -877,9 +921,21 @@ async def perform_action_stream(request: ActionRequest):
             else:
                 title_task = None
 
+            # Resolve optional skill
+            skill = _resolve_skill(request.skill_id, request.request)
+            if skill:
+                yield _sse_event(
+                    "skill_activated",
+                    {
+                        "id": skill["id"],
+                        "name": skill["name"],
+                        "description": skill.get("description", ""),
+                    },
+                )
+
             # Stage 1: Collect responses
             yield _sse_event("stage1_start")
-            stage1_results = await stage1_collect_responses(request.request)
+            stage1_results = await stage1_collect_responses(request.request, skill=skill)
             yield _sse_event("stage1_complete", stage1_results)
 
             if not stage1_results:
@@ -889,24 +945,27 @@ async def perform_action_stream(request: ActionRequest):
             # Stage 2: Collect rankings
             yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
-                request.request, stage1_results
+                request.request, stage1_results, skill=skill
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
+            s2_meta: dict[str, Any] = {
+                "label_to_model": label_to_model,
+                "aggregate_rankings": aggregate_rankings,
+            }
+            if skill:
+                s2_meta["skill"] = {"id": skill["id"], "name": skill["name"]}
             yield _sse_event(
                 "stage2_complete",
                 stage2_results,
-                metadata={
-                    "label_to_model": label_to_model,
-                    "aggregate_rankings": aggregate_rankings,
-                },
+                metadata=s2_meta,
             )
 
             # Stage 3: Synthesize
             yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
-                request.request, stage1_results, stage2_results
+                request.request, stage1_results, stage2_results, skill=skill
             )
             yield _sse_event("stage3_complete", stage3_result)
 
@@ -1081,12 +1140,24 @@ async def run_agent_stream(request: AgentRunRequest):
                         )
                     )
 
+            # Resolve optional skill
+            skill = _resolve_skill(request.skill_id, request.request)
+            if skill:
+                yield _sse_event(
+                    "skill_activated",
+                    {
+                        "id": skill["id"],
+                        "name": skill["name"],
+                        "description": skill.get("description", ""),
+                    },
+                )
+
             # --- PHASE 1: INITIAL COUNCIL CROSS-REFERENCED DELIBERATION ---
             yield _sse_event("council_deliberation_start")
 
             # Stage 1: Collect proposals from all council models
             yield _sse_event("stage1_start")
-            stage1_results = await stage1_collect_responses(request.request)
+            stage1_results = await stage1_collect_responses(request.request, skill=skill)
             yield _sse_event("stage1_complete", stage1_results)
 
             if not stage1_results:
@@ -1099,24 +1170,27 @@ async def run_agent_stream(request: AgentRunRequest):
             # Stage 2: Peer ranking & evaluation
             yield _sse_event("stage2_start")
             stage2_results, label_to_model = await stage2_collect_rankings(
-                request.request, stage1_results
+                request.request, stage1_results, skill=skill
             )
             aggregate_rankings = calculate_aggregate_rankings(
                 stage2_results, label_to_model
             )
+            s2_meta: dict[str, Any] = {
+                "label_to_model": label_to_model,
+                "aggregate_rankings": aggregate_rankings,
+            }
+            if skill:
+                s2_meta["skill"] = {"id": skill["id"], "name": skill["name"]}
             yield _sse_event(
                 "stage2_complete",
                 stage2_results,
-                metadata={
-                    "label_to_model": label_to_model,
-                    "aggregate_rankings": aggregate_rankings,
-                },
+                metadata=s2_meta,
             )
 
             # Stage 3: Cross-referenced synthesis & blueprint
             yield _sse_event("stage3_start")
             stage3_result = await stage3_synthesize_final(
-                request.request, stage1_results, stage2_results
+                request.request, stage1_results, stage2_results, skill=skill
             )
             yield _sse_event("stage3_complete", stage3_result)
 
@@ -1129,6 +1203,11 @@ async def run_agent_stream(request: AgentRunRequest):
                     "aggregate_rankings": aggregate_rankings,
                 },
             }
+            if skill:
+                initial_council["metadata"]["skill"] = {
+                    "id": skill["id"],
+                    "name": skill["name"],
+                }
 
             # --- PHASE 2: CHAIRPERSON AUTONOMOUS AGENT LOOP ---
             saved_sensitivity = get_sensitivity_config()
@@ -1157,6 +1236,8 @@ async def run_agent_stream(request: AgentRunRequest):
                 max_steps=max_steps_val,
                 deliberation_sensitivity=delib_sensitivity,
                 sensitivity_config=effective_sensitivity_config,
+                skill_id=skill["id"] if skill else None,
+                active_skill=skill,
             )
 
             if conv_id:
@@ -1224,6 +1305,86 @@ async def run_agent_stream(request: AgentRunRequest):
             "Connection": "keep-alive",
         },
     )
+
+
+# ==============================================================================
+# Domain Skills Endpoints
+# ==============================================================================
+
+
+@app.get("/api/skills")
+async def list_skills_endpoint():
+    """List all available domain skills with short descriptions and triggers.
+
+    Returns:
+        dict[str, Any]: List of discovered skill summaries under 'skills'.
+    """
+    skills = skill_manager.discover_skills()
+    return {"skills": skills}
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill_endpoint(skill_id: str):
+    """Retrieve details, guidelines, and bundled scripts for a specific domain skill.
+
+    Args:
+        skill_id: Slug identifier of the skill.
+
+    Returns:
+        dict[str, Any]: Complete skill definition and markdown instructions.
+    """
+    skill = skill_manager.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found.")
+    return skill
+
+
+@app.post("/api/skills")
+async def save_skill_endpoint(request: SaveSkillRequest):
+    """Create or update a custom domain skill.
+
+    Args:
+        request: SaveSkillRequest specifying ID, name, description, guidelines, and rubric.
+
+    Returns:
+        dict[str, Any]: Saved skill dictionary.
+    """
+    try:
+        saved = skill_manager.save_skill(
+            skill_id=request.id,
+            name=request.name,
+            description=request.description,
+            instructions=request.instructions,
+            triggers=request.triggers,
+            evaluation_rubric=request.evaluation_rubric,
+            expert_roles=request.expert_roles,
+        )
+        return {"success": True, "skill": saved}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save skill: {e}") from e
+
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill_endpoint(skill_id: str):
+    """Delete a custom domain skill.
+
+    Args:
+        skill_id: Identifier of the skill to delete.
+
+    Returns:
+        dict[str, Any]: Confirmation message.
+    """
+    try:
+        deleted = skill_manager.delete_skill(skill_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found.")
+        return {"success": True, "message": f"Skill '{skill_id}' deleted."}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete skill: {e}") from e
 
 
 # ==============================================================================

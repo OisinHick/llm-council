@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import BASE_DIR
+from .skills import skill_manager
 
 # Directory names ignored during directory scans to keep payload sizes reasonable
 IGNORED_DIR_NAMES = frozenset({".git", "__pycache__", "node_modules", ".venv"})
@@ -379,6 +380,111 @@ class AgentToolExecutor:
                 "returncode": -1,
             }
 
+    async def list_skills(self) -> dict[str, Any]:
+        """List all available domain skills with short descriptions and triggers."""
+        try:
+            skills = skill_manager.discover_skills()
+            return {
+                "success": True,
+                "count": len(skills),
+                "skills": skills,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to list skills: {e}",
+            }
+
+    async def load_skill(self, skill_name: str) -> dict[str, Any]:
+        """Load full instructions, rubric, and bundled scripts for a specific skill.
+
+        Args:
+            skill_name: The identifier of the skill (e.g. 'my-domain-skill').
+        """
+        try:
+            skill = skill_manager.get_skill(skill_name)
+            if not skill:
+                return {
+                    "success": False,
+                    "error": f"Skill '{skill_name}' was not found. Use list_skills to view available skills.",
+                }
+            return {
+                "success": True,
+                "id": skill["id"],
+                "name": skill["name"],
+                "description": skill["description"],
+                "evaluation_rubric": skill.get("evaluation_rubric", ""),
+                "instructions": skill["instructions"],
+                "scripts": skill.get("scripts", []),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to load skill '{skill_name}': {e}",
+            }
+
+    async def execute_skill_script(
+        self, skill_name: str, script_name: str, args: str = "", timeout: int = 60
+    ) -> dict[str, Any]:
+        """Run an executable script bundled within a skill.
+
+        Args:
+            skill_name: The identifier of the skill.
+            script_name: The filename of the script inside the skill's scripts/ directory.
+            args: Command line arguments to pass to the script.
+            timeout: Subprocess timeout in seconds.
+        """
+        try:
+            skill = skill_manager.get_skill(skill_name)
+            if not skill:
+                return {
+                    "success": False,
+                    "error": f"Skill '{skill_name}' not found.",
+                }
+
+            file_path = skill.get("file_path")
+            scripts_dir = (
+                Path(file_path).parent / "scripts"
+                if file_path
+                else (Path(skill["scripts_dir"]) if skill.get("scripts_dir") else None)
+            )
+            if not scripts_dir or not scripts_dir.is_dir():
+                return {
+                    "success": False,
+                    "error": f"Skill '{skill_name}' has no scripts directory.",
+                }
+
+            script_path = (scripts_dir / script_name).resolve()
+            # Ensure the script is actually within the skill's scripts dir (no traversal)
+            if not str(script_path).startswith(str(scripts_dir.resolve())):
+                return {
+                    "success": False,
+                    "error": "Access denied: Script path escapes skill directory.",
+                }
+
+            if not script_path.is_file():
+                return {
+                    "success": False,
+                    "error": f"Script '{script_name}' not found in skill '{skill_name}'.",
+                }
+
+            if script_path.suffix == ".py":
+                cmd = f'python3 "{script_path}" {args}'.strip()
+            elif script_path.suffix in {".sh", ".bash"}:
+                cmd = f'bash "{script_path}" {args}'.strip()
+            else:
+                cmd = f'"{script_path}" {args}'.strip()
+
+            res = await self.execute_command(command=cmd, timeout=timeout)
+            res["script"] = script_name
+            res["skill"] = skill_name
+            return res
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to execute skill script: {e}",
+            }
+
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return schema descriptions of available tools for the Chairperson prompt.
 
@@ -438,6 +544,28 @@ class AgentToolExecutor:
                 "parameters": {
                     "question": "The specific question or dilemma for the council",
                     "context": "Relevant context, code snippets, or error trace to evaluate",
+                },
+            },
+            {
+                "name": "list_skills",
+                "description": "List all domain skills available in the system with their descriptions and triggers.",
+                "parameters": {},
+            },
+            {
+                "name": "load_skill",
+                "description": "Load specialized instructions, operational checklists, and evaluation rubrics for a specific skill.",
+                "parameters": {
+                    "skill_name": "Identifier of the skill (e.g. 'my-domain-skill')",
+                },
+            },
+            {
+                "name": "execute_skill_script",
+                "description": "Execute a bundled helper script provided by a domain skill.",
+                "parameters": {
+                    "skill_name": "Identifier of the skill",
+                    "script_name": "Filename of the script inside the skill's scripts directory",
+                    "args": "Optional CLI arguments to pass to the script",
+                    "timeout": "Optional timeout in seconds (default 60)",
                 },
             },
             {

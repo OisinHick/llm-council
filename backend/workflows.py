@@ -22,6 +22,7 @@ from typing import Any
 
 from .config import WORKFLOWS_FILE
 from .openrouter import calculate_token_cost, query_model
+from .skills import skill_manager
 from .storage import _safe_write_json
 
 logger = logging.getLogger("llm_council.workflows")
@@ -519,7 +520,7 @@ def validate_workflow(workflow: dict[str, Any]) -> tuple[bool, str | None]:
             has_input = True
         elif ntype == "output":
             has_output = True
-        elif ntype in ("model_step", "synthesis"):
+        elif ntype in ("model_step", "synthesis", "skill_step"):
             model = node.get("model", "").strip()
             if not model:
                 return False, f"Node '{node.get('label') or nid}' must specify a model."
@@ -786,7 +787,7 @@ async def execute_workflow_stream(
             error = None
             evaluated_prompt = ""
         else:
-            # Model step or Synthesis node
+            # Model step, Synthesis node, or Skill step
             evaluated_prompt = interpolate_prompt(
                 template=template,
                 user_input=user_input,
@@ -794,6 +795,20 @@ async def execute_workflow_stream(
                 all_outputs=all_node_outputs,
                 node_labels=node_labels,
             )
+
+            # If node is a skill_step, inject domain guidelines and rubric
+            if ntype == "skill_step":
+                skill_id = node.get("skill_id", "")
+                skill = skill_manager.get_skill(skill_id) if skill_id else None
+                if skill:
+                    skill_header = (
+                        f"ACTIVE DOMAIN SKILL: {skill['name']}\n"
+                        f"Description: {skill['description']}\n\n"
+                        f"OPERATIONAL GUIDELINES & BEST PRACTICES:\n{skill['instructions']}\n\n"
+                    )
+                    if skill.get("evaluation_rubric"):
+                        skill_header += f"DOMAIN QUALITY RUBRIC:\n{skill['evaluation_rubric']}\n\n"
+                    evaluated_prompt = f"{skill_header}TASK INSTRUCTIONS:\n{evaluated_prompt}"
 
             messages = [{"role": "user", "content": evaluated_prompt}]
             try:

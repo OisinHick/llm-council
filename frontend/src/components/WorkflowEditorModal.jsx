@@ -38,6 +38,14 @@ const NODE_TYPES = [
     colorClass: "icon-model_step",
   },
   {
+    type: "skill_step",
+    title: "Domain Skill",
+    subtitle: "Specialized skill step",
+    icon: "🎯",
+    defaultLabel: "Skill Step",
+    colorClass: "icon-skill_step",
+  },
+  {
     type: "synthesis",
     title: "Synthesis Node",
     subtitle: "Reconcile branches",
@@ -80,6 +88,7 @@ export default function WorkflowEditorModal({
   const [validationResult, setValidationResult] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [availableModels, setAvailableModels] = useState(DEFAULT_POPULAR_MODELS);
+  const [availableSkills, setAvailableSkills] = useState([]);
 
   // Dragging node state on canvas
   const [draggingNode, setDraggingNode] = useState(null);
@@ -207,6 +216,15 @@ export default function WorkflowEditorModal({
         }
       })
       .catch(() => {});
+
+    api
+      .listSkills()
+      .then((res) => {
+        if (res?.skills) {
+          setAvailableSkills(res.skills);
+        }
+      })
+      .catch(() => {});
   }, [isOpen, initialWorkflow]);
 
   // Selected node object
@@ -246,22 +264,30 @@ export default function WorkflowEditorModal({
 
       const newId = `node_${Date.now()}`;
       const defaultModel =
-        typeObj.type === "model_step" || typeObj.type === "synthesis"
+        typeObj.type === "model_step" || typeObj.type === "synthesis" || typeObj.type === "skill_step"
           ? "google/gemini-2.5-flash"
           : "";
 
       const defaultPrompt =
         typeObj.type === "model_step"
           ? "Process the following:\n\n{previous}"
-          : typeObj.type === "synthesis"
-            ? "Synthesize the following predecessor perspectives:\n\n{previous}"
-            : "";
+          : typeObj.type === "skill_step"
+            ? "Execute domain guidelines on:\n\n{previous}"
+            : typeObj.type === "synthesis"
+              ? "Synthesize the following predecessor perspectives:\n\n{previous}"
+              : "";
+
+      const defaultSkillId =
+        typeObj.type === "skill_step" && availableSkills.length > 0
+          ? availableSkills[0].id
+          : "";
 
       const newNode = {
         id: newId,
         type: typeObj.type,
         label: typeObj.defaultLabel,
         model: defaultModel,
+        skill_id: defaultSkillId,
         prompt_template: defaultPrompt,
         position: { x, y },
         temperature: 0.7,
@@ -474,10 +500,20 @@ export default function WorkflowEditorModal({
 
     // Check all model steps specify a model
     for (const n of nodes) {
-      if ((n.type === "model_step" || n.type === "synthesis") && !n.model?.trim()) {
+      if (
+        (n.type === "model_step" || n.type === "synthesis" || n.type === "skill_step") &&
+        !n.model?.trim()
+      ) {
         setValidationResult({
           valid: false,
           message: `Validation Error: Node '${n.label || n.id}' must specify an LLM model.`,
+        });
+        return false;
+      }
+      if (n.type === "skill_step" && !n.skill_id?.trim()) {
+        setValidationResult({
+          valid: false,
+          message: `Validation Error: Skill step node '${n.label || n.id}' must select a Domain Skill.`,
         });
         return false;
       }
@@ -650,16 +686,30 @@ export default function WorkflowEditorModal({
                     // Also support click-to-add
                     const newId = `node_${Date.now()}`;
                     const defaultModel =
-                      typeObj.type === "model_step" || typeObj.type === "synthesis"
+                      typeObj.type === "model_step" ||
+                      typeObj.type === "synthesis" ||
+                      typeObj.type === "skill_step"
                         ? "google/gemini-2.5-flash"
+                        : "";
+                    const defaultPrompt =
+                      typeObj.type === "model_step"
+                        ? "Process: {previous}"
+                        : typeObj.type === "skill_step"
+                          ? "Execute domain guidelines on:\n\n{previous}"
+                          : typeObj.type === "synthesis"
+                            ? "Synthesize: {previous}"
+                            : "";
+                    const defaultSkillId =
+                      typeObj.type === "skill_step" && availableSkills.length > 0
+                        ? availableSkills[0].id
                         : "";
                     const newNode = {
                       id: newId,
                       type: typeObj.type,
                       label: typeObj.defaultLabel,
                       model: defaultModel,
-                      prompt_template:
-                        typeObj.type === "model_step" ? "Process: {previous}" : "",
+                      skill_id: defaultSkillId,
+                      prompt_template: defaultPrompt,
                       position: { x: 300, y: 200 },
                       temperature: 0.7,
                     };
@@ -868,6 +918,24 @@ export default function WorkflowEditorModal({
 
                     {/* Node Card Body */}
                     <div className="node-content-body">
+                      {node.type === "skill_step" && (
+                        <div
+                          className="node-skill-chip"
+                          style={{
+                            fontSize: "0.72rem",
+                            background: "#fef3c7",
+                            color: "#92400e",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            marginBottom: "4px",
+                            display: "inline-block",
+                            fontWeight: 600,
+                          }}
+                          title={`Skill: ${node.skill_id || "Unassigned"}`}
+                        >
+                          🎯 {node.skill_id || "Select skill..."}
+                        </div>
+                      )}
                       {node.type !== "input" && node.type !== "output" && (
                         <div className="node-model-chip" title={node.model}>
                           {node.model
@@ -928,6 +996,46 @@ export default function WorkflowEditorModal({
                     placeholder="e.g. Draft Specialist"
                   />
                 </div>
+
+                {/* Domain Skill Selector (for skill_step) */}
+                {selectedNode.type === "skill_step" && (
+                  <div className="inspector-field">
+                    <label>Domain Skill</label>
+                    <select
+                      value={selectedNode.skill_id || ""}
+                      onChange={(e) => updateSelectedNode("skill_id", e.target.value)}
+                    >
+                      <option value="">-- Choose a domain skill --</option>
+                      {availableSkills.map((sk) => (
+                        <option key={sk.id} value={sk.id}>
+                          🎯 {sk.name} ({sk.id})
+                        </option>
+                      ))}
+                    </select>
+                    {selectedNode.skill_id ? (
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#64748b",
+                          marginTop: "4px",
+                          lineHeight: "1.3",
+                        }}
+                      >
+                        Guidelines & rubrics from <code>{selectedNode.skill_id}</code> will be injected automatically during node execution.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#d97706",
+                          marginTop: "4px",
+                        }}
+                      >
+                        ⚠️ Please choose a domain skill for this node.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Model Selector (for model_step and synthesis) */}
                 {selectedNode.type !== "input" && selectedNode.type !== "output" && (

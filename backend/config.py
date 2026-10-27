@@ -53,6 +53,9 @@ SETTINGS_FILE: Path = BASE_DIR / "data" / "settings.json"
 # Path to the persistent custom workflows file (data/workflows.json)
 WORKFLOWS_FILE: Path = BASE_DIR / "data" / "workflows.json"
 
+# Directory where skills and their assets/scripts are stored (skills/)
+SKILLS_DIR: Path = BASE_DIR / "skills"
+
 # ==============================================================================
 # Model Defaults & OpenRouter Endpoints
 # ==============================================================================
